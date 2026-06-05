@@ -1,0 +1,24 @@
+import "modules/geom2d.sprout" as g2d
+
+player = g2d.vec2(1, 2)
+target = g2d.vec2(7, 5)
+step = g2d.move_toward(player, target, 2)
+
+say "step:", round(step.x), round(step.y)
+say "distance:", round(g2d.distance(player, target))
+
+arena = g2d.rect(0, 0, 10, 6)
+wall = g2d.rect(4, 2, 2, 2)
+hitbox = g2d.rect(step.x, step.y, 1, 1)
+
+say "inside:", g2d.point_in_rect(step, arena)
+say "wall hit:", g2d.rects_overlap(hitbox, wall)
+
+sensor = g2d.circle(5, 3, 2)
+say "circle hit:", g2d.circle_rect_overlap(sensor, hitbox)
+
+path_bounds = g2d.bounds([player, target, step])
+say "bounds:", path_bounds.x, path_bounds.y, path_bounds.w, path_bounds.h
+
+forward = g2d.from_angle(radians(90), 3)
+say "forward:", round(forward.x), round(forward.y)

@@ -1,0 +1,12 @@
+[project]
+name = "sprout-demo-project"
+version = "0.1.0"
+main = "src/main.sprout"
+source_folders = ["src"]
+module_paths = ["src", "packages/local"]
+
+[package]
+local_tools = { version = "0.1.0", path = "packages/local/local_tools" }
+
+[tool.sprout]
+style_warnings = true

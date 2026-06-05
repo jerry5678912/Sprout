@@ -1,0 +1,8 @@
+def label(name, hp=10):
+  return name + ":" + str(hp)
+
+def total(*values):
+  sum = 0
+  for value in values:
+    sum = sum + value
+  return sum

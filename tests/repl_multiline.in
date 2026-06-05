@@ -1,0 +1,15 @@
+def fib(n) {
+  if n <= 1 {
+    return n
+  }
+  return fib(n - 1) + fib(n - 2)
+}
+
+values = []
+i = 0
+while i < 8 {
+  values.append(fib(i))
+  i = i + 1
+}
+
+say values

@@ -1,0 +1,11 @@
+import "modules/engine3d.sprout" as s3d
+
+cam = s3d.camera(s3d.vec3(0, 0, -6), fov=24)
+shape = s3d.cube(size=2.6)
+shape = s3d.rotate_mesh(shape, ax=radians(24), ay=radians(42), az=radians(8))
+shape = s3d.translate_mesh(shape, s3d.vec3(0, 0, 7))
+
+light = s3d.normalize(s3d.vec3(0 - 1, 1, 0 - 1))
+frame = s3d.render_solid(shape, cam, width=56, height=24, light_dir=light)
+say s3d.frame_to_text(frame)
+say "solid faces:", len(shape.faces), "zbuffered:", true

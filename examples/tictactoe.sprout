@@ -1,0 +1,83 @@
+def show_board(board) {
+  say ""
+  say board[0], "|", board[1], "|", board[2]
+  say "- + - + -"
+  say board[3], "|", board[4], "|", board[5]
+  say "- + - + -"
+  say board[6], "|", board[7], "|", board[8]
+  say ""
+}
+
+def winner(board) {
+  lines = [
+    [0, 1, 2],
+    [3, 4, 5],
+    [6, 7, 8],
+    [0, 3, 6],
+    [1, 4, 7],
+    [2, 5, 8],
+    [0, 4, 8],
+    [2, 4, 6]
+  ]
+
+  for line in lines {
+    a = line[0]
+    b = line[1]
+    c = line[2]
+
+    if board[a] == board[b] and board[b] == board[c] {
+      return board[a]
+    }
+  }
+
+  return nil
+}
+
+def full(board) {
+  for cell in board {
+    if cell != "X" and cell != "O" {
+      return false
+    }
+  }
+  return true
+}
+
+board = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+player = "X"
+
+say "Tic-Tac-Toe"
+say "Enter a number from 1 to 9."
+
+while true {
+  show_board(board)
+
+  move = ask("Player " + player + ", choose a spot: ")
+  idx = int(move) - 1
+
+  if idx < 0 or idx > 8 {
+    say "Invalid move."
+  } else if board[idx] == "X" or board[idx] == "O" {
+    say "That spot is taken."
+  } else {
+    board[idx] = player
+
+    w = winner(board)
+    if w {
+      show_board(board)
+      say "Player " + w + " wins!"
+      break
+    }
+
+    if full(board) {
+      show_board(board)
+      say "It's a draw!"
+      break
+    }
+
+    if player == "X" {
+      player = "O"
+    } else {
+      player = "X"
+    }
+  }
+}

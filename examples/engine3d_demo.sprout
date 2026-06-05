@@ -1,0 +1,13 @@
+import "modules/engine3d.sprout" as s3d
+
+cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
+shape = s3d.cube(size=2.4)
+shape = s3d.rotate_mesh(shape, ax=radians(20), ay=radians(35), az=radians(5))
+shape = s3d.translate_mesh(shape, s3d.vec3(0, 0, 7))
+
+frame = s3d.render_wireframe(shape, cam, width=50, height=22, char="*")
+say s3d.frame_to_text(frame)
+
+b = s3d.bounds(shape)
+say "bounds:", int(b.min.x), int(b.max.x), int(b.min.y), int(b.max.y), int(b.min.z), int(b.max.z)
+say "vertices:", len(shape.vertices), "edges:", len(shape.edges)

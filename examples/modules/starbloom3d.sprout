@@ -1,0 +1,25 @@
+# StarBloom3D: the fun terminal/ASCII 3D engine alias.
+# Old modules/engine3d.sprout still works.
+
+import "engine3d.sprout" as s3d
+
+engine = s3d
+
+def vec3(x=0, y=0, z=0) { return s3d.vec3(x, y, z) }
+def vadd(a, b) { return s3d.vadd(a, b) }
+def vsub(a, b) { return s3d.vsub(a, b) }
+def vscale(v, amount) { return s3d.vscale(v, amount) }
+def dot(a, b) { return s3d.dot(a, b) }
+def cross(a, b) { return s3d.cross(a, b) }
+def length(v) { return s3d.length(v) }
+def normalize(v) { return s3d.normalize(v) }
+def cube(size=2) { return s3d.cube(size) }
+def load_obj(path) { return s3d.load_obj(path) }
+def translate_mesh(mesh, offset) { return s3d.translate_mesh(mesh, offset) }
+def rotate_mesh(mesh, ax=0, ay=0, az=0) { return s3d.rotate_mesh(mesh, ax=ax, ay=ay, az=az) }
+def camera(position, fov=18, near=0.1) { return s3d.camera(position, fov, near) }
+def look_at_camera(position, target, fov=18, near=0.1) { return s3d.look_at_camera(position, target, fov=fov, near=near) }
+def orbit_camera(target, radius=8, yaw=0, pitch=0, fov=18, near=0.1) { return s3d.orbit_camera(target, radius, yaw, pitch, fov, near) }
+def render_wireframe(mesh, camera, width=48, height=22, char="#") { return s3d.render_wireframe(mesh, camera, width, height, char) }
+def render_solid(mesh, camera, width=48, height=22) { return s3d.render_solid(mesh, camera, width, height) }
+def frame_to_text(frame) { return s3d.frame_to_text(frame) }

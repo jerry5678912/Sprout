@@ -1,0 +1,107 @@
+{
+  "Function": {
+    "prefix": "def",
+    "body": [
+      "def ${1:name}(${2:args}):",
+      "  ${3}"
+    ],
+    "description": "Define a Sprout function"
+  },
+  "Variadic Function": {
+    "prefix": "defrest",
+    "body": [
+      "def ${1:name}(${2:label}, *${3:values}):",
+      "  ${4}"
+    ],
+    "description": "Define a function with a *rest parameter"
+  },
+  "Flexible Options Function": {
+    "prefix": "defopts",
+    "body": [
+      "def ${1:name}(${2:kind}, **${3:opts}):",
+      "  ${4}"
+    ],
+    "description": "Define a function with a **options parameter"
+  },
+  "Garden Function": {
+    "prefix": "defbloom",
+    "body": [
+      "def ${1:name}(${2:args}) bloom",
+      "  ${3}",
+      "end"
+    ],
+    "description": "Define a garden-style function"
+  },
+  "Brace Function": {
+    "prefix": "defbraces",
+    "body": [
+      "def ${1:name}(${2:args}) {",
+      "  ${3}",
+      "}"
+    ],
+    "description": "Define a legacy brace-style function"
+  },
+  "Call With Spreads": {
+    "prefix": "callspread",
+    "body": "${1:fn}(*${2:args}, **${3:opts})",
+    "description": "Call a function with *args and **opts spread values"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name}:",
+      "  def init(self${2:, value}):",
+      "    ${3}"
+    ],
+    "description": "Define a Sprout class"
+  },
+  "Subclass": {
+    "prefix": "extends",
+    "body": [
+      "class ${1:Child} extends ${2:Parent}:",
+      "  def init(self${3:, value}):",
+      "    super.init(${4:value})",
+      "    ${5}"
+    ],
+    "description": "Define a subclass using super"
+  },
+  "For Loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:items}:",
+      "  ${3}"
+    ],
+    "description": "Loop over an iterable"
+  },
+  "Try Catch": {
+    "prefix": "try",
+    "body": [
+      "try:",
+      "  ${1}",
+      "catch ${2:err}:",
+      "  say ${2:err}"
+    ],
+    "description": "Catch Sprout errors"
+  },
+  "Import Python": {
+    "prefix": "importpython",
+    "body": "importpython ${1:math}",
+    "description": "Import a Python module"
+  },
+  "Sprout3D Scene": {
+    "prefix": "s3dscene",
+    "body": [
+      "import \"modules/engine3d.sprout\" as s3d",
+      "",
+      "target = s3d.vec3(0, 0, 7)",
+      "cam = s3d.look_at_camera(s3d.vec3(4, 3, 0), target, fov=24)",
+      "shape = s3d.cube(size=2.4)",
+      "shape = s3d.rotate_mesh(shape, ax=radians(20), ay=radians(35), az=0)",
+      "shape = s3d.translate_mesh(shape, target)",
+      "",
+      "frame = s3d.render_wireframe(shape, cam, width=56, height=24, char=\"#\")",
+      "say s3d.frame_to_text(frame)"
+    ],
+    "description": "Create a Sprout3D wireframe scene"
+  }
+}

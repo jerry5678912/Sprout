@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.vscode/
+.idea/
+
+# Local generated playground projects.
+hello_sprout/
+
+# Temporary outputs.
+*.log
+tmp/
+dist/
+build/

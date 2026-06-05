@@ -1,0 +1,2077 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Sprout Programming Language Manual</title>
+<style>
+body {
+  color: #17201a;
+  background: #fbfdf9;
+  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+}
+main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+}
+h1, h2, h3 {
+  line-height: 1.2;
+  color: #183b26;
+}
+h1 {
+  font-size: 2.4rem;
+}
+h2 {
+  border-top: 1px solid #dce8d8;
+  margin-top: 2.4rem;
+  padding-top: 1.2rem;
+}
+a {
+  color: #256d3f;
+}
+code {
+  background: #eef6eb;
+  border-radius: 4px;
+  padding: 0.1em 0.25em;
+}
+pre {
+  background: #102016;
+  color: #eef9ef;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 8px;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+}
+blockquote {
+  border-left: 4px solid #8bc28f;
+  margin-left: 0;
+  padding-left: 1rem;
+}
+table {
+  border-collapse: collapse;
+}
+td, th {
+  border: 1px solid #dce8d8;
+  padding: 0.35rem 0.55rem;
+}
+</style>
+</head>
+<body><main>
+<h1 id="the-sprout-programming-language-manual">The Sprout Programming Language Manual</h1>
+<p>
+Version: 0.1
+ 
+Implementation: modular Python tree-walk interpreter in <code>sprout_core/</code>, launched by <code>sprout.py</code>
+ 
+File extension: <code>.sprout</code>
+</p>
+<p>
+Sprout is a small, dynamic programming language with a garden-flavored personality. It is designed to be easy to read, easy to experiment with, and practical enough for scripts, terminal games, multi-file projects, and Python standard-library interop.
+</p>
+<p>
+Sprout is not a clone of Python, Rust, or C++. It borrows familiar ideas from Python, such as dynamic values, lists, dictionaries, classes, default arguments, keyword arguments, slicing, modules, exceptions, indentation blocks, and <code>for ... in</code> loops, while keeping its own syntax and playful aliases like <code>sprout</code>, <code>bloom</code>, <code>pluck</code>, <code>whirl</code>, <code>each</code>, and <code>say</code>.
+</p>
+<p>
+Sprout also includes early game/engineering modules. PixelGarden is the fun terminal/ASCII 2D engine. StarBloom3D is the fun terminal/ASCII 3D engine. Window2D is an optional Pygame-backed real window wrapper, and PandaWindow3D is an optional Panda3D-backed real 3D window wrapper.
+</p>
+<h2 id="1-quick-start">1. Quick Start</h2>
+<p>
+From the Sprout folder:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py examples/fibonacci.sprout
+</code></pre>
+<p>
+Start the REPL:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py
+</code></pre>
+<p>
+Run a script with arguments:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py examples/adventure.sprout Jerry
+</code></pre>
+<p>
+Run a 3D wireframe demo:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py examples/engine3d_demo.sprout
+python3 sprout.py examples/engine3d_solid_demo.sprout
+python3 sprout.py examples/engine3d_obj_demo.sprout
+python3 sprout.py examples/engine3d_camera_demo.sprout
+python3 sprout.py examples/starbloom3d_demo.sprout
+</code></pre>
+<p>
+Run terminal 2D demos:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py examples/geom2d_demo.sprout
+python3 sprout.py examples/canvas2d_demo.sprout
+python3 sprout.py examples/pixelgarden_demo.sprout
+</code></pre>
+<p>
+Run real window demos after installing optional Python libraries:
+</p>
+<pre><code class="language-sh">
+python3 -m pip install pygame
+python3 sprout.py examples/window2d_demo.sprout
+
+python3 -m pip install panda3d
+python3 sprout.py examples/panda3d_window_demo.sprout
+</code></pre>
+<p>
+Sprout also has command-line tooling:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py help
+python3 sprout.py run examples/fibonacci.sprout
+python3 sprout.py run examples/project
+python3 sprout.py check examples/tictactoe.sprout
+python3 sprout.py check examples/fibonacci.sprout --json
+python3 sprout.py lint examples/seedfn.sprout
+python3 sprout.py fmt examples/seedfn.sprout
+python3 sprout.py stdlib
+python3 sprout.py examples
+python3 sprout.py version
+</code></pre>
+<p>
+<code>check</code> parses a file without running it. It is useful for editor integration, quick syntax checks, and CI scripts.
+</p>
+<p>
+<code>stdlib</code> prints the current built-in function count and names.
+</p>
+<p>
+Inside a script, command-line arguments are available through the global array <code>argv</code>.
+</p>
+<pre><code class="language-sprout">
+name = &quot;Sproutling&quot;
+if len(argv) &gt; 0:
+  name = argv[0]
+say &quot;hello&quot;, name
+</code></pre>
+<h2 id="2-a-first-program">2. A First Program</h2>
+<pre><code class="language-sprout">
+def fib(n):
+  if n &lt;= 1:
+    return n
+  return fib(n - 1) + fib(n - 2)
+
+values = []
+for i in range(8):
+  values.append(fib(i))
+
+say values
+</code></pre>
+<p>
+Output:
+</p>
+<pre><code class="language-text">
+[0, 1, 1, 2, 3, 5, 8, 13]
+</code></pre>
+<h2 id="3-program-structure">3. Program Structure</h2>
+<p>
+Sprout programs are plain text files. Statements usually end at a newline. Semicolons are also accepted.
+</p>
+<pre><code class="language-sprout">
+name = &quot;Ada&quot;
+say &quot;hello&quot;, name
+
+score = 10; say score
+</code></pre>
+<p>
+Sprout supports three block styles.
+</p>
+<p>
+The recommended general style is Python-like: put <code>:</code> after the statement and indent the block.
+</p>
+<pre><code class="language-sprout">
+if score &gt; 5:
+  say &quot;winning&quot;
+else:
+  say &quot;still growing&quot;
+</code></pre>
+<p>
+The garden style uses <code>bloom</code> to open a block and <code>end</code> to close it. This makes Sprout feel less like Python and less full of punctuation:
+</p>
+<pre><code class="language-sprout">
+def cheer(name) bloom
+  if name == &quot;Sprout&quot; bloom
+    return sparkle(&quot;keep growing&quot;)
+  end
+  return &quot;hello &quot; + name
+end
+</code></pre>
+<p>
+The older brace style still works, so old examples and experiments do not break:
+</p>
+<pre><code class="language-sprout">
+if score &gt; 5 {
+  say &quot;old style still works&quot;
+}
+</code></pre>
+<p>
+Comments begin with <code>#</code> and continue to the end of the line.
+</p>
+<pre><code class="language-sprout">
+# This is a comment.
+say &quot;leaf&quot;
+</code></pre>
+<p>
+The REPL supports multiline blocks. When a block is open, the prompt changes from <code>sprout&gt;</code> to <code>......&gt;</code>.
+</p>
+<h2 id="4-keywords">4. Keywords</h2>
+<p>
+Current reserved words:
+</p>
+<pre><code class="language-text">
+False None True and as break bloom catch class continue def each elif else
+extends false fn for if import importpython in let nil none not or pluck
+raise return say sprout super true try whirl while
+</code></pre>
+<p>
+Keyword aliases:
+</p>
+<ul>
+<li><code>def</code>, <code>fn</code>, and <code>bloom</code> define functions.</li>
+<li><code>return</code> and <code>pluck</code> return a value.</li>
+<li><code>let</code> and <code>sprout</code> declare variables.</li>
+<li><code>while</code> and <code>whirl</code> start while loops.</li>
+<li><code>for</code> and <code>each</code> start iterable loops.</li>
+<li><code>nil</code>, <code>none</code>, and <code>None</code> mean no value.</li>
+<li><code>true</code> / <code>True</code> and <code>false</code> / <code>False</code> are booleans.</li>
+</ul>
+<h2 id="5-values-and-types">5. Values and Types</h2>
+<p>
+Sprout is dynamically typed. Variables do not have declared types.
+</p>
+<p>
+Core value kinds:
+</p>
+<ul>
+<li><code>nil</code></li>
+<li>booleans</li>
+<li>numbers</li>
+<li>strings</li>
+<li>arrays</li>
+<li>dictionaries</li>
+<li>functions</li>
+<li>classes</li>
+<li>instances</li>
+<li>Sprout modules</li>
+<li>Python modules, Python functions, and wrapped Python objects</li>
+</ul>
+<p>
+Use <code>type(value)</code> to inspect a value:
+</p>
+<pre><code class="language-sprout">
+say type(nil)          # nil
+say type(true)         # bool
+say type(42)           # number
+say type(&quot;leaf&quot;)       # string
+say type([1, 2])       # array
+say type({&quot;x&quot;: 1})     # dictionary
+</code></pre>
+<p>
+Class instances report their class name:
+</p>
+<pre><code class="language-sprout">
+class Hero {}
+hero = Hero()
+say type(hero)         # Hero
+</code></pre>
+<h2 id="6-variables">6. Variables</h2>
+<p>
+Sprout supports explicit declarations:
+</p>
+<pre><code class="language-sprout">
+let score = 10
+sprout name = &quot;Mina&quot;
+</code></pre>
+<p>
+It also supports Python-style assignment:
+</p>
+<pre><code class="language-sprout">
+score = 10
+score = score + 1
+</code></pre>
+<p>
+Assignment updates an existing variable in the current function or module scope. If none exists there, Sprout creates it in that nearest function or module scope. Reading a variable still uses lexical lookup, so functions can read values from outer scopes without accidentally overwriting them.
+</p>
+<pre><code class="language-sprout">
+name = &quot;global&quot;
+
+def local_name() {
+  name = &quot;local&quot;
+  return name
+}
+
+say local_name(), name
+# local global
+</code></pre>
+<p>
+Blocks do not trap new variables. A variable assigned inside an <code>if</code>, <code>while</code>, <code>for</code>, <code>try</code>, or <code>catch</code> block remains available in the surrounding function or module.
+</p>
+<h2 id="7-numbers">7. Numbers</h2>
+<p>
+Numbers are Python-backed <code>int</code> or <code>float</code> values.
+</p>
+<pre><code class="language-sprout">
+say 2 + 3
+say 10 / 4
+say 10 // 4
+say 10 % 4
+</code></pre>
+<p>
+Operators:
+</p>
+<pre><code class="language-text">
++  addition
+-  subtraction
+*  multiplication
+/  division
+// floor division
+%  remainder
+-x unary negation
+</code></pre>
+<h2 id="8-strings">8. Strings</h2>
+<p>
+Strings use double quotes:
+</p>
+<pre><code class="language-sprout">
+name = &quot;Sprout&quot;
+say &quot;hello &quot; + name
+</code></pre>
+<p>
+Escapes:
+</p>
+<pre><code class="language-text">
+\n newline
+\t tab
+\&quot; quote
+\\ backslash
+</code></pre>
+<p>
+String methods:
+</p>
+<pre><code class="language-sprout">
+text = &quot;  Leaf  &quot;
+say text.upper()
+say text.lower()
+say text.strip()
+say &quot;a,b,c&quot;.split(&quot;,&quot;)
+say text.contains(&quot;ea&quot;)
+</code></pre>
+<p>
+Strings support indexing and slicing:
+</p>
+<pre><code class="language-sprout">
+word = &quot;sprout&quot;
+say word[0]
+say word[0:3]   # spr
+say word[3:]    # out
+say word[:2]    # sp
+</code></pre>
+<h2 id="9-booleans-nil-and-truthiness">9. Booleans, Nil, and Truthiness</h2>
+<p>
+Booleans:
+</p>
+<pre><code class="language-sprout">
+true
+false
+True
+False
+</code></pre>
+<p>
+No value:
+</p>
+<pre><code class="language-sprout">
+nil
+none
+None
+</code></pre>
+<p>
+Only <code>false</code> and <code>nil</code> are falsey. Everything else is truthy, including <code>0</code>, empty strings, and empty arrays.
+</p>
+<pre><code class="language-sprout">
+if [] {
+  say &quot;empty arrays are truthy&quot;
+}
+</code></pre>
+<p>
+Logical operators:
+</p>
+<pre><code class="language-sprout">
+if hp &gt; 0 and not stunned {
+  say &quot;move&quot;
+}
+
+name = player_name or &quot;unknown&quot;
+</code></pre>
+<p>
+<code>and</code> and <code>or</code> short-circuit and return values, not just booleans.
+</p>
+<h2 id="10-arrays">10. Arrays</h2>
+<p>
+Arrays are ordered and mutable.
+</p>
+<pre><code class="language-sprout">
+items = [&quot;seed&quot;, &quot;leaf&quot;]
+items.append(&quot;bloom&quot;)
+say items
+</code></pre>
+<p>
+Indexing:
+</p>
+<pre><code class="language-sprout">
+say items[0]
+items[1] = &quot;root&quot;
+</code></pre>
+<p>
+Slicing:
+</p>
+<pre><code class="language-sprout">
+nums = [0, 1, 2, 3, 4]
+say nums[1:4]
+say nums[:2]
+say nums[2:]
+
+nums[1:4] = [&quot;a&quot;, &quot;b&quot;]
+say nums
+</code></pre>
+<p>
+Array methods:
+</p>
+<pre><code class="language-sprout">
+items.append(value)
+items.pop()
+items.len()
+items.join(&quot;, &quot;)
+</code></pre>
+<p>
+Related built-ins:
+</p>
+<pre><code class="language-sprout">
+push(items, value)
+first(items)
+last(items)
+rest(items)
+unique(items)
+countby(items)
+weave(items, &quot;, &quot;)
+choose(items)
+</code></pre>
+<h2 id="11-dictionaries">11. Dictionaries</h2>
+<p>
+Dictionaries store key/value pairs. String and number keys are the most common.
+</p>
+<pre><code class="language-sprout">
+hero = {&quot;name&quot;: &quot;Mina&quot;, &quot;hp&quot;: 10}
+say hero[&quot;name&quot;]
+say hero.name
+</code></pre>
+<p>
+Mutation:
+</p>
+<pre><code class="language-sprout">
+hero[&quot;hp&quot;] = 9
+hero.x = 4
+hero.set(&quot;y&quot;, 2)
+</code></pre>
+<p>
+Dictionary methods:
+</p>
+<pre><code class="language-sprout">
+hero.keys()
+hero.values()
+hero.items()
+hero.has(&quot;hp&quot;)
+hero.get(&quot;missing&quot;)
+hero.get(&quot;missing&quot;, &quot;fallback&quot;)
+hero.set(&quot;level&quot;, 3)
+</code></pre>
+<p>
+Dictionary built-ins:
+</p>
+<pre><code class="language-sprout">
+keys(hero)
+values(hero)
+items(hero)
+has(hero, &quot;hp&quot;)
+get(hero, &quot;hp&quot;)
+get(hero, &quot;missing&quot;, &quot;fallback&quot;)
+zipbud([&quot;name&quot;, &quot;hp&quot;], [&quot;Mina&quot;, 10])
+</code></pre>
+<h2 id="12-operators">12. Operators</h2>
+<p>
+Comparison:
+</p>
+<pre><code class="language-text">
+== != &lt; &lt;= &gt; &gt;=
+</code></pre>
+<p>
+Membership:
+</p>
+<pre><code class="language-sprout">
+if &quot;key&quot; in inventory {
+  say &quot;door opens&quot;
+}
+</code></pre>
+<p>
+Logical:
+</p>
+<pre><code class="language-text">
+and or not !
+</code></pre>
+<p>
+Unary:
+</p>
+<pre><code class="language-text">
+-x
+!x
+not x
+</code></pre>
+<p>
+Property access:
+</p>
+<pre><code class="language-sprout">
+thing.name
+thing.method()
+</code></pre>
+<p>
+Call:
+</p>
+<pre><code class="language-sprout">
+function(arg)
+function(name=&quot;Mina&quot;)
+</code></pre>
+<p>
+Index and slice:
+</p>
+<pre><code class="language-sprout">
+items[0]
+items[1:3]
+items[:3]
+items[3:]
+</code></pre>
+<h2 id="13-control-flow">13. Control Flow</h2>
+<h3 id="if-elif-else">If / Elif / Else</h3>
+<pre><code class="language-sprout">
+if score &gt;= 90 {
+  say &quot;A&quot;
+} elif score &gt;= 80 {
+  say &quot;B&quot;
+} else {
+  say &quot;keep growing&quot;
+}
+</code></pre>
+<p>
+<code>else if</code> is accepted too because <code>else</code> can be followed by <code>if</code>.
+</p>
+<h3 id="while-whirl">While / Whirl</h3>
+<pre><code class="language-sprout">
+i = 0
+while i &lt; 3 {
+  say i
+  i = i + 1
+}
+</code></pre>
+<p>
+<code>whirl</code> is an alias:
+</p>
+<pre><code class="language-sprout">
+whirl hp &gt; 0 {
+  hp = hp - 1
+}
+</code></pre>
+<h3 id="for-each">For / Each</h3>
+<pre><code class="language-sprout">
+for n in range(5) {
+  say n
+}
+
+each name in [&quot;Ada&quot;, &quot;Lin&quot;] {
+  say name
+}
+</code></pre>
+<p>
+Loops can iterate arrays, strings, <code>range(...)</code> results, and dictionaries. Dictionary iteration yields keys.
+</p>
+<pre><code class="language-sprout">
+scores = {&quot;Ada&quot;: 98, &quot;Lin&quot;: 84}
+for name in scores {
+  say name, scores[name]
+}
+</code></pre>
+<h3 id="break-and-continue">Break and Continue</h3>
+<pre><code class="language-sprout">
+for n in range(10) {
+  if n == 2 {
+    continue
+  }
+  if n == 5 {
+    break
+  }
+  say n
+}
+</code></pre>
+<h2 id="14-functions">14. Functions</h2>
+<p>
+Define functions with <code>def</code>, <code>fn</code>, or <code>bloom</code>.
+</p>
+<pre><code class="language-sprout">
+def add(a, b):
+  return a + b
+
+fn twice(x):
+  return x * 2
+
+bloom cheer(name):
+  pluck &quot;go &quot; + name
+</code></pre>
+<p>
+<code>return</code> and <code>pluck</code> both return values.
+</p>
+<p>
+Functions are lexically scoped. A function can refer to variables from the scope where it was defined.
+</p>
+<p>
+Use <code>seedfn</code> for tiny inline functions. A <code>seedfn</code> captures variables from the scope where it was created.
+</p>
+<pre><code class="language-sprout">
+double = seedfn x: x * 2
+add = seedfn a, b: a + b
+tag = seedfn (name, prefix=&quot;seed&quot;): prefix + &quot;:&quot; + name
+
+base = 10
+boost = seedfn x: x + base
+
+say double(5), add(2, 3), tag(&quot;leaf&quot;), boost(4)
+</code></pre>
+<h3 id="default-arguments">Default Arguments</h3>
+<pre><code class="language-sprout">
+def spawn(name, hp=10, x=0, y=0) {
+  return {&quot;name&quot;: name, &quot;hp&quot;: hp, &quot;x&quot;: x, &quot;y&quot;: y}
+}
+
+say spawn(&quot;Mina&quot;)
+say spawn(&quot;Boss&quot;, 20, 5, 2)
+</code></pre>
+<p>
+Parameters after a default must also have defaults.
+</p>
+<p>
+Valid:
+</p>
+<pre><code class="language-sprout">
+def ok(a, b=1, c=2) {}
+</code></pre>
+<p>
+Invalid:
+</p>
+<pre><code class="language-sprout">
+def bad(a=1, b) {}
+</code></pre>
+<h3 id="keyword-arguments">Keyword Arguments</h3>
+<pre><code class="language-sprout">
+hero = spawn(name=&quot;Mina&quot;, y=3)
+boss = spawn(&quot;Boss&quot;, hp=20, x=5, y=2)
+</code></pre>
+<p>
+Positional arguments must come before keyword arguments.
+</p>
+<p>
+Invalid:
+</p>
+<pre><code class="language-sprout">
+spawn(name=&quot;Mina&quot;, 10)
+</code></pre>
+<p>
+Duplicate argument values are errors:
+</p>
+<pre><code class="language-sprout">
+spawn(&quot;Ada&quot;, name=&quot;Lin&quot;)
+</code></pre>
+<h3 id="variadic-arguments">Variadic Arguments</h3>
+<p>
+Use <code>*name</code> as the final parameter to collect extra positional arguments into an array.
+</p>
+<pre><code class="language-sprout">
+def debug(label, *values) {
+  return label + &quot;: &quot; + values.join(&quot; | &quot;)
+}
+
+say debug(&quot;player&quot;, &quot;Mina&quot;, &quot;hp&quot;, 13)
+# player: Mina | hp | 13
+</code></pre>
+<p>
+Variadic parameters can follow regular and default parameters. <code>*name</code> collects extra positional arguments into an array. <code>**name</code> collects extra keyword arguments into a dictionary.
+</p>
+<pre><code class="language-sprout">
+def entity(kind, **opts) {
+  return kind + &quot; hp=&quot; + str(opts.hp)
+}
+
+say entity(&quot;drone&quot;, hp=6, speed=3)
+</code></pre>
+<p>
+You can combine them:
+</p>
+<pre><code class="language-sprout">
+def command(name, *args, **opts) {
+  return name + &quot; &quot; + args.join(&quot;/&quot;) + &quot; mode=&quot; + opts.mode
+}
+</code></pre>
+<p>
+<code>**name</code> must be last. If <code>*name</code> is present, it must appear before <code>**name</code>.
+</p>
+<h3 id="call-site-spreading">Call-Site Spreading</h3>
+<p>
+Use <code>*array</code> in a call to expand an array into positional arguments. Use <code>**dict</code> to expand a dictionary into keyword arguments.
+</p>
+<pre><code class="language-sprout">
+def spawn(name, x=0, y=0, **opts) {
+  return name + &quot; @(&quot; + str(x) + &quot;,&quot; + str(y) + &quot;) hp=&quot; + str(opts.hp)
+}
+
+pos = [4, 9]
+opts = {&quot;hp&quot;: 12, &quot;team&quot;: &quot;blue&quot;}
+
+say spawn(&quot;bot&quot;, *pos, **opts)
+# bot @(4,9) hp=12
+</code></pre>
+<p>
+Spreading is useful for wrapper functions:
+</p>
+<pre><code class="language-sprout">
+def forward_spawn(name, *args, **opts) {
+  return spawn(name, *args, **opts)
+}
+</code></pre>
+<p>
+Rules:
+</p>
+<ul>
+<li>Positional spreads must expand arrays.</li>
+<li>Keyword spreads must expand dictionaries.</li>
+<li>Keyword-spread dictionary keys must be strings.</li>
+<li>Duplicate keywords are errors.</li>
+<li>Positional values and positional spreads must come before keyword arguments and keyword spreads.</li>
+</ul>
+<h2 id="15-classes-and-objects">15. Classes and Objects</h2>
+<p>
+Classes are callable values that create instances.
+</p>
+<pre><code class="language-sprout">
+class Hero {
+  def init(self, name, hp=10) {
+    self.name = name
+    self.hp = hp
+  }
+
+  def hurt(self, amount=1) {
+    self.hp = clamp(self.hp - amount, 0, 10)
+  }
+
+  def status(self) {
+    return self.name + &quot; hp=&quot; + str(self.hp)
+  }
+}
+
+hero = Hero(&quot;Mina&quot;)
+hero.hurt(amount=3)
+say hero.status()
+</code></pre>
+<p>
+The method named <code>init</code> is the constructor. It runs automatically when the class is called.
+</p>
+<p>
+Methods are ordinary Sprout functions that conventionally take <code>self</code> as the first parameter. When called as <code>hero.status()</code>, Sprout binds <code>self</code> automatically.
+</p>
+<p>
+Fields are created by assignment:
+</p>
+<pre><code class="language-sprout">
+self.hp = 10
+hero.level = 2
+</code></pre>
+<h3 id="inheritance">Inheritance</h3>
+<p>
+Use <code>extends</code> to inherit methods and constructors.
+</p>
+<pre><code class="language-sprout">
+class Entity {
+  def init(self, name, x=0, y=0) {
+    self.name = name
+    self.x = x
+    self.y = y
+  }
+
+  def status(self) {
+    return self.name + &quot; @(&quot; + str(self.x) + &quot;,&quot; + str(self.y) + &quot;)&quot;
+  }
+}
+
+class Player extends Entity {
+  def collect(self, item=&quot;coin&quot;) {
+    return self.name + &quot; collected &quot; + item
+  }
+}
+
+hero = Player(&quot;Mina&quot;, x=2, y=3)
+say hero.status()
+say hero.collect(item=&quot;key&quot;)
+</code></pre>
+<p>
+Method lookup checks the class first, then its superclass chain.
+</p>
+<p>
+Use <code>super.method(...)</code> inside a subclass method to call the parent implementation bound to the current instance.
+</p>
+<pre><code class="language-sprout">
+class Player extends Entity {
+  def init(self, name, x=0, y=0, hp=10) {
+    super.init(name, x=x, y=y)
+    self.hp = hp
+  }
+
+  def status(self) {
+    return super.status() + &quot; hp=&quot; + str(self.hp)
+  }
+}
+</code></pre>
+<h2 id="16-modules">16. Modules</h2>
+<p>
+Sprout supports native file imports:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/gamekit.sprout&quot; as game
+
+hero = game.make_player(&quot;Ada&quot;)
+say game.status(hero)
+</code></pre>
+<p>
+The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with <code>_</code> are private through module property access.
+</p>
+<p>
+Relative imports are resolved from the current script or module directory.
+</p>
+<p>
+If no alias is provided, Sprout derives one from the file name:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/gamekit.sprout&quot;
+gamekit.make_player(&quot;Ada&quot;)
+</code></pre>
+<h2 id="17-python-library-interop">17. Python Library Interop</h2>
+<p>
+Use <code>importpython</code> to import Python modules.
+</p>
+<pre><code class="language-sprout">
+importpython math
+say math.sqrt(81)
+say math.pi
+</code></pre>
+<p>
+Quoted module names also work:
+</p>
+<pre><code class="language-sprout">
+importpython &quot;statistics&quot; as stats
+say stats.mean([1, 2, 3])
+</code></pre>
+<p>
+Use <code>as</code> for an alias:
+</p>
+<pre><code class="language-sprout">
+importpython random as pyrandom
+pyrandom.seed(7)
+say pyrandom.randint(1, 10)
+</code></pre>
+<p>
+Sprout can call Python functions, read module constants, construct Python objects, call object methods, read object fields, and set public object fields.
+</p>
+<pre><code class="language-sprout">
+importpython datetime as dt
+
+day = dt.date(year=2026, month=6, day=4)
+say day.isoformat()
+say day.year
+</code></pre>
+<p>
+Keyword arguments are passed through to Python:
+</p>
+<p>
+Dynamic optional imports are available through functions:
+</p>
+<pre><code class="language-sprout">
+say py_available(&quot;pygame&quot;)
+pg = py_import(&quot;pygame&quot;)
+</code></pre>
+<p>
+<code>py_available(module_name)</code> returns <code>true</code> if Python can import the module. <code>py_import(module_name)</code> imports by string and returns a Python module object. This is useful for optional modules like Pygame and Panda3D wrappers, where a Sprout module should load cleanly even if the Python package is not installed yet.
+</p>
+<pre><code class="language-sprout">
+day = dt.date(year=2026, month=6, day=4)
+</code></pre>
+<p>
+Python results are wrapped:
+</p>
+<ul>
+<li>Python <code>None</code>, booleans, numbers, and strings become normal Sprout values.</li>
+<li>Python lists and tuples become Sprout arrays.</li>
+<li>Python dictionaries become Sprout dictionaries.</li>
+<li>Python modules become <code>python-module</code> values.</li>
+<li>Python callables become <code>python-function</code> values.</li>
+<li>Other Python objects become <code>python-object</code> values.</li>
+</ul>
+<p>
+Private Python names beginning with <code>_</code> are not available.
+</p>
+<h2 id="18-recoverable-errors">18. Recoverable Errors</h2>
+<p>
+Sprout has catchable errors:
+</p>
+<pre><code class="language-sprout">
+try {
+  raise &quot;manual problem&quot;
+} catch err {
+  say &quot;caught:&quot;, err
+}
+</code></pre>
+<p>
+<code>raise value</code> raises any Sprout value.
+</p>
+<p>
+<code>ensure(condition, message)</code> raises <code>message</code> if the condition is falsey.
+</p>
+<pre><code class="language-sprout">
+def load_hp(value) {
+  ensure(value &gt;= 0, &quot;hp cannot be negative&quot;)
+  ensure(value &lt;= 10, &quot;hp cannot be over 10&quot;)
+  return value
+}
+</code></pre>
+<p>
+<code>fail(message)</code> always raises.
+</p>
+<pre><code class="language-sprout">
+fail(&quot;save file corrupt&quot;)
+</code></pre>
+<p>
+<code>try/catch</code> catches both explicit Sprout raises and runtime <code>SproutError</code> failures, including file errors.
+</p>
+<pre><code class="language-sprout">
+try {
+  text = readfile(&quot;missing.txt&quot;)
+} catch err {
+  say &quot;file problem:&quot;, err
+}
+</code></pre>
+<p>
+<code>return</code>, <code>break</code>, and <code>continue</code> are control flow and are not caught as normal errors.
+</p>
+<p>
+Uncaught runtime errors print a Sprout call stack. This is useful when a larger game, tool, or multi-file program fails inside nested function calls.
+</p>
+<pre><code class="language-sprout">
+def load_config(path) {
+  return readfile(path)
+}
+
+def boot_game() {
+  return load_config(&quot;data/missing_config.txt&quot;)
+}
+
+boot_game()
+</code></pre>
+<p>
+Example output:
+</p>
+<pre><code class="language-text">
+error: [Errno 2] No such file or directory: &#x27;.../data/missing_config.txt&#x27;
+stack:
+  called at examples/stacktrace.sprout:2:18
+  at load_config (examples/stacktrace.sprout:1:5)
+  called at examples/stacktrace.sprout:7:21
+  at boot_game (examples/stacktrace.sprout:6:5)
+</code></pre>
+<h2 id="19-files-and-command-line-programs">19. Files and Command-Line Programs</h2>
+<p>
+Global:
+</p>
+<pre><code class="language-sprout">
+argv
+</code></pre>
+<p>
+File helpers:
+</p>
+<pre><code class="language-sprout">
+readfile(path)
+writefile(path, text)
+appendfile(path, text)
+exists(path)
+isfile(path)
+isdir(path)
+listdir(path)
+mkdir(path)
+readjson(path)
+writejson(path, value)
+lines(text)
+</code></pre>
+<p>
+Paths are relative to the running script or module.
+</p>
+<p>
+Example:
+</p>
+<pre><code class="language-sprout">
+map_text = readfile(&quot;data/tiny_map.txt&quot;)
+rows = lines(map_text)
+say first(rows)
+
+writefile(&quot;/tmp/save.txt&quot;, &quot;hp=10&quot;)
+appendfile(&quot;/tmp/save.txt&quot;, &quot;\nx=4&quot;)
+say exists(&quot;/tmp/save.txt&quot;)
+
+mkdir(&quot;/tmp/sprout-save&quot;)
+writejson(&quot;/tmp/sprout-save/profile.json&quot;, {&quot;name&quot;: &quot;Mina&quot;, &quot;hp&quot;: 10})
+profile = readjson(&quot;/tmp/sprout-save/profile.json&quot;)
+say profile.name
+say listdir(&quot;/tmp/sprout-save&quot;)
+</code></pre>
+<p>
+<code>writefile</code> and <code>appendfile</code> convert values through Sprout display formatting.
+ 
+<code>writejson</code> writes real JSON from Sprout values, and <code>readjson</code> converts JSON back into Sprout arrays, dictionaries, strings, numbers, booleans, and <code>nil</code>.
+</p>
+<h2 id="20-built-in-functions">20. Built-In Functions</h2>
+<p>
+Sprout currently exposes <strong>148 callable global functions</strong>. Use <code>functions()</code> to inspect them from Sprout itself, and <code>methods()</code> to inspect built-in method names.
+</p>
+<pre><code class="language-sprout">
+say len(functions())
+say functions()
+say methods()
+</code></pre>
+<p>
+Authoritative current global function list:
+</p>
+<pre><code class="language-text">
+abs, acos, appendfile, array, asin, ask
+atan, atan2, avg, basename, between, bundle
+ceil, chant, chars, choose, chunks, clamp
+clear, compact, concat, contains, copy, cos
+countby, cwd, degrees, delkey, dice, dict
+dirname, dist, drop, endswith, ensure, enumerate
+exists, exp, extname, fail, fill, first
+flatten, floor, frompairs, functions, get, grow
+harvest, has, hypot, indexof, insert, int
+is_array, is_bool, is_class, is_dict, is_empty, is_even
+is_function, is_instance, is_nil, is_number, is_odd, is_string
+isdir, isfile, items, join, joinpath, json_parse
+json_stringify, keys, last, len, lerp, lines
+listdir, log, log10, lower, ltrim, max
+median, merge, methods, min, mirror, mkdir
+now, num, omit, padleft, padright, pick
+plant, pow, print, prune, push, py_available
+py_import, radians, rand, randint, range, readfile
+readjson, remove, repeat, replace, rest, reverse
+round, rtrim, sample, say, seed, shout
+shuffle, sign, sin, sleep, slice, sort
+sparkle, sprinkle, sqrt, startswith, str, substr
+sum, take, tan, title, trim, type
+unique, upper, values, weave, whisper, words
+wrap, writefile, writejson, zipbud
+</code></pre>
+<h3 id="output-and-input">Output and Input</h3>
+<pre><code class="language-sprout">
+say(...)
+print(...)
+ask(prompt)
+clear()
+</code></pre>
+<p>
+<code>say</code> and <code>print</code> print formatted values separated by spaces.
+</p>
+<p>
+<code>ask(prompt)</code> prints a prompt and reads a line from standard input.
+</p>
+<p>
+<code>clear()</code> clears ANSI-compatible terminals.
+</p>
+<h3 id="conversion-and-introspection">Conversion and Introspection</h3>
+<pre><code class="language-sprout">
+len(value)
+str(value)
+int(value)
+num(value)
+type(value)
+</code></pre>
+<p>
+<code>num</code> converts to floating point.
+</p>
+<h3 id="arrays-and-dictionaries">Arrays and Dictionaries</h3>
+<pre><code class="language-sprout">
+push(array, value)
+grow(array, value)
+harvest(array)
+prune(array, value)
+sprinkle(array, separator)
+bundle(keys, values)
+first(array)
+last(array)
+rest(array)
+unique(array)
+countby(array)
+weave(array, separator)
+zipbud(keys, values)
+
+keys(dictionary)
+values(dictionary)
+items(dictionary)
+has(dictionary, key)
+plant(dictionary, key, value)
+get(dictionary, key)
+get(dictionary, key, fallback)
+</code></pre>
+<h3 id="ranges-and-randomness">Ranges and Randomness</h3>
+<pre><code class="language-sprout">
+range(n)
+dice(sides)
+choose(array)
+</code></pre>
+<p>
+<code>range(n)</code> returns <code>[0, 1, ... n-1]</code>.
+</p>
+<p>
+<code>dice(sides)</code> returns a random integer from <code>1</code> through <code>sides</code>.
+</p>
+<p>
+<code>choose(array)</code> returns a random element.
+</p>
+<h3 id="strings-and-fun-helpers">Strings and Fun Helpers</h3>
+<pre><code class="language-sprout">
+sparkle(value)
+whisper(value)
+shout(value)
+mirror(value)
+chant(value, times)
+grow(array, value)
+plant(dictionary, key, value)
+harvest(array)
+prune(array, value)
+sprinkle(array, separator)
+bundle(keys, values)
+</code></pre>
+<p>
+Examples:
+</p>
+<pre><code class="language-sprout">
+say sparkle(&quot;welcome&quot;)      # * welcome *
+say whisper(&quot;LOUD&quot;)         # loud
+say shout(&quot;small&quot;)          # SMALL
+say mirror(&quot;desserts&quot;)      # stressed
+say chant(&quot;ha&quot;, 3)          # hahaha
+say grow([&quot;leaf&quot;], &quot;bud&quot;)   # [leaf, bud]
+</code></pre>
+<p>
+If <code>chant</code> receives an array, it repeats the array.
+</p>
+<p>
+The garden-named collection helpers are useful aliases for common script operations:
+</p>
+<ul>
+<li><code>grow(array, value)</code> appends a value and returns the same array.</li>
+<li><code>plant(dictionary, key, value)</code> sets a dictionary key and returns the same dictionary.</li>
+<li><code>harvest(array)</code> removes and returns the last item, or returns <code>nil</code> for an empty array.</li>
+<li><code>prune(array, value)</code> removes every matching value and returns the same array.</li>
+<li><code>sprinkle(array, separator)</code> returns a new array with the separator between items.</li>
+<li><code>bundle(keys, values)</code> returns key/value pair arrays like <code>[[&quot;x&quot;, 4], [&quot;y&quot;, 9]]</code>.</li>
+</ul>
+<h3 id="game-helpers">Game Helpers</h3>
+<pre><code class="language-sprout">
+clamp(value, low, high)
+wrap(value, low, high)
+dist(x1, y1, x2, y2)
+sleep(seconds)
+now()
+</code></pre>
+<p>
+Examples:
+</p>
+<pre><code class="language-sprout">
+hp = clamp(hp - 1, 0, 10)
+x = wrap(x + 1, 0, 9)
+distance = dist(player.x, player.y, monster.x, monster.y)
+</code></pre>
+<p>
+<code>wrap</code> includes both bounds. <code>wrap(10, 0, 9)</code> returns <code>0</code>.
+</p>
+<p>
+<code>now()</code> returns a timestamp from Python&#x27;s <code>time.time()</code>.
+</p>
+<h3 id="validation">Validation</h3>
+<pre><code class="language-sprout">
+ensure(condition, message)
+fail(message)
+</code></pre>
+<h3 id="math-and-number-helpers">Math and Number Helpers</h3>
+<pre><code class="language-sprout">
+abs(x)
+round(x)
+round(x, digits)
+floor(x)
+ceil(x)
+sqrt(x)
+pow(x, y)
+min(...)
+max(...)
+sum(array)
+avg(array)
+median(array)
+sin(x)
+cos(x)
+tan(x)
+asin(x)
+acos(x)
+atan(x)
+atan2(y, x)
+log(x)
+log10(x)
+exp(x)
+radians(x)
+degrees(x)
+hypot(...)
+sign(x)
+lerp(a, b, t)
+between(x, low, high)
+</code></pre>
+<p>
+<code>min</code> and <code>max</code> accept either many arguments or one array.
+</p>
+<h3 id="type-predicates">Type Predicates</h3>
+<pre><code class="language-sprout">
+is_nil(value)
+is_bool(value)
+is_number(value)
+is_string(value)
+is_array(value)
+is_dict(value)
+is_function(value)
+is_class(value)
+is_instance(value)
+is_empty(value)
+is_even(value)
+is_odd(value)
+</code></pre>
+<h3 id="extra-array-helpers">Extra Array Helpers</h3>
+<pre><code class="language-sprout">
+array(...)
+copy(value)
+reverse(array_or_string)
+sort(array)
+contains(haystack, needle)
+indexof(haystack, needle)
+insert(array, index, value)
+remove(array, value)
+take(array_or_string, n)
+drop(array_or_string, n)
+slice(array_or_string, start, end)
+concat(...)
+flatten(array)
+compact(array)
+repeat(value, n)
+fill(value, n)
+enumerate(array)
+chunks(array, size)
+</code></pre>
+<p>
+<code>copy</code> recursively copies arrays and dictionaries.
+</p>
+<p>
+<code>concat</code> joins arrays when all arguments are arrays; otherwise it joins display-formatted text.
+</p>
+<h3 id="extra-string-helpers">Extra String Helpers</h3>
+<pre><code class="language-sprout">
+trim(text)
+ltrim(text)
+rtrim(text)
+upper(text)
+lower(text)
+title(text)
+replace(text, old, new)
+startswith(text, prefix)
+endswith(text, suffix)
+substr(text, start, end)
+padleft(text, width, fill)
+padright(text, width, fill)
+chars(text)
+words(text)
+join(array, separator)
+</code></pre>
+<h3 id="extra-dictionary-helpers">Extra Dictionary Helpers</h3>
+<pre><code class="language-sprout">
+dict(...)
+merge(...)
+pick(dictionary, keys)
+omit(dictionary, keys)
+frompairs(pairs)
+delkey(dictionary, key)
+</code></pre>
+<p>
+<code>dict(&quot;name&quot;, &quot;Mina&quot;, &quot;hp&quot;, 10)</code> creates a dictionary from alternating keys and values.
+</p>
+<p>
+<code>frompairs([[&quot;name&quot;, &quot;Mina&quot;], [&quot;hp&quot;, 10]])</code> creates a dictionary from pairs.
+</p>
+<h3 id="json-helpers">JSON Helpers</h3>
+<pre><code class="language-sprout">
+json_parse(text)
+json_stringify(value)
+readjson(path)
+writejson(path, value)
+</code></pre>
+<p>
+These use Python&#x27;s <code>json</code> module through the interpreter. <code>json_parse</code> and <code>json_stringify</code> work with text. <code>readjson</code> and <code>writejson</code> work with files relative to the current Sprout script or module.
+</p>
+<h3 id="path-helpers">Path Helpers</h3>
+<pre><code class="language-sprout">
+cwd()
+basename(path)
+dirname(path)
+extname(path)
+joinpath(...)
+</code></pre>
+<h3 id="random-helpers">Random Helpers</h3>
+<pre><code class="language-sprout">
+rand()
+randint(low, high)
+seed(value)
+shuffle(array)
+sample(array, n)
+</code></pre>
+<p>
+<code>shuffle</code> returns a shuffled copy. <code>sample</code> returns <code>n</code> random elements without replacement.
+</p>
+<h2 id="21-built-in-methods">21. Built-In Methods</h2>
+<h3 id="array-methods">Array Methods</h3>
+<pre><code class="language-sprout">
+array.append(value)
+array.pop()
+array.len()
+array.join(separator)
+</code></pre>
+<p>
+<code>append</code> returns the array. <code>pop</code> returns the removed value.
+</p>
+<h3 id="dictionary-methods">Dictionary Methods</h3>
+<pre><code class="language-sprout">
+dict.keys()
+dict.values()
+dict.items()
+dict.get(key)
+dict.get(key, fallback)
+dict.has(key)
+dict.set(key, value)
+</code></pre>
+<p>
+<code>set</code> returns the dictionary.
+</p>
+<h3 id="string-methods">String Methods</h3>
+<pre><code class="language-sprout">
+string.upper()
+string.lower()
+string.strip()
+string.split(separator)
+string.contains(needle)
+</code></pre>
+<h2 id="22-pixelgarden-and-sprout2d-terminal-helpers">22. PixelGarden and Sprout2D Terminal Helpers</h2>
+<p>
+The current terminal/ASCII 2D engine is named PixelGarden:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/pixelgarden.sprout&quot; as pix
+</code></pre>
+<p>
+PixelGarden combines the lower-level geometry and terminal canvas modules into a playful terminal engine. The older lower-level modules still exist:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/geom2d.sprout&quot; as g2d
+import &quot;modules/canvas2d.sprout&quot; as c2d
+</code></pre>
+<p>
+It uses plain dictionaries for vectors, rectangles, and circles. That makes values easy to print, save as JSON, inspect in a debugger, and pass between scripts.
+</p>
+<h3 id="2d-vector-api">2D Vector API</h3>
+<pre><code class="language-sprout">
+g2d.vec2(x=0, y=0)
+g2d.vadd(a, b)
+g2d.vsub(a, b)
+g2d.vscale(v, amount)
+g2d.dot(a, b)
+g2d.length(v)
+g2d.normalize(v)
+g2d.distance(a, b)
+g2d.angle(v)
+g2d.from_angle(theta, size=1)
+g2d.lerp_vec(a, b, t)
+g2d.midpoint(a, b)
+g2d.move_toward(current, target, max_delta)
+g2d.clamp_vec(v, min_v, max_v)
+</code></pre>
+<p>
+Example:
+</p>
+<pre><code class="language-sprout">
+player = g2d.vec2(1, 2)
+target = g2d.vec2(7, 5)
+step = g2d.move_toward(player, target, 2)
+say step
+</code></pre>
+<h3 id="2d-shapes-and-collision">2D Shapes and Collision</h3>
+<pre><code class="language-sprout">
+g2d.rect(x=0, y=0, w=1, h=1)
+g2d.circle(x=0, y=0, r=1)
+g2d.rect_center(rect)
+g2d.point_in_rect(point, rect)
+g2d.rects_overlap(a, b)
+g2d.point_in_circle(point, circle)
+g2d.circle_overlap(a, b)
+g2d.nearest_point_on_rect(point, rect)
+g2d.circle_rect_overlap(circle, rect)
+g2d.bounds(points)
+</code></pre>
+<p>
+These helpers are intended as practical foundations for terminal games, collision tests, simulation prototypes, robotics sketches, and future 2D rendering/window APIs.
+</p>
+<h3 id="2d-terminal-canvas-api">2D Terminal Canvas API</h3>
+<p>
+Sprout2D also includes a tiny terminal canvas module:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/canvas2d.sprout&quot; as c2d
+</code></pre>
+<p>
+Canvas values are dictionaries with <code>width</code>, <code>height</code>, <code>fill</code>, and <code>rows</code>.
+</p>
+<pre><code class="language-sprout">
+c2d.make_canvas(width, height, fill=&quot; &quot;)
+c2d.clear(canvas, fill=nil)
+c2d.plot(canvas, x, y, char=&quot;#&quot;)
+c2d.line(canvas, x0, y0, x1, y1, char=&quot;#&quot;)
+c2d.stroke_rect(canvas, rect, char=&quot;#&quot;)
+c2d.fill_rect(canvas, rect, char=&quot;#&quot;)
+c2d.circle(canvas, circle, char=&quot;#&quot;)
+c2d.fill_circle(canvas, circle, char=&quot;#&quot;)
+c2d.text(canvas, x, y, value)
+c2d.sprite(canvas, x, y, rows)
+c2d.camera(position=g2d.vec2(0, 0), zoom=1)
+c2d.world_to_screen(point, camera, canvas)
+c2d.plot_world(canvas, point, camera, char=&quot;#&quot;)
+c2d.frame_to_text(canvas)
+</code></pre>
+<p>
+Example:
+</p>
+<pre><code class="language-sprout">
+canvas = c2d.make_canvas(24, 10, &quot;.&quot;)
+c2d.stroke_rect(canvas, g2d.rect(0, 0, 24, 10), &quot;#&quot;)
+c2d.text(canvas, 12, 8, &quot;Sprout2D&quot;)
+say c2d.frame_to_text(canvas)
+</code></pre>
+<p>
+The canvas module is terminal-first. It is not a full window or GPU renderer, but it gives Sprout drawing primitives, simple sprites, text drawing, and camera-style world-to-screen conversion.
+</p>
+<p>
+PixelGarden convenience API:
+</p>
+<pre><code class="language-sprout">
+pix.canvas(width, height, fill=&quot; &quot;)
+pix.vec2(x=0, y=0)
+pix.rect(x=0, y=0, w=1, h=1)
+pix.circle_shape(x=0, y=0, r=1)
+pix.stroke_rect(canvas, rect, char=&quot;#&quot;)
+pix.fill_rect(canvas, rect, char=&quot;#&quot;)
+pix.circle(canvas, shape, char=&quot;#&quot;)
+pix.text(canvas, x, y, value)
+pix.sprite(canvas, x, y, rows)
+pix.frame_to_text(canvas)
+</code></pre>
+<h2 id="23-starbloom3d-terminal-rendering">23. StarBloom3D Terminal Rendering</h2>
+<p>
+The current terminal/ASCII 3D engine is named StarBloom3D:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/starbloom3d.sprout&quot; as star
+</code></pre>
+<p>
+The older lower-level module still exists:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/engine3d.sprout&quot; as s3d
+</code></pre>
+<p>
+It is a software 3D engine that works in any terminal. It does not require OpenGL, a window, or third-party packages. It is useful for learning, prototypes, ASCII games, engineering sketches, and testing Sprout&#x27;s math/graphics capabilities. It supports OBJ model loading, oriented cameras, wireframe rendering, and filled shaded triangles.
+</p>
+<h3 id="basic-render-pipeline">Basic Render Pipeline</h3>
+<pre><code class="language-sprout">
+import &quot;modules/engine3d.sprout&quot; as s3d
+
+cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
+shape = s3d.cube(size=2.4)
+shape = s3d.rotate_mesh(shape, ax=radians(20), ay=radians(35), az=radians(5))
+shape = s3d.translate_mesh(shape, s3d.vec3(0, 0, 7))
+
+frame = s3d.render_wireframe(shape, cam, width=50, height=22, char=&quot;*&quot;)
+say s3d.frame_to_text(frame)
+</code></pre>
+<p>
+Solid shaded rendering:
+</p>
+<pre><code class="language-sprout">
+light = s3d.normalize(s3d.vec3(0 - 1, 1, 0 - 1))
+frame = s3d.render_solid(shape, cam, width=56, height=24, light_dir=light)
+say s3d.frame_to_text(frame)
+</code></pre>
+<h3 id="vector-api">Vector API</h3>
+<pre><code class="language-sprout">
+s3d.vec3(x=0, y=0, z=0)
+s3d.vadd(a, b)
+s3d.vsub(a, b)
+s3d.vscale(v, amount)
+s3d.dot(a, b)
+s3d.cross(a, b)
+s3d.length(v)
+s3d.normalize(v)
+</code></pre>
+<p>
+Vectors are dictionaries with <code>x</code>, <code>y</code>, and <code>z</code> fields.
+</p>
+<h3 id="mesh-api">Mesh API</h3>
+<pre><code class="language-sprout">
+s3d.mesh(vertices, edges)
+s3d.cube(size=2)
+s3d.obj_mesh(text)
+s3d.load_obj(path)
+s3d.parse_face_index(token)
+s3d.unique_edges(edges)
+s3d.translate_mesh(mesh, offset)
+s3d.scale_mesh(mesh, amount)
+s3d.rotate_mesh(mesh, ax=0, ay=0, az=0)
+s3d.bounds(mesh)
+</code></pre>
+<p>
+Meshes are dictionaries with:
+</p>
+<ul>
+<li><code>vertices</code>: array of vec3 values</li>
+<li><code>edges</code>: array of <code>[startIndex, endIndex]</code> pairs</li>
+<li><code>faces</code>: array of triangle <code>[a, b, c]</code> index triples</li>
+</ul>
+<p>
+<code>obj_mesh(text)</code> parses a small Wavefront OBJ string. <code>load_obj(path)</code> reads an OBJ file and returns a Sprout3D mesh. Supported OBJ records are <code>v x y z</code> vertices and <code>f ...</code> faces. Faces with more than three vertices are triangulated with a fan. Face tokens like <code>3</code>, <code>3/1</code>, and <code>3/1/2</code> are accepted, with only the vertex index used.
+</p>
+<h3 id="camera-and-projection">Camera and Projection</h3>
+<pre><code class="language-sprout">
+s3d.camera(position, fov=18, near=0.1)
+s3d.look_at_camera(position, target, up=s3d.vec3(0, 1, 0), fov=18, near=0.1)
+s3d.orbit_camera(target, radius=8, yaw=0, pitch=0, fov=18, near=0.1)
+s3d.world_to_camera(point, camera)
+s3d.project(point, camera, width, height)
+</code></pre>
+<p>
+<code>camera(position)</code> is the original simple perspective camera looking down positive <code>z</code>. <code>look_at_camera(position, target)</code> creates an oriented camera aimed at a point. <code>orbit_camera(target, radius, yaw, pitch)</code> is useful for model viewers, game debug cameras, and engineering inspection views.
+</p>
+<h3 id="framebuffer-and-drawing">Framebuffer and Drawing</h3>
+<pre><code class="language-sprout">
+s3d.make_frame(width, height, fill=&quot; &quot;)
+s3d.make_zbuffer(width, height)
+s3d.plot(frame, x, y, char=&quot;#&quot;)
+s3d.line(frame, x0, y0, x1, y1, char=&quot;#&quot;)
+s3d.draw_triangle(frame, zbuffer, p0, p1, p2, char=&quot;#&quot;)
+s3d.render_wireframe(mesh, camera, width=48, height=22, char=&quot;#&quot;)
+s3d.render_solid(mesh, camera, width=48, height=22, light_dir=s3d.vec3(0, 0, -1), ramp=&quot; .:-=+*#%@&quot;)
+s3d.frame_to_text(frame)
+</code></pre>
+<p>
+The framebuffer is a dictionary with <code>width</code>, <code>height</code>, and <code>rows</code>. <code>rows</code> is a 2D array of characters.
+</p>
+<p>
+Lighting and triangle helpers:
+</p>
+<pre><code class="language-sprout">
+s3d.face_normal(a, b, c)
+s3d.shade_char(light, ramp=&quot; .:-=+*#%@&quot;)
+</code></pre>
+<p>
+Current limitation: StarBloom3D and <code>engine3d.sprout</code> are terminal/ASCII only. They do not yet have materials beyond character ramps, textures, skeletal animation, physics, or realtime window output.
+</p>
+<h2 id="24-window2d-and-pandawindow3d">24. Window2D and PandaWindow3D</h2>
+<p>
+Sprout also includes optional real-window wrappers that use Python graphics libraries.
+</p>
+<p>
+Window2D uses Pygame:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/window2d.sprout&quot; as w2d
+
+if not w2d.available() {
+  say &quot;install pygame with python3 -m pip install pygame&quot;
+} else {
+  win = w2d.window(640, 360, &quot;Sprout Window2D&quot;)
+  clock = w2d.clock(win)
+  while not w2d.should_close(win) {
+    w2d.fill(win, w2d.color(20, 24, 35))
+    w2d.circle(win, 320, 180, 40, w2d.color(250, 220, 90))
+    w2d.flip(win)
+    w2d.tick(clock, 60)
+  }
+  w2d.quit()
+}
+</code></pre>
+<p>
+PandaWindow3D uses Panda3D:
+</p>
+<pre><code class="language-sprout">
+import &quot;modules/panda3d_window.sprout&quot; as p3d
+
+if not p3d.available() {
+  say &quot;install Panda3D with python3 -m pip install panda3d&quot;
+} else {
+  world = p3d.window(&quot;Sprout PandaWindow3D&quot;)
+  cube = p3d.load_model(world, &quot;models/box&quot;)
+  p3d.place(cube, 0, 6, 0)
+  p3d.run(world)
+}
+</code></pre>
+<p>
+These modules are real window-backed wrappers, but they require their Python packages to be installed. They are separate from the fun terminal engines so terminal demos keep working anywhere.
+</p>
+<h2 id="25-standard-examples">25. Standard Examples</h2>
+<p>
+The project includes these examples:
+</p>
+<pre><code class="language-text">
+examples/fibonacci.sprout        recursion and loops
+examples/lists.sprout            arrays and mutation
+examples/guess.sprout            if/else
+examples/garden.sprout           garden-flavored style
+examples/pythonish.sprout        Python-like style
+examples/special.sprout          special helper functions
+examples/pythonlibs.sprout       Python standard-library interop
+examples/minigame.sprout         small terminal game simulation
+examples/adventure.sprout        multi-file data-driven game sketch
+examples/fileio.sprout           file I/O
+examples/oopgame.sprout          classes and methods
+examples/errors.sprout           try/catch and validation
+examples/stacktrace.sprout       uncaught runtime stack traces
+examples/scopes.sprout           function-local assignment and scope behavior
+examples/python_blocks.sprout    Python-style indentation blocks
+examples/garden_blocks.sprout    garden-style bloom/end blocks
+examples/seedfn.sprout           inline seedfn functions and closure capture
+examples/variadic.sprout         variadic `*rest` and `**options` function arguments
+examples/slices_defaults.sprout  slicing and default args
+examples/keywordargs.sprout      keyword args and Python kwargs
+examples/inheritance.sprout      class inheritance
+examples/super.sprout            parent method calls with super
+examples/tictactoe.sprout        interactive terminal Tic-Tac-Toe game
+examples/stdlib100.sprout        expanded 100+ function standard library
+examples/geom2d_demo.sprout      Sprout2D vectors, movement, and collision helpers
+examples/canvas2d_demo.sprout    Sprout2D terminal canvas drawing primitives
+examples/pixelgarden_demo.sprout PixelGarden fun terminal 2D engine
+examples/engine3d_demo.sprout    Sprout3D wireframe cube renderer
+examples/engine3d_solid_demo.sprout Sprout3D shaded z-buffer renderer
+examples/engine3d_obj_demo.sprout Sprout3D OBJ model loading
+examples/engine3d_camera_demo.sprout Sprout3D oriented camera renderer
+examples/starbloom3d_demo.sprout StarBloom3D fun terminal 3D engine
+examples/window2d_demo.sprout    optional Pygame-backed window demo
+examples/panda3d_window_demo.sprout optional Panda3D-backed window demo
+examples/project                 sprout.toml project, source folders, and module paths
+</code></pre>
+<h2 id="26-projects-tooling-and-lsp-foundation">26. Projects, Tooling, and LSP Foundation</h2>
+<p>
+Sprout has an early project system based on <code>sprout.toml</code>.
+</p>
+<pre><code class="language-toml">
+[project]
+name = &quot;sprout-demo-project&quot;
+version = &quot;0.1.0&quot;
+main = &quot;src/main.sprout&quot;
+authors = []
+description = &quot;A Sprout project&quot;
+license = &quot;MIT&quot;
+
+[paths]
+source = [&quot;src&quot;]
+modules = [&quot;modules&quot;]
+
+[dependencies]
+local_tools = { path = &quot;packages/local_tools&quot;, version = &quot;0.1.0&quot; }
+
+[tool.sprout]
+style_warnings = true
+</code></pre>
+<p>
+Run a project directory:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py run examples/project
+</code></pre>
+<p>
+When a project is active, Sprout resolves imports from:
+</p>
+<pre><code class="language-text">
+current file directory
+project root
+paths.source
+paths.modules
+local dependency paths from dependencies
+</code></pre>
+<p>
+That means larger projects can use clean imports:
+</p>
+<pre><code class="language-sprout">
+import &quot;game/player.sprout&quot; as player
+import &quot;engine/math/vector.sprout&quot; as vec
+</code></pre>
+<p>
+<code>check</code> supports machine-readable JSON for editors and CI:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py check file.sprout --json
+python3 sprout.py check file.sprout --json --warnings
+</code></pre>
+<p>
+The JSON payload includes <code>ok</code>, <code>path</code>, <code>diagnostics</code>, and <code>symbols</code>.
+</p>
+<p>
+<code>lint</code> is an early warning system. Warnings do not stop programs from running.
+</p>
+<pre><code class="language-sh">
+python3 sprout.py lint file.sprout
+python3 sprout.py lint file.sprout --json
+</code></pre>
+<p>
+Current lint foundations include syntax diagnostics, unknown imports, duplicate names, unreachable code after simple terminators, suspicious shadowing, tabs, and style hints that are practical to detect.
+</p>
+<p>
+<code>fmt</code> is intentionally conservative:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py fmt file.sprout
+python3 sprout.py fmt file.sprout --write
+python3 sprout.py fmt .
+python3 sprout.py fmt . --write
+</code></pre>
+<p>
+It trims trailing whitespace, expands tabs to spaces, preserves comments, and avoids risky rewrites.
+</p>
+<p>
+Sprout has a local-first package manager foundation:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py pkg init
+python3 sprout.py pkg list
+python3 sprout.py pkg add ./local-package
+python3 sprout.py pkg info local_package
+python3 sprout.py pkg remove local_package
+</code></pre>
+<p>
+Package dependencies are stored in <code>[dependencies]</code> with local <code>path</code> entries. There is no online package registry yet.
+</p>
+<p>
+Project templates create working folders with <code>sprout.toml</code>, <code>src/main.sprout</code>, <code>modules/</code>, <code>tests/</code>, and a README:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py new cli my_tool
+python3 sprout.py new game2d my_game
+python3 sprout.py new game3d my_3d_demo
+python3 sprout.py new library my_lib
+</code></pre>
+<p>
+The current templates are dogfood-hardened:
+</p>
+<ul>
+<li><code>cli</code> includes help text, command dispatch, argument parsing, and useful output.</li>
+<li><code>game2d</code> includes a deterministic movement/update/render loop with walls, coins, and score.</li>
+<li><code>game3d</code> renders a projected terminal wireframe scene.</li>
+<li><code>library</code> includes a module, docs, and a runnable test file under <code>tests/</code>.</li>
+</ul>
+<p>
+Release-readiness helpers:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py doctor
+python3 sprout.py release-docs
+python3 sprout.py release-check
+</code></pre>
+<p>
+Sprout also includes an early stdio Language Server Protocol foundation:
+</p>
+<pre><code class="language-sh">
+python3 tools/sprout_lsp.py
+</code></pre>
+<p>
+The LSP foundation currently supports document parsing, diagnostics, semantic completions, hover information, go-to definition, find references, rename symbol, signature help, and document symbols.
+ 
+The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
+</p>
+<p>
+Editor-style JSON queries are available through <code>intel</code>:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py intel file.sprout --kind completions --line 20 --col 8
+python3 sprout.py intel file.sprout --kind hover --line 14 --col 6
+python3 sprout.py intel file.sprout --kind definition --line 14 --col 6
+python3 sprout.py intel file.sprout --kind references --line 20 --col 3
+python3 sprout.py intel file.sprout --kind signature --line 17 --col 17
+python3 sprout.py intel file.sprout --kind diagnostics --line 1 --col 1
+</code></pre>
+<p>
+Documentation comments start with <code>##</code> immediately before a function or class. They appear in semantic hover help and completion descriptions:
+</p>
+<pre><code class="language-sprout">
+## Create a player with optional hit points.
+def spawn(name, hp=10):
+  return Player(name, hp)
+</code></pre>
+<h2 id="27-experimental-bytecode-vm">27. Experimental Bytecode VM</h2>
+<p>
+Sprout has two execution paths:
+</p>
+<p>
+1. Stable tree-walk interpreter.
+ 
+2. Experimental bytecode VM.
+</p>
+<p>
+The tree-walk interpreter remains the source of truth and continues to run the full current language. The VM is an incremental foundation for future performance, debugging, profiling, and optimization work.
+</p>
+<p>
+VM commands:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py compile examples/vm_supported.sprout
+python3 sprout.py dis examples/vm_supported.sprout
+python3 sprout.py run --vm examples/vm_expanded.sprout
+python3 sprout.py bench examples/vm_expanded.sprout
+python3 sprout.py debug examples/vm_expanded.sprout --break 21
+python3 sprout.py profile examples/vm_expanded.sprout
+</code></pre>
+<p>
+<code>dis</code> prints readable instructions:
+</p>
+<pre><code class="language-text">
+0000 MAKE_FUNCTION square &lt;code square&gt;
+0001 STORE_NAME square
+0002 LOAD_CONST 1
+0003 LOAD_CONST 2
+0004 BUILD_ARRAY 2
+</code></pre>
+<p>
+The current VM supports:
+</p>
+<ul>
+<li>literals</li>
+<li>variables and assignment</li>
+<li>arithmetic and comparisons</li>
+<li>logical <code>and</code> / <code>or</code> / <code>not</code></li>
+<li>arrays and dictionaries</li>
+<li>indexing</li>
+<li>property and index assignment</li>
+<li>function calls</li>
+<li>keyword arguments</li>
+<li>default arguments</li>
+<li>variadic arguments</li>
+<li>call-site <code>*args</code> / <code>**kwargs</code> spread</li>
+<li><code>say</code></li>
+<li>simple <code>if</code></li>
+<li>simple <code>while</code></li>
+<li>simple <code>for</code></li>
+<li><code>break</code> and <code>continue</code></li>
+<li>function definitions and returns</li>
+<li>plain classes, instances, methods, and <code>self</code></li>
+<li>simple inheritance method lookup</li>
+<li>Sprout imports</li>
+<li>Python imports and Python calls through the existing bridge</li>
+<li><code>raise</code></li>
+<li><code>try</code> / <code>catch</code></li>
+</ul>
+<p>
+The VM currently does not aim to cover the entire language. <code>super</code>, slices, some advanced class cases, and some runtime edge cases still use the tree-walk interpreter or produce a clear experimental unsupported message in <code>compile</code> / <code>dis</code>.
+</p>
+<p>
+<code>bench</code> measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
+</p>
+<p>
+<code>debug</code> is a terminal debugger foundation. It can stop at breakpoints for bytecode instructions that preserve source positions:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py debug examples/vm_expanded.sprout --break 21
+python3 sprout.py debug examples/vm_expanded.sprout --break examples/vm_expanded.sprout:21
+</code></pre>
+<p>
+At a stop, it prints the current instruction, source location, source line when known, value stack, and locals. In an interactive terminal, press Enter to step, <code>c</code> to continue, or <code>q</code> to stop.
+</p>
+<p>
+<code>profile</code> is a VM profiler foundation:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py profile examples/vm_expanded.sprout
+</code></pre>
+<p>
+It reports compile time, run time, total time, VM instruction count, function call counts, and time spent in VM functions.
+</p>
+<h2 id="28-editor-support">28. Editor Support</h2>
+<p>
+Sprout includes a local VS Code language package:
+</p>
+<pre><code class="language-text">
+editor/vscode-sprout
+</code></pre>
+<p>
+It provides:
+</p>
+<ul>
+<li><code>.sprout</code> file recognition</li>
+<li>syntax highlighting</li>
+<li><code>#</code> line comments</li>
+<li>bracket and quote pairing</li>
+<li>basic indentation after <code>{</code>, <code>:</code>, and <code>bloom</code></li>
+<li>snippets for functions, classes, loops, errors, Python imports, and Sprout3D scenes</li>
+<li>semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when <code>sprout.py</code> is available</li>
+<li>static fallback completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D</li>
+<li>hover help with symbol type, signature, <code>##</code> documentation, and source location</li>
+<li>go-to definition, find references, rename symbol, and signature help foundations</li>
+<li>red syntax diagnostics powered by <code>sprout.py check</code></li>
+<li>yellow style warnings for tabs and Python-style constants like <code>True</code> / <code>False</code> / <code>None</code></li>
+</ul>
+<p>
+Install by copying it into VS Code&#x27;s extension folder:
+</p>
+<pre><code class="language-sh">
+mkdir -p ~/.vscode/extensions
+cp -R editor/vscode-sprout ~/.vscode/extensions/sprout-language-0.1.0
+cp sprout.py ~/.vscode/extensions/sprout-language-0.1.0/
+cp -R sprout_core ~/.vscode/extensions/sprout-language-0.1.0/
+</code></pre>
+<p>
+Then run <strong>Developer: Reload Window</strong> in VS Code.
+</p>
+<p>
+For extension development:
+</p>
+<pre><code class="language-sh">
+cd editor/vscode-sprout
+code .
+</code></pre>
+<p>
+Press <code>F5</code> to launch an Extension Development Host.
+</p>
+<p>
+Completion examples:
+</p>
+<ul>
+<li>Type <code>def</code> for a function snippet.</li>
+<li>Type <code>defbloom</code> for a garden-style <code>bloom</code> / <code>end</code> function snippet.</li>
+<li>Type <code>defbraces</code> for an old-compatible brace function snippet.</li>
+<li>Type <code>defrest</code> for a variadic <code>*rest</code> function snippet.</li>
+<li>Type <code>defopts</code> for a keyword-rest <code>**opts</code> function snippet.</li>
+<li>Type keywords like <code>elif</code>, <code>each</code>, <code>whirl</code>, <code>try</code>, <code>catch</code>, <code>raise</code>, <code>sprout</code>, <code>pluck</code>, or <code>end</code> for syntax snippets/completions.</li>
+<li>Type built-ins like <code>sparkle</code>, <code>grow</code>, <code>json_parse</code>, <code>py_import</code>, <code>functions</code>, or <code>methods</code> for call snippets.</li>
+<li>Type <code>callspread</code> for a call using <code>*args</code> and <code>**opts</code>.</li>
+<li>Type <code>game.</code> after importing Gamekit as <code>game</code> for game helper completions.</li>
+<li>Type <code>g2d.</code> after importing Sprout2D as <code>g2d</code> for 2D geometry completions.</li>
+<li>Type <code>c2d.</code> after importing the Sprout2D canvas module as <code>c2d</code> for drawing completions.</li>
+<li>Type <code>s3d.</code> after importing Sprout3D as <code>s3d</code> for engine completions.</li>
+<li>Type <code>pix.</code> after importing PixelGarden as <code>pix</code> for fun terminal 2D completions.</li>
+<li>Type <code>star.</code> after importing StarBloom3D as <code>star</code> for fun terminal 3D completions.</li>
+<li>Type <code>w2d.</code> after importing Window2D as <code>w2d</code> for Pygame-backed window completions.</li>
+<li>Type <code>p3d.</code> after importing PandaWindow3D as <code>p3d</code> for Panda3D-backed completions.</li>
+<li>Type <code>player.</code> after <code>player = Player(&quot;Mina&quot;)</code> to complete fields and methods found from the <code>Player</code> class.</li>
+<li>Hover names like <code>clamp</code>, <code>spawn</code>, <code>Player</code>, or <code>render_solid</code> for signature and documentation help.</li>
+<li>Use VS Code&#x27;s Go to Definition, Find References, Rename Symbol, and signature help commands for Sprout symbols when <code>sprout.py</code> is available.</li>
+<li>Syntax errors appear as red VS Code diagnostics. Style warnings appear as yellow diagnostics. Set <code>sprout.runnerPath</code> if the extension cannot find <code>sprout.py</code>, <code>sprout.pythonPath</code> if your Python executable is not <code>python3</code>, <code>sprout.diagnostics.enabled</code> to <code>false</code> to disable checking, or <code>sprout.diagnostics.styleWarnings</code> to <code>false</code> to hide yellow warnings.</li>
+</ul>
+<h2 id="29-dogfooding-real-projects">29. Dogfooding Real Projects</h2>
+<p>
+Sprout includes real dogfood projects under <code>examples/dogfood</code>. Each one uses a normal <code>sprout.toml</code> project layout.
+</p>
+<pre><code class="language-sh">
+python3 sprout.py run examples/dogfood/cli_tool add docs:2 tests:3 release:5
+python3 sprout.py run examples/dogfood/game2d
+python3 sprout.py run examples/dogfood/math_utility
+python3 sprout.py run examples/dogfood/python_interop
+python3 sprout.py run examples/dogfood/package_app
+</code></pre>
+<p>
+The dogfood set covers:
+</p>
+<ul>
+<li>CLI argument parsing and command dispatch.</li>
+<li>2D movement, collision, rendering, and score state.</li>
+<li>Engineering/math calculations.</li>
+<li>Python standard-library interop.</li>
+<li>Multi-file project and local package dependency resolution.</li>
+</ul>
+<p>
+Run dogfood regression tests with:
+</p>
+<pre><code class="language-sh">
+python3 tests/dogfood.py
+</code></pre>
+<p>
+Notes and pain points from dogfooding live in <code>docs/DOGFOOD.md</code>.
+</p>
+<h2 id="30-current-limitations">30. Current Limitations</h2>
+<p>
+Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
+</p>
+<p>
+Known limitations:
+</p>
+<ul>
+<li>Files support Python-style indentation blocks and garden-style <code>bloom</code> / <code>end</code> blocks. Brace blocks still work for older Sprout code.</li>
+<li>Inheritance and <code>super</code> exist, but there are no access modifiers or interfaces.</li>
+<li>Uncaught runtime errors include Sprout function/method stack traces with source file, line, and column locations for call sites and function definitions.</li>
+<li>There are no comprehensions.</li>
+<li>Sprout-defined functions support <code>*rest</code> positional arguments, <code>**options</code> keyword-rest arguments, and call-site <code>*args</code> / <code>**opts</code> spreading.</li>
+<li>Built-in Sprout functions generally reject keyword arguments unless documented.</li>
+<li>There is no online package manager. Local package metadata exists as a foundation only.</li>
+<li>There is no static type checker.</li>
+<li>The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.</li>
+<li>PixelGarden and StarBloom3D are terminal software engines.</li>
+<li>Window2D and PandaWindow3D are thin wrappers and require external Python packages.</li>
+<li>Python interop depends on the Python runtime executing <code>sprout.py</code>.</li>
+</ul>
+<h2 id="31-accuracy-notes">31. Accuracy Notes</h2>
+<p>
+This manual describes the current <code>sprout.py</code> implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
+</p>
+<p>
+The smoke test suite is:
+</p>
+<pre><code class="language-sh">
+tests/smoke.sh
+</code></pre>
+<p>
+The interpreter compile check is:
+</p>
+<pre><code class="language-sh">
+PYTHONPYCACHEPREFIX=/tmp/sprout-pycache python3 -m py_compile sprout.py
+</code></pre>
+<p>
+The editor grammar JSON check is:
+</p>
+<pre><code class="language-sh">
+python3 -m json.tool editor/vscode-sprout/syntaxes/sprout.tmLanguage.json
+</code></pre>
+</main></body>
+</html>

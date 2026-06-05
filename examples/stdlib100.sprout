@@ -1,0 +1,25 @@
+say "function count:", len(functions())
+say "method count:", len(methods())
+
+nums = [5, 1, 3, 3, 9]
+say "math:", sum(nums), avg(nums), median(nums), min(nums), max(nums)
+say "angles:", round(degrees(radians(180))), round(sqrt(81))
+say "range tools:", take(nums, 3), drop(nums, 2), sort(nums), unique(nums)
+say "array tools:", flatten([[1, 2], [3, [4]]]), chunks([1, 2, 3, 4, 5], 2)
+
+text = "  sprout language  "
+say "string:", upper(trim(text)), startswith(trim(text), "spr"), endswith(trim(text), "age")
+say "replace:", replace("leaf leaf", "leaf", "root")
+say "pad:", padleft("7", 3, "0"), padright("x", 3, ".")
+
+profile = dict("name", "Mina", "hp", 10, "x", 2)
+say "dict:", pick(profile, ["name", "hp"]), omit(profile, ["x"])
+say "pairs:", frompairs([["a", 1], ["b", 2]])
+say "json:", json_parse("{\"hp\": 10}").hp, json_stringify({"ok": true})
+
+seed(4)
+rolls = [randint(1, 6), randint(1, 6), randint(1, 6)]
+say "random:", rolls, len(shuffle([1, 2, 3]))
+
+ensure(len(functions()) > 100, "Sprout standard library should expose more than 100 functions")
+say "stdlib ok"

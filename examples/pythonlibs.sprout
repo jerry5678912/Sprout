@@ -1,0 +1,18 @@
+importpython math
+importpython random as pyrandom
+importpython datetime as dt
+
+pyrandom.seed(7)
+
+say "sqrt:", math.sqrt(81)
+say "wave:", math.sin(math.pi / 2)
+say "lucky:", pyrandom.randint(1, 10)
+
+point = [3, 4]
+say "hypot:", math.hypot(point[0], point[1])
+say "module type:", type(math)
+say "dynamic import:", py_available("math"), py_import("math").sqrt(16)
+
+day = dt.date(2026, 6, 4)
+say "date:", day.isoformat(), day.year
+say "date type:", type(day)

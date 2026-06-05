@@ -1,0 +1,20 @@
+importpython "statistics" as stats
+importpython "math" as math
+importpython "json" as json
+
+scores = [72, 91, 88, 91, 64, 77]
+mean = stats.mean(scores)
+median_score = stats.median(scores)
+spread = math.sqrt(stats.pvariance(scores))
+
+report = {
+  "mean": round(mean, 2),
+  "median": median_score,
+  "spread": round(spread, 2)
+}
+
+say "python interop stats"
+say "mean:", report.mean
+say "median:", report.median
+say "spread:", report.spread
+say "json:", json.dumps(report, sort_keys=true)

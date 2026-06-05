@@ -1,0 +1,23 @@
+import "modules/window2d.sprout" as w2d
+
+if not w2d.available() {
+  say "Window2D unavailable: install pygame with python3 -m pip install pygame"
+} else {
+  win = w2d.window(640, 360, "Sprout Window2D")
+  clock = w2d.clock(win)
+
+  x = 40
+  frame = 0
+  while frame < 240 and not w2d.should_close(win) {
+    w2d.fill(win, w2d.color(20, 24, 35))
+    w2d.rect(win, 80, 230, 480, 40, w2d.color(80, 190, 120))
+    w2d.circle(win, x, 180, 24, w2d.color(250, 220, 90))
+    w2d.line(win, 80, 80, 560, 110, w2d.color(120, 200, 255), 3)
+    w2d.flip(win)
+    w2d.tick(clock, 60)
+    x = wrap(x + 3, 40, 600)
+    frame = frame + 1
+  }
+
+  w2d.quit()
+}

@@ -1,0 +1,12 @@
+double = seedfn x: x * 2
+add = seedfn a, b: a + b
+tag = seedfn (name, prefix="seed"): prefix + ":" + name
+
+base = 10
+boost = seedfn x: x + base
+
+values = []
+for n in range(5):
+  values.append(double(n))
+
+say "seedfn:", values, add(3, 4), tag("leaf"), tag("bloom", prefix="sun"), boost(5)

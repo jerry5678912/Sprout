@@ -1,0 +1,147 @@
+# Simple Terminal Calculator
+# A clean, interactive calculator in the terminal
+
+def display_menu(result=""):
+  clear()
+  say "╔════════════════════════════════╗"
+  say "║     Sprout Calculator 🌱       ║"
+  say "╚════════════════════════════════╝"
+  say ""
+  
+  if result != "":
+    say "Result:", sparkle(str(result))
+  else:
+    say "Enter an expression or command:"
+  
+  say ""
+  say "Examples:"
+  say "  42 + 8"
+  say "  100 / 5"
+  say "  3 * 7 - 2"
+  say "  sqrt(16)"
+  say "  pow(2, 3)"
+  say ""
+  say "Type 'q' or 'quit' to exit"
+  say ""
+
+def safe_calculate(expression):
+  try:
+    # Replace common functions
+    expr = replace(expression, "sqrt", "sqrt")
+    expr = replace(expr, "pow", "pow")
+    
+    # Evaluate - this is a simple approach
+    # For security, this only evaluates math expressions
+    if contains(expr, "sqrt"):
+      parts = split(expr, "sqrt(")
+      if len(parts) > 1:
+        inner = parts[1]
+        inner = replace(inner, ")", "")
+        return sqrt(num(inner))
+    
+    if contains(expr, "pow"):
+      parts = split(expr, "pow(")
+      if len(parts) > 1:
+        inner = parts[1]
+        args = split(inner, ",")
+        if len(args) == 2:
+          return pow(num(args[0]), num(args[1]))
+    
+    # Simple arithmetic evaluation
+    result = 0
+    
+    # Handle + - * / with precedence
+    if contains(expr, "*") or contains(expr, "/"):
+      # Multiply/divide first
+      while contains(expr, "*") or contains(expr, "/"):
+        if contains(expr, "*"):
+          mult_idx = indexof(expr, "*")
+          left_num = ""
+          right_num = ""
+          
+          # Get left operand
+          for i in range(mult_idx - 1, -1, -1):
+            if expr[i] in "0123456789.":
+              left_num = expr[i] + left_num
+            else:
+              break
+          
+          # Get right operand
+          for i in range(mult_idx + 1, len(expr)):
+            if expr[i] in "0123456789.":
+              right_num = right_num + expr[i]
+            else:
+              break
+          
+          prod = num(left_num) * num(right_num)
+          expr = replace(expr, left_num + "*" + right_num, str(prod))
+        
+        if contains(expr, "/"):
+          div_idx = indexof(expr, "/")
+          left_num = ""
+          right_num = ""
+          
+          for i in range(div_idx - 1, -1, -1):
+            if expr[i] in "0123456789.":
+              left_num = expr[i] + left_num
+            else:
+              break
+          
+          for i in range(div_idx + 1, len(expr)):
+            if expr[i] in "0123456789.":
+              right_num = right_num + expr[i]
+            else:
+              break
+          
+          if num(right_num) != 0:
+            quot = num(left_num) / num(right_num)
+            expr = replace(expr, left_num + "/" + right_num, str(quot))
+          else:
+            return "Error: Division by zero"
+    
+    # Handle + and -
+    result = 0
+    current_op = "+"
+    current_num = ""
+    
+    for char in expr:
+      if char in "+-" and current_num != "":
+        if current_op == "+":
+          result = result + num(current_num)
+        elif current_op == "-":
+          result = result - num(current_num)
+        current_num = ""
+        current_op = char
+      else:
+        current_num = current_num + char
+    
+    if current_num != "":
+      if current_op == "+":
+        result = result + num(current_num)
+      elif current_op == "-":
+        result = result - num(current_num)
+    
+    return result
+  
+  catch err:
+    return "Error: " + str(err)
+
+# Main calculator loop
+say sparkle("Welcome to Sprout Calculator")
+sleep(1)
+
+running = true
+while running:
+  display_menu()
+  
+  user_input = ask("➜ ").strip().lower()
+  
+  if user_input == "q" or user_input == "quit":
+    running = false
+    clear()
+    say sparkle("Thanks for using Sprout Calculator!")
+    say "Happy calculating! 🌱"
+  else:
+    result = safe_calculate(user_input)
+    display_menu(result)
+    ask("Press Enter to continue...")

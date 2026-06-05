@@ -1,0 +1,33 @@
+import "vm_imported.sprout" as helper
+importpython math
+
+class Base:
+  def kind(self):
+    return "base"
+
+class Player extends Base:
+  def init(self, name, hp=10):
+    self.name = name
+    self.hp = hp
+
+  def hurt(self, amount):
+    self.hp = self.hp - amount
+    return self.hp
+
+def describe(name, hp=10, *tags, **opts):
+  return name + ":" + str(hp) + ":" + tags.join("/") + ":" + opts.get("zone", "none")
+
+hero = Player("Mina", hp=12)
+hero.hurt(2)
+args = ["Ada", 9, "fast", "kind"]
+opts = {"zone": "lab"}
+
+say "class", hero.name, hero.hp, hero.kind()
+say "describe", describe(*args, **opts)
+say "module", helper.label("Kai", hp=7), helper.total(1, 2, 3)
+say "python", math.sqrt(81)
+
+try:
+  raise "caught by vm"
+catch err:
+  say "catch", err

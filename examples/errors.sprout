@@ -1,0 +1,27 @@
+def load_hp(value) {
+  ensure(value >= 0, "hp cannot be negative")
+  ensure(value <= 10, "hp cannot be over 10")
+  return value
+}
+
+try {
+  hp = load_hp(-2)
+  say "hp", hp
+} catch err {
+  say "caught:", err
+}
+
+try {
+  fail("manual boom")
+} catch err {
+  say "raised:", err
+}
+
+try {
+  missing = readfile("data/nope.txt")
+  say missing
+} catch err {
+  say "file error caught"
+}
+
+say "still running"

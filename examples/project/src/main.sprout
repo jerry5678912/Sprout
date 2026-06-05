@@ -1,0 +1,8 @@
+import "game/player.sprout" as player
+import "engine/math/vector.sprout" as vec
+
+hero = player.make("Mina")
+step = vec.vec2(2, 3)
+player.move(hero, step)
+
+say "project:", hero.name, hero.x, hero.y

@@ -1,0 +1,112 @@
+{
+  "name": "sprout-language",
+  "displayName": "Sprout Language",
+  "description": "Syntax highlighting, snippets, completions, and editor basics for the Sprout programming language.",
+  "version": "0.1.0",
+  "publisher": "local-sprout",
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:sprout"
+  ],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sprout",
+        "aliases": [
+          "Sprout",
+          "sprout"
+        ],
+        "extensions": [
+          ".sprout"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sprout",
+        "scopeName": "source.sprout",
+        "path": "./syntaxes/sprout.tmLanguage.json"
+      }
+    ],
+        "snippets": [
+            {
+                "language": "sprout",
+                "path": "./snippets/sprout.code-snippets"
+            }
+        ],
+        "semanticTokenTypes": [
+            {
+                "id": "class",
+                "description": "Sprout class names"
+            },
+            {
+                "id": "function",
+                "description": "Sprout function names"
+            },
+            {
+                "id": "method",
+                "description": "Sprout method names"
+            },
+            {
+                "id": "variable",
+                "description": "Sprout variable names"
+            },
+            {
+                "id": "parameter",
+                "description": "Sprout function parameters"
+            },
+            {
+                "id": "property",
+                "description": "Sprout instance and module properties"
+            }
+        ],
+        "configurationDefaults": {
+            "[sprout]": {
+                "editor.semanticHighlighting.enabled": true
+            },
+            "editor.semanticTokenColorCustomizations": {
+                "rules": {
+                    "*.sprout": "#D4D4D4",
+                    "class:sprout": "#4EC9B0",
+                    "function:sprout": "#DCDCAA",
+                    "method:sprout": "#DCDCAA",
+                    "variable:sprout": "#9CDCFE",
+                    "parameter:sprout": "#9CDCFE",
+                    "property:sprout": "#9CDCFE"
+                }
+            }
+        },
+        "configuration": {
+      "title": "Sprout",
+      "properties": {
+        "sprout.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run Sprout syntax diagnostics in the editor."
+        },
+        "sprout.diagnostics.styleWarnings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show yellow Sprout style warnings for indentation issues and Python-style constants."
+        },
+        "sprout.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python executable used to run sprout.py."
+        },
+        "sprout.runnerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to sprout.py. When empty, the extension tries the workspace and local development paths."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+[project]
+name = "local-tools"
+version = "0.1.0"
+main = "src/main.sprout"
+source_folders = ["src"]
+
+[package]
+examples = ["examples"]
+tests = ["tests"]

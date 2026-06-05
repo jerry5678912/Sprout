@@ -1,0 +1,13 @@
+[project]
+name = "sprout_tasker"
+version = "0.1.0"
+main = "src/main.sprout"
+authors = []
+description = "Dogfood CLI project for planning small tasks."
+license = "MIT"
+
+[paths]
+source = ["src"]
+modules = ["modules"]
+
+[dependencies]

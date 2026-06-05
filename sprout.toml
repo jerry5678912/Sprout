@@ -1,0 +1,13 @@
+[project]
+name = "sprout"
+version = "0.1.0"
+main = "examples/fibonacci.sprout"
+authors = []
+description = "A small experimental programming language with editor tooling and an experimental VM."
+license = "MIT"
+
+[paths]
+source = ["examples"]
+modules = ["examples/modules"]
+
+[dependencies]

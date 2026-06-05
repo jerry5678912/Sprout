@@ -1,0 +1,32 @@
+sprout directions = ["north", "east", "south", "west"]
+
+def make_player(name) {
+  return {"name": name, "x": 1, "y": 1, "hp": 10, "bag": []}
+}
+
+def move(hero, direction, width, height) {
+  if direction == "north" {
+    hero.y = wrap(hero.y - 1, 0, height - 1)
+  } elif direction == "south" {
+    hero.y = wrap(hero.y + 1, 0, height - 1)
+  } elif direction == "west" {
+    hero.x = wrap(hero.x - 1, 0, width - 1)
+  } else {
+    hero.x = wrap(hero.x + 1, 0, width - 1)
+  }
+  return hero
+}
+
+def hurt(hero, amount) {
+  hero.hp = clamp(hero.hp - amount, 0, 10)
+  return hero
+}
+
+def heal(hero, amount) {
+  hero.hp = clamp(hero.hp + amount, 0, 10)
+  return hero
+}
+
+def status(hero) {
+  return hero.name + " @(" + str(hero.x) + "," + str(hero.y) + ") hp=" + str(hero.hp)
+}

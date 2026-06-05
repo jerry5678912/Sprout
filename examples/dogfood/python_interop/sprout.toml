@@ -1,0 +1,13 @@
+[project]
+name = "sprout_py_stats"
+version = "0.1.0"
+main = "src/main.sprout"
+authors = []
+description = "Dogfood Python interop project using standard-library modules."
+license = "MIT"
+
+[paths]
+source = ["src"]
+modules = ["modules"]
+
+[dependencies]

@@ -1,0 +1,13 @@
+[project]
+name = "sprout_beam_calc"
+version = "0.1.0"
+main = "src/main.sprout"
+authors = []
+description = "Dogfood engineering/math utility for a simple supported beam."
+license = "MIT"
+
+[paths]
+source = ["src"]
+modules = ["modules"]
+
+[dependencies]

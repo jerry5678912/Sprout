@@ -1,0 +1,138 @@
+{
+  "scopeName": "source.sprout",
+  "name": "Sprout",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#declarations" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#specials" },
+    { "include": "#functions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.sprout",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.sprout",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.sprout",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.sprout",
+          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.class.sprout",
+          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.class.sprout" },
+            "2": { "name": "entity.name.type.class.sprout" }
+          }
+        },
+        {
+          "name": "meta.function.sprout",
+          "match": "\\b(fn|def|bloom)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.sprout" },
+            "2": { "name": "entity.name.function.sprout" }
+          }
+        },
+        {
+          "name": "variable.other.assignment.sprout",
+          "match": "^\\s*(?:let\\s+|sprout\\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\\s*=)",
+          "captures": {
+            "1": { "name": "variable.other.assignment.sprout" }
+          }
+        },
+        {
+          "name": "variable.parameter.self.sprout",
+          "match": "\\bself\\b"
+        },
+        {
+          "name": "variable.other.property.sprout",
+          "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*"
+        },
+        {
+          "name": "support.class.sprout",
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.sprout",
+          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|break|continue|return|pluck|try|catch|raise|import|importpython|as|and|or|not|class|extends|super)\\b"
+        },
+        {
+          "name": "storage.type.function.sprout",
+          "match": "\\b(fn|def|bloom|seedfn)\\b"
+        },
+        {
+          "name": "storage.modifier.sprout",
+          "match": "\\b(let|sprout)\\b"
+        },
+        {
+          "name": "constant.language.sprout",
+          "match": "\\b(true|false|nil|True|False|None|none)\\b"
+        }
+      ]
+    },
+    "specials": {
+      "patterns": [
+        {
+          "name": "support.function.special.sprout",
+          "match": "\\b(say|sparkle|whisper|shout|mirror|chant|weave|grow|plant|harvest|prune|sprinkle|bundle|first|last|rest|unique|countby|zipbud|dice|choose|clamp|wrap|dist|sleep|now|lerp|between|rand|randint|seed|shuffle|sample)\\b"
+        },
+        {
+          "name": "support.function.builtin.sprout",
+          "match": "\\b(print|len|push|range|str|int|num|type|keys|values|items|has|get|readfile|writefile|appendfile|exists|isfile|isdir|listdir|mkdir|readjson|writejson|py_available|py_import|lines|argv|ask|clear|ensure|fail|functions|methods|abs|acos|array|asin|atan|atan2|avg|basename|ceil|chars|chunks|compact|concat|contains|copy|cos|cwd|degrees|delkey|dict|dirname|drop|endswith|enumerate|exp|extname|fill|flatten|floor|frompairs|hypot|indexof|insert|is_array|is_bool|is_class|is_dict|is_empty|is_even|is_function|is_instance|is_nil|is_number|is_odd|is_string|join|joinpath|json_parse|json_stringify|log|log10|lower|ltrim|max|median|merge|min|omit|padleft|padright|pick|pow|radians|remove|repeat|replace|reverse|round|rtrim|sign|sin|slice|sort|sqrt|startswith|substr|sum|take|tan|title|trim|upper|words)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.sprout",
+          "match": "(?<=\\b(?:fn|def|bloom)\\s+)[A-Za-z_][A-Za-z0-9_]*"
+        },
+        {
+          "name": "support.function.method.sprout",
+          "match": "\\.[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.sprout",
+          "match": "==|!=|<=|>=|//|\\*\\*|[+\\-*/%=<>!]"
+        }
+      ]
+    }
+  }
+}

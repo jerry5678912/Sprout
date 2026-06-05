@@ -1,0 +1,12 @@
+def title(text):
+  line = chant("=", len(text))
+  return line + "\n" + upper(text) + "\n" + line
+
+def bullets(items):
+  out = []
+  for item in items:
+    out.append("- " + item)
+  return out.join("\n")
+
+def slug(text):
+  return lower(replace(text, " ", "-"))

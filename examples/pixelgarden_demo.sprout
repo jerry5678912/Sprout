@@ -1,0 +1,13 @@
+import "modules/pixelgarden.sprout" as pix
+
+canvas = pix.canvas(22, 8, ".")
+pix.stroke_rect(canvas, pix.rect(0, 0, 22, 8), "#")
+pix.fill_rect(canvas, pix.rect(2, 5, 7, 2), "=")
+pix.circle(canvas, pix.circle_shape(15, 3, 2), "o")
+pix.text(canvas, 4, 1, "PixelGarden")
+
+say pix.frame_to_text(canvas)
+
+hero = pix.vec2(1, 1)
+goal = pix.vec2(5, 4)
+say "garden step:", pix.move_toward(hero, goal, 2)

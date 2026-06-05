@@ -1,0 +1,34 @@
+importpython datetime as dt
+
+def spawn(name, hp=10, x=0, y=0) {
+  return {"name": name, "hp": hp, "x": x, "y": y}
+}
+
+class Potion {
+  def init(self, name="leaf", power=1) {
+    self.name = name
+    self.power = power
+  }
+
+  def label(self, prefix="potion") {
+    return prefix + ":" + self.name + "/" + str(self.power)
+  }
+}
+
+hero = spawn(name="Mina", y=3)
+boss = spawn("Rootlord", hp=20, x=5, y=2)
+say "hero:", hero
+say "boss:", boss
+
+potion = Potion(power=4, name="sun")
+say potion.label(prefix="loot")
+
+day = dt.date(year=2026, month=6, day=4)
+say "python kw:", day.isoformat()
+
+try {
+  duplicate = spawn("Ada", name="Lin")
+  say duplicate
+} catch err {
+  say "keyword error:", err
+}

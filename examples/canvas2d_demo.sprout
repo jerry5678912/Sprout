@@ -1,0 +1,16 @@
+import "modules/geom2d.sprout" as g2d
+import "modules/canvas2d.sprout" as c2d
+
+canvas = c2d.make_canvas(24, 10, ".")
+
+c2d.stroke_rect(canvas, g2d.rect(0, 0, 24, 10), "#")
+c2d.fill_rect(canvas, g2d.rect(2, 7, 8, 2), "=")
+c2d.line(canvas, 2, 2, 10, 5, "/")
+c2d.circle(canvas, g2d.circle(17, 4, 3), "o")
+c2d.sprite(canvas, 4, 3, [" /\\ ", "/__\\"])
+c2d.text(canvas, 12, 8, "Sprout2D")
+
+cam = c2d.camera(g2d.vec2(0, 0), 2)
+c2d.plot_world(canvas, g2d.vec2(3, -2), cam, "@")
+
+say c2d.frame_to_text(canvas)

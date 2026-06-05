@@ -1,0 +1,13 @@
+[project]
+name = "textforge"
+version = "0.1.0"
+main = "src/textforge.sprout"
+authors = []
+description = "Local text helper package used by dogfood projects."
+license = "MIT"
+
+[paths]
+source = ["src"]
+modules = ["modules"]
+
+[dependencies]

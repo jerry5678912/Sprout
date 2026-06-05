@@ -1,0 +1,53 @@
+def fixed(a, b) {
+  return a + b
+}
+
+def gather(name, *values) {
+  return values
+}
+
+def flexible(name, **opts) {
+  return opts
+}
+
+try {
+  fixed(1, 2, 3)
+} catch err {
+  say "too many:", err
+}
+
+try {
+  gather("x", values=3)
+} catch err {
+  say "rest keyword:", err
+}
+
+try {
+  flexible("x", name="y")
+} catch err {
+  say "kw duplicate:", err
+}
+
+try {
+  gather("bad", *{"x": 1})
+} catch err {
+  say "bad spread:", err
+}
+
+try {
+  flexible("bad", **["x"])
+} catch err {
+  say "bad kw spread:", err
+}
+
+try {
+  flexible("bad", **{1: "x"})
+} catch err {
+  say "bad kw key:", err
+}
+
+try {
+  flexible("bad", **{"hp": 1}, hp=2)
+} catch err {
+  say "dup kw spread:", err
+}

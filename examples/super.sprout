@@ -1,0 +1,38 @@
+class Entity {
+  def init(self, name, x=0, y=0) {
+    self.name = name
+    self.x = x
+    self.y = y
+  }
+
+  def move(self, dx=0, dy=0) {
+    self.x = self.x + dx
+    self.y = self.y + dy
+  }
+
+  def status(self) {
+    return self.name + " @(" + str(self.x) + "," + str(self.y) + ")"
+  }
+}
+
+class Player extends Entity {
+  def init(self, name, x=0, y=0, hp=10) {
+    super.init(name, x=x, y=y)
+    self.hp = hp
+  }
+
+  def status(self) {
+    return super.status() + " hp=" + str(self.hp)
+  }
+
+  def heal(self, amount=1) {
+    self.hp = clamp(self.hp + amount, 0, 20)
+  }
+}
+
+hero = Player("Mina", x=2, y=3, hp=8)
+hero.move(dx=1, dy=0 - 1)
+hero.heal(amount=5)
+
+say "super class:", type(Player)
+say "super status:", hero.status()

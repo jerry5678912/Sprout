@@ -1,0 +1,74 @@
+def make_world():
+  return {
+    "width": 12,
+    "height": 7,
+    "player": {"x": 1, "y": 1, "score": 0},
+    "coins": [[3, 1], [5, 3], [8, 4]],
+    "walls": [[4, 2], [4, 3], [4, 4], [7, 2]]
+  }
+
+def same_cell(cell, x, y):
+  return cell[0] == x and cell[1] == y
+
+def has_cell(cells, x, y):
+  for cell in cells:
+    if same_cell(cell, x, y):
+      return true
+  return false
+
+def remove_cell(cells, x, y):
+  kept = []
+  for cell in cells:
+    if not same_cell(cell, x, y):
+      kept.append(cell)
+  return kept
+
+def step(world, direction):
+  dx = 0
+  dy = 0
+  if direction == "right":
+    dx = 1
+  else if direction == "left":
+    dx = 0 - 1
+  else if direction == "down":
+    dy = 1
+  else if direction == "up":
+    dy = 0 - 1
+
+  nx = world.player.x + dx
+  ny = world.player.y + dy
+  blocked = nx < 1 or ny < 1 or nx >= world.width - 1 or ny >= world.height - 1
+  if has_cell(world.walls, nx, ny):
+    blocked = true
+
+  if not blocked:
+    world.player.x = nx
+    world.player.y = ny
+
+  if has_cell(world.coins, world.player.x, world.player.y):
+    world.player.score = world.player.score + 1
+    world.coins = remove_cell(world.coins, world.player.x, world.player.y)
+
+  return world
+
+def render(world):
+  rows = []
+  y = 0
+  while y < world.height:
+    row = ""
+    x = 0
+    while x < world.width:
+      if x == 0 or y == 0 or x == world.width - 1 or y == world.height - 1:
+        row = row + "#"
+      else if world.player.x == x and world.player.y == y:
+        row = row + "@"
+      else if has_cell(world.walls, x, y):
+        row = row + "X"
+      else if has_cell(world.coins, x, y):
+        row = row + "*"
+      else:
+        row = row + "."
+      x = x + 1
+    rows.append(row)
+    y = y + 1
+  return rows.join("\n")

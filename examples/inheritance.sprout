@@ -1,0 +1,39 @@
+class Entity {
+  def init(self, name, x=0, y=0) {
+    self.name = name
+    self.x = x
+    self.y = y
+  }
+
+  def move(self, dx=0, dy=0) {
+    self.x = self.x + dx
+    self.y = self.y + dy
+  }
+
+  def status(self) {
+    return self.name + " @(" + str(self.x) + "," + str(self.y) + ")"
+  }
+}
+
+class Player extends Entity {
+  def collect(self, item="coin") {
+    self.last_item = item
+    return self.name + " collected " + item
+  }
+}
+
+class Hazard extends Entity {
+  def danger(self, amount=1) {
+    return self.name + " danger " + str(amount)
+  }
+}
+
+hero = Player("Mina", x=2, y=3)
+hero.move(dx=1)
+say type(Player)
+say hero.status()
+say hero.collect(item="key")
+
+spike = Hazard("spikes", x=5, y=1)
+say spike.status()
+say spike.danger(amount=4)

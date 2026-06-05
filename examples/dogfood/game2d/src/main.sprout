@@ -1,0 +1,15 @@
+import "world.sprout" as worldmod
+
+world = worldmod.make_world()
+moves = argv
+if len(moves) == 0:
+  moves = ["right", "right", "down", "down", "right", "right", "down", "right"]
+
+turn = 0
+for move in moves:
+  turn = turn + 1
+  worldmod.step(world, move)
+  say "turn", turn, move, "score", world.player.score
+
+say worldmod.render(world)
+say "final:", world.player.x, world.player.y, "score", world.player.score, "coins_left", len(world.coins)

@@ -1,0 +1,24 @@
+def cheer(name) bloom
+  if name == "Sprout" bloom
+    return sparkle("keep growing")
+  end
+  return "hello " + name
+end
+
+class SeedCounter bloom
+  def init(self) bloom
+    self.count = 0
+  end
+
+  def grow_one(self) bloom
+    self.count = self.count + 1
+    return self.count
+  end
+end
+
+counter = SeedCounter()
+each item in ["seed", "leaf", "bloom"] bloom
+  counter.grow_one()
+end
+
+say "garden blocks:", cheer("Sprout"), counter.count

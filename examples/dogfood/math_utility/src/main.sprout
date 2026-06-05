@@ -1,0 +1,49 @@
+def point_load_reactions(length, load, position):
+  right = load * position / length
+  left = load - right
+  return {"left": left, "right": right}
+
+def shear_at(x, reactions, loads):
+  shear = reactions.left
+  for load in loads:
+    if x >= load.x:
+      shear = shear - load.force
+  return shear
+
+def moment_at(x, reactions, loads):
+  moment = reactions.left * x
+  for load in loads:
+    if x >= load.x:
+      moment = moment - load.force * (x - load.x)
+  return moment
+
+def sample_beam(length, loads, steps):
+  total = 0
+  weighted = 0
+  for load in loads:
+    total = total + load.force
+    weighted = weighted + load.force * load.x
+  reactions = point_load_reactions(length, total, weighted / total)
+
+  max_moment = 0
+  max_x = 0
+  i = 0
+  while i <= steps:
+    x = length * i / steps
+    moment = moment_at(x, reactions, loads)
+    if moment > max_moment:
+      max_moment = moment
+      max_x = x
+    i = i + 1
+
+  return {"reactions": reactions, "max_moment": max_moment, "max_x": max_x}
+
+loads = [
+  {"force": 10, "x": 2},
+  {"force": 6, "x": 7}
+]
+
+result = sample_beam(10, loads, 20)
+say "beam reactions:", round(result.reactions.left, 2), round(result.reactions.right, 2)
+say "max moment:", round(result.max_moment, 2), "at", round(result.max_x, 2)
+say "shear mid:", round(shear_at(5, result.reactions, loads), 2)

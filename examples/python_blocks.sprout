@@ -1,0 +1,27 @@
+def fib(n):
+  if n <= 1:
+    return n
+  return fib(n - 1) + fib(n - 2)
+
+class Counter:
+  def init(self, start=0):
+    self.value = start
+
+  def tick(self):
+    self.value = self.value + 1
+    return self.value
+
+values = []
+for i in range(7):
+  values.append(fib(i))
+
+counter = Counter(3)
+while counter.value < 5:
+  counter.tick()
+
+try:
+  ensure(counter.value == 5, "counter failed")
+catch err:
+  say "bad:", err
+
+say "python blocks:", values, counter.value

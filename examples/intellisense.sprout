@@ -1,0 +1,21 @@
+## Player object for editor intelligence tests.
+class Player:
+  ## Create a player.
+  def init(self, name, hp=10):
+    self.name = name
+    self.hp = hp
+
+  ## Damage the player.
+  def hurt(self, amount):
+    self.hp = self.hp - amount
+    return self.hp
+
+## Create a named player.
+def spawn(name, hp=10):
+  return Player(name, hp)
+
+player = Player("Mina")
+score = 0
+
+player.hurt(2)
+say player.name, player.hp, score

@@ -1,0 +1,21 @@
+path = "/tmp/sprout_fileio_demo.txt"
+dir = "/tmp/sprout_fileio_demo"
+json_path = joinpath(dir, "save.json")
+
+writefile(path, "seed")
+appendfile(path, "\nleaf")
+
+if exists(path) {
+  text = readfile(path)
+  say "file exists:", exists(path)
+  say "is file:", isfile(path)
+  say "file lines:", lines(text)
+}
+
+mkdir(dir)
+writejson(json_path, {"name": "Mina", "hp": 10, "items": ["seed", "leaf"]})
+save = readjson(json_path)
+
+say "dir exists:", isdir(dir)
+say "dir listing:", listdir(dir)
+say "json save:", save.name, save.hp, save.items.join("/")

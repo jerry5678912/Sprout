@@ -1,0 +1,14 @@
+[project]
+name = "sprout_story_app"
+version = "0.1.0"
+main = "src/main.sprout"
+authors = []
+description = "Dogfood multi-file project using a local package dependency."
+license = "MIT"
+
+[paths]
+source = ["src"]
+modules = ["modules"]
+
+[dependencies]
+textforge = { path = "packages/textforge", version = "0.1.0" }

@@ -1,0 +1,2 @@
+name = "Sprout"
+say "hello", name

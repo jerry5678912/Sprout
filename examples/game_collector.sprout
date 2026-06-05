@@ -1,0 +1,132 @@
+# Simple 2D Collector Game in Sprout
+# Move around and collect items to increase your score
+
+import "modules/geom2d.sprout" as g2d
+import "modules/canvas2d.sprout" as c2d
+
+# Game constants
+GAME_WIDTH = 30
+GAME_HEIGHT = 12
+PLAYER_SYMBOL = "@"
+ITEM_SYMBOL = "*"
+WALL_SYMBOL = "#"
+
+# Initialize game state
+game = {
+  "player": g2d.vec2(5, 5),
+  "items": [],
+  "score": 0,
+  "running": true
+}
+
+# Spawn initial items
+def spawn_items() {
+  game.items = []
+  for i in range(5) {
+    x = randint(2, GAME_WIDTH - 3)
+    y = randint(2, GAME_HEIGHT - 3)
+    game.items.append(g2d.vec2(x, y))
+  }
+}
+
+# Check collision with items
+def check_item_collection() {
+  collected = []
+  for item in game.items {
+    if game.player.x == item.x and game.player.y == item.y {
+      game.score = game.score + 1
+      collected.append(item)
+      
+      # Spawn new item elsewhere
+      x = randint(2, GAME_WIDTH - 3)
+      y = randint(2, GAME_HEIGHT - 3)
+      game.items.append(g2d.vec2(x, y))
+    }
+  }
+  
+  # Remove collected items
+  for item in collected {
+    remove(game.items, item)
+  }
+}
+
+# Handle player movement
+def move_player(direction) {
+  new_x = game.player.x
+  new_y = game.player.y
+  
+  if direction == "up" {
+    new_y = new_y - 1
+  } elif direction == "down" {
+    new_y = new_y + 1
+  } elif direction == "left" {
+    new_x = new_x - 1
+  } elif direction == "right" {
+    new_x = new_x + 1
+  }
+  
+  # Boundary check
+  if new_x > 1 and new_x < GAME_WIDTH - 2 and new_y > 1 and new_y < GAME_HEIGHT - 2 {
+    game.player.x = new_x
+    game.player.y = new_y
+  }
+}
+
+# Render game to canvas
+def render_game() {
+  canvas = c2d.make_canvas(GAME_WIDTH, GAME_HEIGHT, " ")
+  
+  # Draw border
+  border_rect = g2d.rect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+  c2d.stroke_rect(canvas, border_rect, WALL_SYMBOL)
+  
+  # Draw player
+  c2d.plot(canvas, game.player.x, game.player.y, PLAYER_SYMBOL)
+  
+  # Draw items
+  for item in game.items {
+    c2d.plot(canvas, item.x, item.y, ITEM_SYMBOL)
+  }
+  
+  # Convert to text and print
+  frame_text = c2d.frame_to_text(canvas)
+  clear()
+  say frame_text
+  say "Score:", game.score, " | Controls: W/A/S/D or arrow keys | Q to quit"
+}
+
+# Main game loop
+def game_loop() {
+  spawn_items()
+  
+  whirl game.running {
+    render_game()
+    
+    move_input = ask("Move (W/A/S/D/Q): ")
+    move_input = lower(move_input)
+    
+    if move_input == "w" or move_input == "up" {
+      move_player("up")
+    } elif move_input == "s" or move_input == "down" {
+      move_player("down")
+    } elif move_input == "a" or move_input == "left" {
+      move_player("left")
+    } elif move_input == "d" or move_input == "right" {
+      move_player("right")
+    } elif move_input == "q" {
+      game.running = false
+    }
+    
+    check_item_collection()
+  }
+  
+  clear()
+  say sparkle("Game Over!")
+  say "Final Score:", game.score
+}
+
+# Start the game
+say sparkle("Welcome to Sprout Collector!")
+say "Collect items to increase your score!"
+sleep(1)
+game_loop()

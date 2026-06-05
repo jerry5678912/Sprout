@@ -1,0 +1,42 @@
+class Hero {
+  def init(self, name, x, y) {
+    self.name = name
+    self.x = x
+    self.y = y
+    self.hp = 10
+    self.bag = []
+  }
+
+  def move(self, direction) {
+    if direction == "north" {
+      self.y = wrap(self.y - 1, 0, 4)
+    } elif direction == "south" {
+      self.y = wrap(self.y + 1, 0, 4)
+    } elif direction == "west" {
+      self.x = wrap(self.x - 1, 0, 9)
+    } else {
+      self.x = wrap(self.x + 1, 0, 9)
+    }
+  }
+
+  def hurt(self, amount) {
+    self.hp = clamp(self.hp - amount, 0, 10)
+  }
+
+  def grab(self, item) {
+    self.bag.append(item)
+  }
+
+  def status(self) {
+    return self.name + " @(" + str(self.x) + "," + str(self.y) + ") hp=" + str(self.hp) + " bag=" + self.bag.join("/")
+  }
+}
+
+hero = Hero("Mina", 5, 2)
+hero.move("east")
+hero.move("north")
+hero.hurt(3)
+hero.grab("key")
+
+say type(Hero), type(hero)
+say hero.status()

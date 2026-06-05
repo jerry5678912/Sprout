@@ -1,0 +1,50 @@
+def debug(label, *values) {
+  return label + ": " + values.join(" | ")
+}
+
+def total(*scores) {
+  out = 0
+  for score in scores {
+    out = out + score
+  }
+  return out
+}
+
+def loot(name="chest", *items) {
+  return name + " -> " + items.join(",")
+}
+
+def entity(kind, **opts) {
+  return kind + " hp=" + str(opts.hp) + " speed=" + str(opts.speed)
+}
+
+def command(name, *args, **opts) {
+  return name + " args=" + args.join("/") + " mode=" + opts.mode
+}
+
+def spawn(name, x=0, y=0, **opts) {
+  return name + " @(" + str(x) + "," + str(y) + ") hp=" + str(opts.hp) + " team=" + opts.team
+}
+
+def forward_spawn(name, *args, **opts) {
+  return spawn(name, *args, **opts)
+}
+
+class Logbook {
+  def line(self, tag, *parts) {
+    return "[" + tag + "] " + parts.join(" ")
+  }
+}
+
+say debug("player", "Mina", "hp", 13, "zone", "lab")
+say "total:", total(2, 4, 6, 8)
+say loot("crate", "gear", "cell", "key")
+say loot()
+say entity("drone", hp=6, speed=3)
+say command("move", "north", "fast", mode="debug", repeat=2)
+pos = [4, 9]
+opts = {"hp": 12, "team": "blue"}
+say spawn("bot", *pos, **opts)
+say forward_spawn("scout", *[1, 2], **{"hp": 5, "team": "green"})
+book = Logbook()
+say book.line("quest", *["open", "gate", 3])

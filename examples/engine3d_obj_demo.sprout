@@ -1,0 +1,11 @@
+import "modules/engine3d.sprout" as s3d
+
+cam = s3d.camera(s3d.vec3(0, 0, 0), fov=24)
+model = s3d.load_obj("data/pyramid.obj")
+model = s3d.rotate_mesh(model, ax=radians(10), ay=radians(25), az=radians(0))
+model = s3d.translate_mesh(model, s3d.vec3(0, 0, 7))
+light = s3d.normalize(s3d.vec3(0 - 1, 1, 0 - 1))
+
+frame = s3d.render_solid(model, cam, width=56, height=24, light_dir=light)
+say s3d.frame_to_text(frame)
+say "obj vertices:", len(model.vertices), "faces:", len(model.faces), "edges:", len(model.edges)

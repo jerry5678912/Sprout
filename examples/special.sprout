@@ -1,0 +1,30 @@
+say sparkle("welcome to Sprout")
+
+say shout("tiny language, big garden")
+say whisper("LOUD IDEAS")
+say mirror("desserts")
+say chant("ha", 3)
+
+names = ["Ada", "Lin", "Ada", "Mina", "Lin", "Ada"]
+grow(names, "Kai")
+say "first:", first(names)
+say "last:", last(names)
+say "rest:", rest(names)
+say "unique:", unique(names)
+say "counts:", countby(names)
+say "woven:", weave(unique(names), " + ")
+say "sprinkled:", sprinkle(["sun", "rain", "soil"], " -> ").join("")
+
+scores = zipbud(["Ada", "Lin", "Mina"], [98, 84, 91])
+plant(scores, "Kai", 77)
+say "scores:", scores
+say "bundled:", bundle(["x", "y"], [4, 9])
+
+bag = ["seed", "leaf", "seed", "stone"]
+say "harvest:", harvest(bag)
+say "pruned:", prune(bag, "seed")
+
+roll = dice(6)
+if roll in [1, 2, 3, 4, 5, 6] {
+  say "dice is alive:", roll
+}

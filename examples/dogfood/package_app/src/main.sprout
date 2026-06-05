@@ -1,0 +1,8 @@
+import "textforge.sprout" as textforge
+
+title = textforge.title("sprout dogfood report")
+bullets = textforge.bullets(["cli", "game", "math", "python", "package"])
+
+say title
+say bullets
+say textforge.slug("Local Package Works")

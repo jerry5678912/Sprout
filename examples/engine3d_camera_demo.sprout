@@ -1,0 +1,23 @@
+import "modules/engine3d.sprout" as s3d
+
+target = s3d.vec3(0, 0, 7)
+cam = s3d.look_at_camera(
+  s3d.vec3(4, 3, 0),
+  target,
+  fov=26
+)
+
+shape = s3d.cube(size=2.4)
+shape = s3d.rotate_mesh(shape, ax=radians(18), ay=radians(30), az=radians(8))
+shape = s3d.translate_mesh(shape, target)
+
+frame = s3d.render_wireframe(shape, cam, width=56, height=24, char="+")
+say s3d.frame_to_text(frame)
+
+p = s3d.world_to_camera(target, cam)
+orbit = s3d.orbit_camera(target, radius=8, yaw=radians(210), pitch=radians(18), fov=22)
+op = s3d.world_to_camera(target, orbit)
+
+say "camera forward z:", round(p.z)
+say "orbit forward z:", round(op.z)
+say "camera oriented:", has(cam, "forward"), has(orbit, "right")

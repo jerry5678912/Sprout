@@ -1,0 +1,31 @@
+name = "global"
+
+def local_name() {
+  name = "local"
+  return name
+}
+
+def parse_index(token) {
+  parts = token.split("/")
+  return int(parts[0])
+}
+
+def keep_my_parts() {
+  parts = ["caller", "safe", "still here"]
+  value = parse_index("7/2/1")
+  return [parts[1], value]
+}
+
+i = 0
+while i < 3 {
+  i = i + 1
+}
+
+if true {
+  block_value = "visible"
+}
+
+say "function scope:", local_name(), name
+say "caller local:", keep_my_parts()
+say "loop update:", i
+say "block assignment:", block_value

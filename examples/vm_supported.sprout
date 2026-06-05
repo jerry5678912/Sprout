@@ -1,0 +1,20 @@
+def square(n):
+  return n * n
+
+values = [1, 2, 3, 4]
+total = 0
+
+for value in values:
+  total = total + square(value)
+
+info = {"total": total, "ok": total > 20}
+
+if info["ok"]:
+  say "vm total", info["total"]
+else:
+  say "vm failed"
+
+i = 0
+while i < 3:
+  say "loop", i
+  i = i + 1

@@ -1,0 +1,34 @@
+def spawn(name, hp=10, x=0, y=0) {
+  return {"name": name, "hp": hp, "x": x, "y": y}
+}
+
+class Deck {
+  def init(self, cards=["seed", "leaf", "bloom", "fruit"]) {
+    self.cards = cards
+  }
+
+  def draw(self, count=1) {
+    hand = self.cards[0:count]
+    self.cards[0:count] = []
+    return hand
+  }
+}
+
+hero = spawn("Mina")
+boss = spawn("Rootlord", 20, 5, 2)
+
+say "hero:", hero
+say "boss:", boss
+
+letters = "sprout"
+say "word pieces:", letters[0:3], letters[3:], letters[:2]
+
+items = ["a", "b", "c", "d", "e"]
+say "middle:", items[1:4]
+items[1:4] = ["X", "Y"]
+say "patched:", items
+
+deck = Deck()
+say "draw one:", deck.draw()
+say "draw two:", deck.draw(2)
+say "left:", deck.cards

@@ -1,0 +1,15 @@
+def load_config(path) {
+  text = readfile(path)
+  return text
+}
+
+def boot_game(name) {
+  say "booting", name
+  return load_config("data/missing_config.txt")
+}
+
+def main() {
+  return boot_game("Sprout Quest")
+}
+
+main()

@@ -1,0 +1,10 @@
+import "modules/starbloom3d.sprout" as star
+
+cam = star.camera(star.vec3(0, 0, -6), fov=20)
+shape = star.cube(size=2.4)
+shape = star.rotate_mesh(shape, ax=radians(20), ay=radians(35), az=radians(5))
+shape = star.translate_mesh(shape, star.vec3(0, 0, 7))
+
+frame = star.render_wireframe(shape, cam, width=42, height=18, char="*")
+say "StarBloom3D"
+say star.frame_to_text(frame)

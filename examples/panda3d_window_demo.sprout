@@ -1,0 +1,11 @@
+import "modules/panda3d_window.sprout" as p3d
+
+if not p3d.available() {
+  say "PandaWindow3D unavailable: install Panda3D with python3 -m pip install panda3d"
+} else {
+  world = p3d.window("Sprout PandaWindow3D")
+  cube = p3d.load_model(world, "models/box")
+  p3d.place(cube, 0, 6, 0)
+  p3d.scale(cube, 1.5)
+  p3d.run(world)
+}

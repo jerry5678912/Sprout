@@ -1,0 +1,19 @@
+class Base {
+  def ok(self) {
+    return "ok"
+  }
+}
+
+class Child extends Base {
+  def missing(self) {
+    return super.nope()
+  }
+}
+
+thing = Child()
+
+try {
+  thing.missing()
+} catch err {
+  say "super error:", err
+}

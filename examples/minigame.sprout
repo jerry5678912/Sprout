@@ -1,0 +1,28 @@
+# Tiny terminal game simulation: a sprite walks around a wrapping 10x5 map.
+
+player = {"x": 5, "y": 2, "hp": 10}
+treasure = {"x": dice(10) - 1, "y": dice(5) - 1}
+moves = ["north", "east", "south", "west"]
+
+def step(hero, move) {
+  if move == "north" {
+    hero.y = wrap(hero.y - 1, 0, 4)
+  } elif move == "south" {
+    hero.y = wrap(hero.y + 1, 0, 4)
+  } elif move == "west" {
+    hero.x = wrap(hero.x - 1, 0, 9)
+  } else {
+    hero.x = wrap(hero.x + 1, 0, 9)
+  }
+  return hero
+}
+
+turn = 0
+while turn < 6 {
+  move = choose(moves)
+  step(player, move)
+  gap = dist(player.x, player.y, treasure.x, treasure.y)
+  player.hp = clamp(player.hp - 1, 0, 10)
+  say "turn", turn, move, "pos", player.x, player.y, "gap", int(gap), "hp", player.hp
+  turn = turn + 1
+}

@@ -1,0 +1,9 @@
+let numbers = range(5);
+push(numbers, 8);
+numbers[1] = 42;
+
+let i = 0;
+while i < len(numbers) {
+  print("item", i, "=", numbers[i]);
+  i = i + 1;
+}

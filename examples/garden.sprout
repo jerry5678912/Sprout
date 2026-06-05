@@ -1,0 +1,35 @@
+# Sprout can be Python-ish, but with garden words.
+
+bloom cheer(name, mood) {
+  pluck name + " feels " + mood
+}
+
+sprout crew = ["Ada", "Lin", "Sam"]
+crew.append("Mina")
+
+sprout moods = {
+  "Ada": "electric",
+  "Lin": "steady",
+  "Sam": "curious",
+  "Mina": "bright"
+}
+
+say "Garden roll call:"
+for name in crew {
+  if moods.has(name) {
+    say cheer(name, moods[name])
+  } else {
+    say name + " is mysterious"
+  }
+}
+
+sprout squares = []
+each n in range(6) {
+  if n == 2 {
+    continue
+  }
+  squares.append(n * n)
+}
+
+say "squares:", squares
+say "mood keys:", moods.keys().join(", ")
