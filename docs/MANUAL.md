@@ -18,7 +18,20 @@ From the Sprout folder:
 python3 sprout.py examples/fibonacci.sprout
 ```
 
-Install the `sprout` command:
+Install the public `sprout-language` package from PyPI:
+
+```sh
+python3 -m pip install sprout-language
+sprout version
+```
+
+For an isolated command-line installation:
+
+```sh
+pipx install sprout-language
+```
+
+From a cloned or extracted Sprout source release, you can instead run:
 
 ```sh
 python3 install.py
@@ -2300,7 +2313,26 @@ The generated directory includes Unix and Windows launchers plus an exact SHA-25
 
 ## 32. Installing And Releasing Sprout
 
-Install Sprout from a checkout or extracted release:
+Install the public package from PyPI:
+
+```sh
+python3 -m pip install sprout-language
+sprout version
+```
+
+The release page is:
+
+```text
+https://pypi.org/project/sprout-language/
+```
+
+For an isolated command installation, use:
+
+```sh
+pipx install sprout-language
+```
+
+Install Sprout from a checkout or extracted source release for development:
 
 ```sh
 python3 -m pip install .
@@ -2311,10 +2343,6 @@ python3 install.py
 python3 install.py --prefix /custom/prefix
 python3 install.py --force
 ```
-
-For an isolated command installation, use `pipx install .`. After the
-`sprout-language` distribution is published on PyPI, users can install it with
-`pipx install sprout-language`.
 
 The installer copies the runtime and supporting files under the prefix and creates a `sprout` launcher under its `bin` directory. The equivalent CLI commands are:
 

@@ -3,7 +3,7 @@
   "displayName": "Sprout Language",
   "description": "Syntax highlighting, snippets, completions, and editor basics for the Sprout programming language.",
   "version": "0.3.0",
-  "publisher": "local-sprout",
+  "publisher": "jerry5678912",
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:sprout",
