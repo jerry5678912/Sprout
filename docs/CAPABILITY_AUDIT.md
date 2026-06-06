@@ -19,7 +19,7 @@ The largest remaining foundations are reliable installation and releases, comple
 | Classes, instances, single inheritance, and `super` | Exists |
 | Exceptions, Sprout modules, and Python interop | Exists |
 | Stable tree-walk interpreter | Exists |
-| Bytecode VM | Experimental and incomplete |
+| Bytecode VM | Experimental with broad parser-level coverage |
 | Terminal debugger and profiler | Partial |
 | Formatter, linter, semantic analysis, and IntelliSense | Exists |
 | Stdio language server | Foundation |
@@ -38,7 +38,7 @@ The largest remaining foundations are reliable installation and releases, comple
 
 The runtime exposes 175 callable global functions and 15 built-in dot methods. Major groups cover core values and I/O, collections, strings, dictionaries, files and JSON, math and statistics, random and time, testing, tasks, HTTP, SQLite, engineering, games, and graphics.
 
-The VM supports common expressions, variables, assignments, collections, calls, functions, loops, classes, methods, imports, Python interop, and exceptions. It does not yet support every interpreter feature, including `super`, slices, and Sprout test declarations.
+The VM supports common expressions, variables, assignments, collections, calls, functions, loops, classes, methods, imports, Python interop, exceptions, `seedfn`, slices, slice assignment, inheritance, and `super`. Test declarations are accepted as ordinary-execution no-ops. Imported Sprout module bodies and the dedicated test runner still use stable interpreter infrastructure.
 
 Tooling includes JSON diagnostics, safe formatting, practical lint warnings, semantic completions, hover, definition, references, rename, signature help, document symbols, semantic highlighting, and a stdio LSP foundation.
 

@@ -135,13 +135,16 @@ def main(argv: list[str]) -> int:
             result = benchmark_file(argv[2], repeat=repeat)
             print(f"path: {result['path']}")
             print(f"repeat: {result['repeat']}")
+            print(f"compile: {result['compile_seconds']:.6f}s")
             print(f"tree-walk: {result['tree_walk_seconds']:.6f}s")
             if result["vm_seconds"] is None:
                 print(f"vm: unsupported ({result['vm_unsupported']})")
             else:
                 print(f"vm: {result['vm_seconds']:.6f}s")
                 print(f"ratio tree/vm: {result['speed_ratio']:.3f}x")
+                print(f"vm instructions: {result['vm_instruction_count']}")
             print(f"vm supported: {str(result['vm_supported']).lower()}")
+            print(f"fallback used: {str(result['fallback_used']).lower()}")
         elif argv[1] == "debug":
             if len(argv) < 3:
                 print("usage: sprout.py debug FILE.sprout [--break LINE|FILE:LINE]", file=sys.stderr)

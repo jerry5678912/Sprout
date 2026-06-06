@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import contextlib
 import io
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -116,25 +117,80 @@ class VMInstance:
 
 
 class Compiler:
-    def __init__(self, source_path: str | None = None):
+    def __init__(self, source_path: str | None = None, source: str | None = None):
         self.source_path = source_path
         self.code = CodeObject("<module>", source_path=source_path)
         self.loop_stack: list[tuple[list[int], list[int]]] = []
+        self.source_lines = (source or "").splitlines()
+        self.scan_line = 0
+        self.current_line: int | None = None
+        self.current_col: int | None = None
 
     def compile(self, program: list[Any]) -> CodeObject:
         for stmt in program:
             self.statement(stmt)
+        if self.current_line is None and self.source_lines:
+            self.current_line = len(self.source_lines)
+            self.current_col = 1
         self.emit("HALT")
         return self.code
 
     def emit(self, op: str, arg: Any = None, line: int | None = None, col: int | None = None) -> int:
-        self.code.instructions.append(Instruction(op, arg, line, col, self.source_path, self.code.name))
+        self.code.instructions.append(
+            Instruction(
+                op,
+                arg,
+                line if line is not None else self.current_line,
+                col if col is not None else self.current_col,
+                self.source_path,
+                self.code.name,
+            )
+        )
         return len(self.code.instructions) - 1
 
     def patch(self, index: int, target: int) -> None:
         self.code.instructions[index].arg = target
 
+    def locate_statement(self, stmt: Any) -> tuple[int | None, int | None]:
+        kind = stmt[0]
+        if kind == "fn":
+            self.scan_line = max(self.scan_line, stmt[4])
+            return stmt[4], stmt[5]
+        if kind == "test":
+            self.scan_line = max(self.scan_line, stmt[3])
+            return stmt[3], stmt[4]
+        patterns = {
+            "let": rf"^\s*(?:let|sprout)\s+{re.escape(str(stmt[1]))}\b",
+            "import": r"^\s*import\b",
+            "importpython": r"^\s*importpython\b",
+            "class": rf"^\s*class\s+{re.escape(str(stmt[1]))}\b",
+            "if": r"^\s*(?:if|elif|else\s+if)\b",
+            "while": r"^\s*(?:while|whirl)\b",
+            "for": r"^\s*(?:for|each)\b",
+            "try": r"^\s*try\b",
+            "raise": r"^\s*raise\b",
+            "return": r"^\s*(?:return|pluck)\b",
+            "break": r"^\s*break\b",
+            "continue": r"^\s*continue\b",
+            "say": r"^\s*say\b",
+            "assign": r"^\s*[A-Za-z_][A-Za-z0-9_.\[\]:]*\s*=",
+            "expr": r"^\s*\S",
+        }
+        pattern = patterns.get(kind)
+        if not pattern:
+            return self.current_line, self.current_col
+        for index in range(self.scan_line, len(self.source_lines)):
+            line = self.source_lines[index]
+            if re.search(pattern, line):
+                self.scan_line = index + 1
+                return index + 1, len(line) - len(line.lstrip()) + 1
+        if self.scan_line:
+            return self.scan_line, 1
+        return self.current_line, self.current_col
+
     def statement(self, stmt: Any) -> None:
+        previous_location = self.current_line, self.current_col
+        self.current_line, self.current_col = self.locate_statement(stmt)
         kind = stmt[0]
         if kind == "let":
             self.expression(stmt[2])
@@ -151,6 +207,12 @@ class Compiler:
             self.expression(stmt[1][2])
             self.expression(stmt[2])
             self.emit("SET_INDEX")
+        elif kind == "assign" and stmt[1][0] == "slice":
+            self.expression(stmt[1][1])
+            self.emit("LOAD_CONST", None) if stmt[1][2] is None else self.expression(stmt[1][2])
+            self.emit("LOAD_CONST", None) if stmt[1][3] is None else self.expression(stmt[1][3])
+            self.expression(stmt[2])
+            self.emit("SET_SLICE")
         elif kind == "import":
             self.emit("IMPORT_SPROUT", (stmt[1], stmt[2]))
             self.emit("STORE_NAME", stmt[2])
@@ -158,7 +220,7 @@ class Compiler:
             self.emit("IMPORT_PYTHON", stmt[1])
             self.emit("STORE_NAME", stmt[2])
         elif kind == "test":
-            raise BytecodeUnsupported("test declarations")
+            pass
         elif kind == "say":
             for expr in stmt[1]:
                 self.expression(expr)
@@ -231,10 +293,13 @@ class Compiler:
             params = stmt[2]
             child = Compiler(self.source_path)
             child.code = CodeObject(stmt[1], params=params, source_path=self.source_path)
+            child.source_lines = self.source_lines
+            child.scan_line = self.scan_line
             for body_stmt in stmt[3]:
                 child.statement(body_stmt)
-            child.emit("LOAD_CONST", None)
-            child.emit("RETURN")
+            self.scan_line = child.scan_line
+            child.emit("LOAD_CONST", None, stmt[4], stmt[5])
+            child.emit("RETURN", None, stmt[4], stmt[5])
             self.emit("MAKE_FUNCTION", (stmt[1], child.code))
             self.emit("STORE_NAME", stmt[1])
         elif kind == "class":
@@ -247,10 +312,13 @@ class Compiler:
             for method in stmt[3]:
                 child = Compiler(self.source_path)
                 child.code = CodeObject(f"{stmt[1]}.{method[1]}", params=method[2], source_path=self.source_path)
+                child.source_lines = self.source_lines
+                child.scan_line = max(self.scan_line, method[4])
                 for body_stmt in method[3]:
                     child.statement(body_stmt)
-                child.emit("LOAD_CONST", None)
-                child.emit("RETURN")
+                self.scan_line = child.scan_line
+                child.emit("LOAD_CONST", None, method[4], method[5])
+                child.emit("RETURN", None, method[4], method[5])
                 method_codes.append((method[1], child.code))
             self.emit("MAKE_CLASS", (stmt[1], method_codes))
             self.emit("STORE_NAME", stmt[1])
@@ -276,6 +344,7 @@ class Compiler:
             self.emit("RETURN")
         else:
             raise BytecodeUnsupported(f"Statement '{kind}' is not supported by the experimental VM yet")
+        self.current_line, self.current_col = previous_location
 
     def expression(self, expr: Any) -> None:
         kind = expr[0]
@@ -292,6 +361,18 @@ class Compiler:
                 self.expression(key)
                 self.expression(value)
             self.emit("BUILD_DICT", len(expr[1]))
+        elif kind == "seedfn":
+            child = Compiler(self.source_path)
+            child.code = CodeObject("<seedfn>", params=expr[1], source_path=self.source_path)
+            child.source_lines = self.source_lines
+            child.scan_line = max(self.scan_line, expr[3])
+            child.current_line = expr[3]
+            child.current_col = expr[4]
+            for body_stmt in expr[2]:
+                child.statement(body_stmt)
+            child.emit("LOAD_CONST", None)
+            child.emit("RETURN")
+            self.emit("MAKE_FUNCTION", ("<seedfn>", child.code), expr[3], expr[4])
         elif kind == "unary":
             self.expression(expr[2])
             self.emit("UNARY", expr[1])
@@ -310,6 +391,11 @@ class Compiler:
             self.expression(expr[1])
             self.expression(expr[2])
             self.emit("GET_INDEX")
+        elif kind == "slice":
+            self.expression(expr[1])
+            self.emit("LOAD_CONST", None) if expr[2] is None else self.expression(expr[2])
+            self.emit("LOAD_CONST", None) if expr[3] is None else self.expression(expr[3])
+            self.emit("GET_SLICE")
         elif kind == "get":
             self.expression(expr[1])
             self.emit("GET_PROPERTY", expr[2])
@@ -325,7 +411,7 @@ class Compiler:
                 self.emit("UPDATE_KWARGS" if part[0] == "spread" else "SET_KWARG", None if part[0] == "spread" else part[1])
             self.emit("CALL_EX", None, expr[4], expr[5])
         elif kind == "super":
-            raise BytecodeUnsupported("super is not supported by the experimental VM yet")
+            self.emit("LOAD_SUPER_METHOD", expr[1])
         else:
             raise BytecodeUnsupported(f"Expression '{kind}' is not supported by the experimental VM yet")
 
@@ -391,7 +477,11 @@ class BytecodeVM:
         except SproutError as exc:
             instr = instructions[self.ip - 1] if instructions and self.ip else None
             if instr and instr.source and instr.line:
-                exc.add_frame(f"vm at {self.location_label(instr)}")
+                location = self.location_label(instr)
+                if code.name == "<module>":
+                    exc.add_frame(f"called at {location}")
+                else:
+                    exc.add_frame(f"at {code.name} ({location})")
             raise
         finally:
             self.stack = previous_stack
@@ -475,6 +565,15 @@ class BytecodeVM:
             index = self.pop()
             obj = self.pop()
             self.stack.append(obj[int(index)] if isinstance(obj, list) else obj[index])
+        elif op == "GET_SLICE":
+            end = self.pop()
+            start = self.pop()
+            obj = self.pop()
+            if not isinstance(obj, (list, str)):
+                raise SproutError("Slice expects an array or string")
+            start_value = None if start is None else int(start)
+            end_value = None if end is None else int(end)
+            self.stack.append(obj[start_value:end_value])
         elif op == "GET_PROPERTY":
             obj = self.pop()
             self.stack.append(obj.get(instr.arg) if isinstance(obj, VMInstance) else self.interpreter.get_property(obj, instr.arg))
@@ -498,6 +597,19 @@ class BytecodeVM:
                 obj[index] = value
             else:
                 raise SproutError("Index assignment expects an array or dictionary")
+            self.stack.append(value)
+        elif op == "SET_SLICE":
+            value = self.pop()
+            end = self.pop()
+            start = self.pop()
+            obj = self.pop()
+            if not isinstance(obj, list):
+                raise SproutError("Slice assignment expects an array")
+            if not isinstance(value, list):
+                raise SproutError("Slice assignment value must be an array")
+            start_value = None if start is None else int(start)
+            end_value = None if end is None else int(end)
+            obj[start_value:end_value] = value
             self.stack.append(value)
         elif op == "UNARY":
             value = self.pop()
@@ -530,8 +642,26 @@ class BytecodeVM:
             superclass = self.pop()
             if superclass is not None and not isinstance(superclass, VMClass):
                 raise SproutError(f"Superclass '{superclass}' must be a VM class")
-            methods = {method_name: VMFunction(method_name, method_code, env) for method_name, method_code in method_codes}
+            method_env = env
+            if superclass is not None:
+                method_env = Env(env)
+                method_env.define("super", superclass)
+            methods = {
+                method_name: VMFunction(method_name, method_code, method_env)
+                for method_name, method_code in method_codes
+            }
             self.stack.append(VMClass(name, methods, superclass))
+        elif op == "LOAD_SUPER_METHOD":
+            superclass = env.get("super")
+            instance = env.get("self")
+            if not isinstance(superclass, VMClass):
+                raise SproutError("super is only available inside subclasses")
+            if not isinstance(instance, VMInstance):
+                raise SproutError("super needs a current instance")
+            method = superclass.find_method(instr.arg)
+            if not method:
+                raise SproutError(f"Superclass {superclass.name} has no method '{instr.arg}'")
+            self.stack.append(VMBoundMethod(method, instance))
         elif op == "IMPORT_SPROUT":
             path, alias = instr.arg
             self.stack.append(self.interpreter.import_sprout(path, alias))
@@ -605,6 +735,14 @@ class BytecodeVM:
 def call_value(vm: BytecodeVM, callee: Any, args: list[Any], kwargs: dict[str, Any]) -> Any:
     if isinstance(callee, (VMFunction, VMClass, VMBoundMethod)):
         return callee.call(vm, args, kwargs)
+    if isinstance(callee, Builtin) and callee.name == "type" and len(args) == 1 and not kwargs:
+        value = args[0]
+        if isinstance(value, VMClass):
+            return "class"
+        if isinstance(value, VMInstance):
+            return value.klass.name
+        if isinstance(value, (VMFunction, VMBoundMethod)):
+            return "function"
     if isinstance(callee, (Builtin, NativeMethod)) or hasattr(callee, "call"):
         return callee.call(vm.interpreter, args, kwargs)
     raise SproutError("Can only call functions")
@@ -641,7 +779,7 @@ def evaluate_binary_value(op: str, left: Any, right: Any) -> Any:
 
 
 def compile_source(source: str, source_path: str | None = None) -> CodeObject:
-    return Compiler(source_path).compile(parse_source(source))
+    return Compiler(source_path, source).compile(parse_source(source))
 
 
 def compile_file(path: str) -> CodeObject:
@@ -653,7 +791,8 @@ def disassemble(code: CodeObject) -> str:
     lines = [f"== {code.name} =="]
     for index, instr in enumerate(code.instructions):
         arg = "" if instr.arg is None else f" {format_arg(instr.arg)}"
-        lines.append(f"{index:04d} {instr.op}{arg}")
+        location = f" ; {instr.source}:{instr.line}:{instr.col}" if instr.source and instr.line else ""
+        lines.append(f"{index:04d} {instr.op}{arg}{location}")
         if instr.op == "MAKE_FUNCTION":
             _name, child = instr.arg
             lines.append(indent(disassemble(child)))
@@ -734,10 +873,14 @@ def benchmark_file(path: str, args: list[str] | None = None, repeat: int = 1) ->
     source, resolved = read_source_file(path)
     compile_error = None
     code = None
+    compile_seconds = None
+    compile_started = time.perf_counter()
     try:
         code = compile_source(source, resolved)
     except BytecodeUnsupported as exc:
         compile_error = str(exc)
+    finally:
+        compile_seconds = time.perf_counter() - compile_started
 
     start = time.perf_counter()
     with contextlib.redirect_stdout(io.StringIO()):
@@ -746,20 +889,28 @@ def benchmark_file(path: str, args: list[str] | None = None, repeat: int = 1) ->
     tree_time = time.perf_counter() - start
 
     vm_time = None
+    vm_instruction_count = None
     if code is not None:
         start = time.perf_counter()
+        instruction_count = 0
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(repeat):
-                BytecodeVM(resolved, argv=args or []).run(code)
+                vm = BytecodeVM(resolved, argv=args or [])
+                vm.run(code)
+                instruction_count += vm.instruction_count
         vm_time = time.perf_counter() - start
+        vm_instruction_count = instruction_count
 
     ratio = None if vm_time in (None, 0) else tree_time / vm_time
     return {
         "path": resolved,
         "repeat": repeat,
+        "compile_seconds": compile_seconds,
         "tree_walk_seconds": tree_time,
         "vm_seconds": vm_time,
+        "vm_instruction_count": vm_instruction_count,
         "speed_ratio": ratio,
         "vm_supported": code is not None,
         "vm_unsupported": compile_error,
+        "fallback_used": False,
     }

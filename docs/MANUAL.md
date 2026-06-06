@@ -1861,7 +1861,11 @@ The current VM supports:
 - `raise`
 - `try` / `catch`
 
-The VM currently does not aim to cover the entire language. `super`, slices, some advanced class cases, and some runtime edge cases still use the tree-walk interpreter or produce a clear experimental unsupported message in `compile` / `dis`.
+The VM now covers the current parser's core statement and expression forms, including `seedfn`, slices, slice assignment, inheritance, and `super`. Test declarations compile as no-ops during ordinary VM execution, just as they do during ordinary interpreter execution; `sprout.py test` remains responsible for discovering and running tests.
+
+Every emitted instruction keeps source file, line, column, and code-object context. The disassembler prints source locations, breakpoints use those locations, and uncaught VM errors report both the failing function location and its call site.
+
+The VM remains experimental. Sprout module imports currently use the stable module loader, advanced Python/native-resource edge cases may still differ, and the VM is not yet consistently faster than the tree-walk interpreter. `bench` reports measured compile time, execution times, instruction count, support state, and fallback state rather than claiming a speedup.
 
 `bench` measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
 
@@ -2237,7 +2241,7 @@ Known limitations:
 - The package registry is local/JSON-backed. HTTP registries are read-only, and there is no hosted Sprout registry, authentication, signing, or trust service yet.
 - There is no static type checker.
 - The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.
-- `test` declarations and native application resources currently run through the stable interpreter, not the experimental VM.
+- The dedicated test runner and imported Sprout module bodies currently use stable interpreter infrastructure even when the calling program uses the VM.
 - Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.
 - The HTTP server is intentionally small and route-based. It is not yet a production web framework.
 - PixelGarden and StarBloom3D are terminal software engines.

@@ -2,6 +2,11 @@
 
 ## 0.3.0
 
+- Expanded VM parity with slices, slice assignment, `seedfn`, inheritance, and `super`.
+- Added parser-level handling for test declarations during ordinary VM execution.
+- Added source locations to bytecode disassembly, debugging, and VM stack traces.
+- Expanded benchmarks with compile time, instruction counts, and explicit fallback reporting.
+- Added VM parity tests for successful and failing inheritance, slicing, and inline functions.
 - Added lexical-scope-aware semantic binding with stable symbol identities.
 - Made references and rename distinguish same-named locals and parameters in different functions.
 - Connected imported module member references to their exported definitions.

@@ -276,7 +276,9 @@ python3 sprout.py run --vm examples/vm_supported.sprout
 python3 sprout.py bench examples/vm_supported.sprout
 ```
 
-The current VM supports literals, variables, assignment, property and index assignment, arithmetic, comparisons, logical operators, arrays, dictionaries, indexing, function calls, keyword arguments, default arguments, variadic arguments, call-site spread, `say`, `if`, `while`, `for`, `break`, `continue`, plain classes/instances/methods, simple inheritance lookup, Sprout imports, Python imports, `raise`, and `try` / `catch`. The default interpreter still handles the full language. Unsupported VM features, such as `super`, either fall back in `run --vm` or report a clear experimental unsupported message in `compile` / `dis`.
+The current VM supports literals, variables, assignment, property/index/slice assignment, arithmetic, comparisons, logical operators, arrays, dictionaries, indexing, slicing, function calls, `seedfn`, keyword arguments, default arguments, variadic arguments, call-site spread, `say`, `if`, `while`, `for`, `break`, `continue`, classes, methods, inheritance, `super`, Sprout imports, Python imports, `raise`, and `try` / `catch`. Test declarations compile as no-ops during ordinary execution, matching the stable interpreter; the dedicated test runner still controls test execution.
+
+Bytecode instructions carry source file, line, column, and function context. `dis`, the terminal debugger, and VM runtime errors expose this information. `bench` reports compile time, interpreter time, VM time, instruction count, support status, and whether fallback was used. The VM is still experimental and is not guaranteed to be faster yet.
 
 `debug` is a terminal debugger foundation. It can stop at source-line breakpoints for bytecode instructions that have source positions, show the current instruction, source line, stack, locals, and continue/step in an interactive terminal. `profile` reports compile time, run time, VM instruction count, and VM function call counts/times.
 
