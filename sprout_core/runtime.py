@@ -39,7 +39,7 @@ from .application import (
     vec_normalize,
     vec_sub,
 )
-from .model import BreakSignal, ContinueSignal, ReturnSignal, SproutError, SproutRaised
+from .model import BreakSignal, ContinueSignal, ReturnSignal, SproutError, SproutRaised, module_file_candidates, resolve_module_file
 from .parser import Parser
 
 class Env:
@@ -1356,18 +1356,13 @@ class Interpreter:
         return path if os.path.isabs(path) else os.path.abspath(os.path.join(self.current_dir, path))
 
     def resolve_module_path(self, path: str) -> str:
-        candidates = [self.resolve_path(path)]
-        if not os.path.isabs(path):
-            candidates.extend(os.path.abspath(os.path.join(base, path)) for base in self.module_search_paths)
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                return candidate
-        return candidates[0]
+        resolved = resolve_module_file(path, self.current_dir, self.module_search_paths)
+        if resolved:
+            return resolved
+        return module_file_candidates(path, self.current_dir, self.module_search_paths)[0]
 
     def import_sprout(self, path: str, alias: str) -> SproutModule:
         resolved = self.resolve_module_path(path)
-        if not resolved.endswith(".sprout"):
-            resolved += ".sprout"
         if resolved in self.module_cache:
             return self.module_cache[resolved]
         try:

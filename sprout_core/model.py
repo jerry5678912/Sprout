@@ -10,6 +10,33 @@ from typing import Any, Callable
 SPROUT_VERSION = "0.3.2"
 
 
+def standard_library_paths() -> list[str]:
+    paths = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "stdlib")]
+    development_modules = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples", "modules")
+    if os.path.isdir(development_modules):
+        paths.append(development_modules)
+    return paths
+
+
+def module_file_candidates(path: str, current_dir: str, search_paths: list[str] | None = None) -> list[str]:
+    roots = [current_dir]
+    roots.extend(search_paths or [])
+    roots.extend(standard_library_paths())
+    bases = [path] if os.path.isabs(path) else [os.path.join(root, path) for root in roots]
+    candidates: list[str] = []
+    for base in bases:
+        variants = [base] if base.endswith(".sprout") else [base, base + ".sprout"]
+        for variant in variants:
+            resolved = os.path.abspath(variant)
+            if resolved not in candidates:
+                candidates.append(resolved)
+    return candidates
+
+
+def resolve_module_file(path: str, current_dir: str, search_paths: list[str] | None = None) -> str | None:
+    return next((candidate for candidate in module_file_candidates(path, current_dir, search_paths) if os.path.isfile(candidate)), None)
+
+
 KEYWORDS = {
     "False",
     "None",

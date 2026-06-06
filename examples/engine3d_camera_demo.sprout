@@ -1,4 +1,4 @@
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 
 target = s3d.vec3(0, 0, 7)
 cam = s3d.look_at_camera(

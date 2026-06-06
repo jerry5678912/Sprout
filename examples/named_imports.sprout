@@ -1,0 +1,9 @@
+import pixelgarden as pix
+import starbloom3d as star
+import gamekit
+
+hero = gamekit.make_player("Mina")
+point = pix.vec2(3, 4)
+shape = star.pyramid()
+
+say "named imports:", hero.name, point.x, len(shape.vertices)

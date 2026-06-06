@@ -1,4 +1,4 @@
-import "modules/pixelgarden.sprout" as pix
+import pixelgarden as pix
 
 canvas = pix.canvas(22, 8, ".")
 pix.stroke_rect(canvas, pix.rect(0, 0, 22, 8), "#")

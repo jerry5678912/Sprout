@@ -1,4 +1,4 @@
-import "modules/starbloom3d.sprout" as star
+import starbloom3d as star
 
 cam = star.look_at_camera(star.vec3(0, 3, -8), star.vec3(0, 0, 7), fov=20)
 world = star.scene(cam, width=48, height=20)

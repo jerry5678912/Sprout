@@ -810,23 +810,40 @@ class Player extends Entity {
 
 ## 16. Modules
 
-Sprout supports native file imports:
+Sprout supports named native imports:
 
 ```sprout
-import "modules/gamekit.sprout" as game
+import gamekit as game
 
 hero = game.make_player("Ada")
 say game.status(hero)
 ```
 
-The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with `_` are private through module property access.
-
-Relative imports are resolved from the current script or module directory.
-
-If no alias is provided, Sprout derives one from the file name:
+Standard-library modules can omit an alias:
 
 ```sprout
-import "modules/gamekit.sprout"
+import pixelgarden
+canvas = pixelgarden.canvas(24, 10)
+```
+
+Qualified project names use dots:
+
+```sprout
+import game.player as player
+```
+
+Sprout searches the current file directory, project source folders, configured module paths, local package paths, and its packaged standard library. The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with `_` are private through module property access.
+
+Quoted file-path imports remain supported for compatibility and explicit relative paths:
+
+```sprout
+import "../shared/player.sprout" as player
+```
+
+If no alias is provided, Sprout derives one from the module or file name:
+
+```sprout
+import gamekit
 gamekit.make_player("Ada")
 ```
 
@@ -1375,14 +1392,14 @@ string.contains(needle)
 The current terminal/ASCII 2D engine is named PixelGarden:
 
 ```sprout
-import "modules/pixelgarden.sprout" as pix
+import pixelgarden as pix
 ```
 
 PixelGarden combines the lower-level geometry and terminal canvas modules into a playful terminal engine. The older lower-level modules still exist:
 
 ```sprout
-import "modules/geom2d.sprout" as g2d
-import "modules/canvas2d.sprout" as c2d
+import geom2d as g2d
+import canvas2d as c2d
 ```
 
 It uses plain dictionaries for vectors, rectangles, and circles. That makes values easy to print, save as JSON, inspect in a debugger, and pass between scripts.
@@ -1437,7 +1454,7 @@ These helpers are intended as practical foundations for terminal games, collisio
 Sprout2D also includes a tiny terminal canvas module:
 
 ```sprout
-import "modules/canvas2d.sprout" as c2d
+import canvas2d as c2d
 ```
 
 Canvas values are dictionaries with `width`, `height`, `fill`, and `rows`.
@@ -1508,13 +1525,13 @@ Reusable sprite assets store their dimensions and transparent character. Layers 
 The current terminal/ASCII 3D engine is named StarBloom3D:
 
 ```sprout
-import "modules/starbloom3d.sprout" as star
+import starbloom3d as star
 ```
 
 The older lower-level module still exists:
 
 ```sprout
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 ```
 
 It is a software 3D engine that works in any terminal. It does not require OpenGL, a window, or third-party packages. It is useful for learning, prototypes, ASCII games, engineering sketches, and testing Sprout's math/graphics capabilities. It supports OBJ model loading, oriented cameras, wireframe rendering, and filled shaded triangles.
@@ -1522,7 +1539,7 @@ It is a software 3D engine that works in any terminal. It does not require OpenG
 ### Basic Render Pipeline
 
 ```sprout
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 
 cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
 shape = s3d.cube(size=2.4)
@@ -1649,7 +1666,7 @@ Sprout also includes optional real-window wrappers that use Python graphics libr
 Window2D uses Pygame:
 
 ```sprout
-import "modules/window2d.sprout" as w2d
+import window2d as w2d
 
 if not w2d.available() {
   say "install pygame with python3 -m pip install pygame"
@@ -1669,7 +1686,7 @@ if not w2d.available() {
 PandaWindow3D uses Panda3D:
 
 ```sprout
-import "modules/panda3d_window.sprout" as p3d
+import panda3d_window as p3d
 
 if not p3d.available() {
   say "install Panda3D with python3 -m pip install panda3d"

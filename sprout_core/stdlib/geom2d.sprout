@@ -1,0 +1,121 @@
+# Sprout2D geometry helpers for games, simulations, and engineering sketches.
+# Values are plain dictionaries so they are easy to inspect, save, and pass around.
+
+def vec2(x=0, y=0) {
+  return {"x": x, "y": y}
+}
+
+def rect(x=0, y=0, w=1, h=1) {
+  return {"x": x, "y": y, "w": w, "h": h}
+}
+
+def circle(x=0, y=0, r=1) {
+  return {"x": x, "y": y, "r": r}
+}
+
+def vadd(a, b) {
+  return vec2(a.x + b.x, a.y + b.y)
+}
+
+def vsub(a, b) {
+  return vec2(a.x - b.x, a.y - b.y)
+}
+
+def vscale(v, amount) {
+  return vec2(v.x * amount, v.y * amount)
+}
+
+def dot(a, b) {
+  return a.x * b.x + a.y * b.y
+}
+
+def length(v) {
+  return sqrt(dot(v, v))
+}
+
+def normalize(v) {
+  size = length(v)
+  if size == 0 {
+    return vec2(0, 0)
+  }
+  return vscale(v, 1 / size)
+}
+
+def distance(a, b) {
+  return length(vsub(b, a))
+}
+
+def angle(v) {
+  return atan2(v.y, v.x)
+}
+
+def from_angle(theta, size=1) {
+  return vec2(cos(theta) * size, sin(theta) * size)
+}
+
+def lerp_vec(a, b, t) {
+  return vec2(lerp(a.x, b.x, t), lerp(a.y, b.y, t))
+}
+
+def midpoint(a, b) {
+  return lerp_vec(a, b, 0.5)
+}
+
+def move_toward(current, target, max_delta) {
+  delta = vsub(target, current)
+  size = length(delta)
+  if size <= max_delta or size == 0 {
+    return target
+  }
+  return vadd(current, vscale(delta, max_delta / size))
+}
+
+def clamp_vec(v, min_v, max_v) {
+  return vec2(clamp(v.x, min_v.x, max_v.x), clamp(v.y, min_v.y, max_v.y))
+}
+
+def rect_center(r) {
+  return vec2(r.x + r.w / 2, r.y + r.h / 2)
+}
+
+def point_in_rect(p, r) {
+  return p.x >= r.x and p.x <= r.x + r.w and p.y >= r.y and p.y <= r.y + r.h
+}
+
+def rects_overlap(a, b) {
+  return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y
+}
+
+def point_in_circle(p, c) {
+  return distance(p, vec2(c.x, c.y)) <= c.r
+}
+
+def circle_overlap(a, b) {
+  return distance(vec2(a.x, a.y), vec2(b.x, b.y)) <= a.r + b.r
+}
+
+def nearest_point_on_rect(p, r) {
+  return vec2(clamp(p.x, r.x, r.x + r.w), clamp(p.y, r.y, r.y + r.h))
+}
+
+def circle_rect_overlap(c, r) {
+  nearest = nearest_point_on_rect(vec2(c.x, c.y), r)
+  return point_in_circle(nearest, c)
+}
+
+def bounds(points) {
+  first_point = points[0]
+  min_x = first_point.x
+  min_y = first_point.y
+  max_x = first_point.x
+  max_y = first_point.y
+
+  for p in points {
+    min_x = min(min_x, p.x)
+    min_y = min(min_y, p.y)
+    max_x = max(max_x, p.x)
+    max_y = max(max_y, p.y)
+  }
+
+  return rect(min_x, min_y, max_x - min_x, max_y - min_y)
+}

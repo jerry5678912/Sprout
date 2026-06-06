@@ -1,4 +1,4 @@
-import "modules/panda3d_window.sprout" as p3d
+import panda3d_window as p3d
 
 if not p3d.available() {
   say "PandaWindow3D unavailable: install Panda3D with python3 -m pip install panda3d"

@@ -12,7 +12,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None
 
 from .lexer import Lexer
-from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS
+from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS, resolve_module_file
 from .parser import Parser
 from .runtime import Interpreter, attach_error_source, format_value, native_runtime_error
 
@@ -409,15 +409,9 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
         elif kind == "import":
             import_path = stmt[1]
             base = os.path.dirname(path) if path else os.getcwd()
-            if not os.path.exists(os.path.join(base, import_path)):
-                project = project_for_path(path) if path else None
-                found = False
-                for search_path in module_search_paths_for(path, project):
-                    if os.path.exists(os.path.join(search_path, import_path)):
-                        found = True
-                        break
-                if not found:
-                    diagnostics.append(Diagnostic("warning", f"Import path not found: {import_path}", path, 1, 1, "SPROUT_UNKNOWN_IMPORT"))
+            project = project_for_path(path) if path else None
+            if resolve_module_file(import_path, base, module_search_paths_for(path, project)) is None:
+                diagnostics.append(Diagnostic("warning", f"Import path not found: {import_path}", path, 1, 1, "SPROUT_UNKNOWN_IMPORT"))
 
         if kind == "return":
             continue

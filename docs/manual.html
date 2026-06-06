@@ -867,25 +867,41 @@ class Player extends Entity {
 </code></pre>
 <h2 id="16-modules">16. Modules</h2>
 <p>
-Sprout supports native file imports:
+Sprout supports named native imports:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/gamekit.sprout&quot; as game
+import gamekit as game
 
 hero = game.make_player(&quot;Ada&quot;)
 say game.status(hero)
 </code></pre>
 <p>
-The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with <code>_</code> are private through module property access.
-</p>
-<p>
-Relative imports are resolved from the current script or module directory.
-</p>
-<p>
-If no alias is provided, Sprout derives one from the file name:
+Standard-library modules can omit an alias:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/gamekit.sprout&quot;
+import pixelgarden
+canvas = pixelgarden.canvas(24, 10)
+</code></pre>
+<p>
+Qualified project names use dots:
+</p>
+<pre><code class="language-sprout">
+import game.player as player
+</code></pre>
+<p>
+Sprout searches the current file directory, project source folders, configured module paths, local package paths, and its packaged standard library. The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with <code>_</code> are private through module property access.
+</p>
+<p>
+Quoted file-path imports remain supported for compatibility and explicit relative paths:
+</p>
+<pre><code class="language-sprout">
+import &quot;../shared/player.sprout&quot; as player
+</code></pre>
+<p>
+If no alias is provided, Sprout derives one from the module or file name:
+</p>
+<pre><code class="language-sprout">
+import gamekit
 gamekit.make_player(&quot;Ada&quot;)
 </code></pre>
 <h2 id="17-python-library-interop">17. Python Library Interop</h2>
@@ -1421,14 +1437,14 @@ string.contains(needle)
 The current terminal/ASCII 2D engine is named PixelGarden:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/pixelgarden.sprout&quot; as pix
+import pixelgarden as pix
 </code></pre>
 <p>
 PixelGarden combines the lower-level geometry and terminal canvas modules into a playful terminal engine. The older lower-level modules still exist:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/geom2d.sprout&quot; as g2d
-import &quot;modules/canvas2d.sprout&quot; as c2d
+import geom2d as g2d
+import canvas2d as c2d
 </code></pre>
 <p>
 It uses plain dictionaries for vectors, rectangles, and circles. That makes values easy to print, save as JSON, inspect in a debugger, and pass between scripts.
@@ -1480,7 +1496,7 @@ These helpers are intended as practical foundations for terminal games, collisio
 Sprout2D also includes a tiny terminal canvas module:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/canvas2d.sprout&quot; as c2d
+import canvas2d as c2d
 </code></pre>
 <p>
 Canvas values are dictionaries with <code>width</code>, <code>height</code>, <code>fill</code>, and <code>rows</code>.
@@ -1552,20 +1568,20 @@ Reusable sprite assets store their dimensions and transparent character. Layers 
 The current terminal/ASCII 3D engine is named StarBloom3D:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/starbloom3d.sprout&quot; as star
+import starbloom3d as star
 </code></pre>
 <p>
 The older lower-level module still exists:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/engine3d.sprout&quot; as s3d
+import engine3d as s3d
 </code></pre>
 <p>
 It is a software 3D engine that works in any terminal. It does not require OpenGL, a window, or third-party packages. It is useful for learning, prototypes, ASCII games, engineering sketches, and testing Sprout&#x27;s math/graphics capabilities. It supports OBJ model loading, oriented cameras, wireframe rendering, and filled shaded triangles.
 </p>
 <h3 id="basic-render-pipeline">Basic Render Pipeline</h3>
 <pre><code class="language-sprout">
-import &quot;modules/engine3d.sprout&quot; as s3d
+import engine3d as s3d
 
 cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
 shape = s3d.cube(size=2.4)
@@ -1691,7 +1707,7 @@ Sprout also includes optional real-window wrappers that use Python graphics libr
 Window2D uses Pygame:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/window2d.sprout&quot; as w2d
+import window2d as w2d
 
 if not w2d.available() {
   say &quot;install pygame with python3 -m pip install pygame&quot;
@@ -1711,7 +1727,7 @@ if not w2d.available() {
 PandaWindow3D uses Panda3D:
 </p>
 <pre><code class="language-sprout">
-import &quot;modules/panda3d_window.sprout&quot; as p3d
+import panda3d_window as p3d
 
 if not p3d.available() {
   say &quot;install Panda3D with python3 -m pip install panda3d&quot;

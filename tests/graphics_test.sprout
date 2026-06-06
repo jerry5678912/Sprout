@@ -1,5 +1,5 @@
-import "pixelgarden.sprout" as pix
-import "starbloom3d.sprout" as star
+import pixelgarden as pix
+import starbloom3d as star
 
 test "PixelGarden sprites, layers, and animation":
   canvas = pix.canvas(8, 4, ".")

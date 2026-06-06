@@ -1,4 +1,4 @@
-import "modules/window2d.sprout" as w2d
+import window2d as w2d
 
 if not w2d.available() {
   say "Window2D unavailable: install pygame with python3 -m pip install pygame"

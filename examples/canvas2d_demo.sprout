@@ -1,5 +1,5 @@
-import "modules/geom2d.sprout" as g2d
-import "modules/canvas2d.sprout" as c2d
+import geom2d as g2d
+import canvas2d as c2d
 
 canvas = c2d.make_canvas(24, 10, ".")
 

@@ -575,7 +575,7 @@ end
 - Gradual unions, nullable types, generic type aliases, imported types, and `is` narrowing
 - Recoverable errors with `try` / `catch`, `raise`, `ensure`, and `fail`
 - Uncaught runtime errors with Sprout call stacks
-- Native Sprout imports with `import "modules/gamekit.sprout" as game`
+- Named Sprout imports with `import gamekit as game`, plus quoted relative file paths
 - Python library imports with `importpython math` or `importpython random as pyrandom`
 - Command-line args through `argv`
 - File helpers: `readfile`, `writefile`, `appendfile`, `exists`, `isfile`, `isdir`, `listdir`, `mkdir`, `readjson`, `writejson`, `lines`
@@ -702,7 +702,7 @@ say day.isoformat(), day.year
 Your own Sprout files can be imported too:
 
 ```sprout
-import "modules/gamekit.sprout" as game
+import gamekit as game
 
 hero = game.make_player("Ada")
 game.move(hero, "east", 8, 5)
@@ -916,7 +916,8 @@ expose the original raw traceback while debugging Sprout itself.
 - `sprout_core/cli.py`: command-line interface and REPL
 - `tools/sprout_lsp.py`: production stdio LSP server backed by the semantic workspace index
 - `examples/`: sample Sprout programs
-- `examples/modules/`: importable Sprout modules
+- `sprout_core/stdlib/`: packaged Sprout standard-library modules
+- `examples/modules/`: compatibility copies and module examples
 - `examples/data/`: tiny data files for demos
 - `tests/`: smoke test script
 - `editor/vscode-sprout/`: local VS Code language package with highlighting, snippets, completions, and hover help
@@ -970,14 +971,14 @@ Completion examples:
 - Type keywords like `elif`, `each`, `whirl`, `try`, `catch`, `raise`, `sprout`, `pluck`, or `end` for syntax snippets/completions.
 - Type built-ins like `sparkle`, `grow`, `json_parse`, `py_import`, `functions`, or `methods` for call snippets.
 - Type `callspread` for a call using `*args` and `**opts`.
-- Type `game.` after `import "modules/gamekit.sprout" as game` for gamekit completions.
-- Type `g2d.` after `import "modules/geom2d.sprout" as g2d` for Sprout2D API completions.
-- Type `c2d.` after `import "modules/canvas2d.sprout" as c2d` for Sprout2D canvas completions.
-- Type `s3d.` after `import "modules/engine3d.sprout" as s3d` for Sprout3D API completions.
-- Type `pix.` after `import "modules/pixelgarden.sprout" as pix` for PixelGarden completions.
-- Type `star.` after `import "modules/starbloom3d.sprout" as star` for StarBloom3D completions.
-- Type `w2d.` after `import "modules/window2d.sprout" as w2d` for Pygame-backed Window2D completions.
-- Type `p3d.` after `import "modules/panda3d_window.sprout" as p3d` for Panda3D-backed completions.
+- Type `game.` after `import gamekit as game` for gamekit completions.
+- Type `g2d.` after `import geom2d as g2d` for Sprout2D API completions.
+- Type `c2d.` after `import canvas2d as c2d` for Sprout2D canvas completions.
+- Type `s3d.` after `import engine3d as s3d` for Sprout3D API completions.
+- Type `pix.` after `import pixelgarden as pix` for PixelGarden completions.
+- Type `star.` after `import starbloom3d as star` for StarBloom3D completions.
+- Type `w2d.` after `import window2d as w2d` for Pygame-backed Window2D completions.
+- Type `p3d.` after `import panda3d_window as p3d` for Panda3D-backed completions.
 - Type `player.` on a variable created from a local `Player` class to complete that class's methods and fields.
 - Hover functions or classes with `##` documentation comments to see their signature, docs, and source location.
 - Use VS Code's Go to Definition, Find References, Rename Symbol, and signature help commands for Sprout symbols when `sprout.py` is available.

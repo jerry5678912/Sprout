@@ -1,0 +1,261 @@
+# Sprout2D terminal canvas helpers.
+# This is a tiny software 2D renderer for prototypes, terminal games, and tests.
+
+import "geom2d.sprout" as g2d
+
+def make_canvas(width, height, fill=" ") {
+  rows = []
+  y = 0
+  while y < height {
+    row = []
+    x = 0
+    while x < width {
+      row.append(fill)
+      x = x + 1
+    }
+    rows.append(row)
+    y = y + 1
+  }
+  return {"width": width, "height": height, "fill": fill, "rows": rows}
+}
+
+def clear(canvas, fill=nil) {
+  if fill == nil {
+    fill = canvas.fill
+  }
+  y = 0
+  while y < canvas.height {
+    x = 0
+    while x < canvas.width {
+      canvas.rows[y][x] = fill
+      x = x + 1
+    }
+    y = y + 1
+  }
+  return canvas
+}
+
+def plot(canvas, x, y, char="#") {
+  x = int(round(x))
+  y = int(round(y))
+  if x >= 0 and x < canvas.width and y >= 0 and y < canvas.height {
+    canvas.rows[y][x] = char
+  }
+  return canvas
+}
+
+def line(canvas, x0, y0, x1, y1, char="#") {
+  dx = x1 - x0
+  dy = y1 - y0
+  steps = max(abs(dx), abs(dy))
+  if steps == 0 {
+    return plot(canvas, x0, y0, char)
+  }
+
+  i = 0
+  while i <= steps {
+    t = i / steps
+    plot(canvas, lerp(x0, x1, t), lerp(y0, y1, t), char)
+    i = i + 1
+  }
+  return canvas
+}
+
+def stroke_rect(canvas, rect, char="#") {
+  x0 = rect.x
+  y0 = rect.y
+  x1 = rect.x + rect.w - 1
+  y1 = rect.y + rect.h - 1
+  line(canvas, x0, y0, x1, y0, char)
+  line(canvas, x1, y0, x1, y1, char)
+  line(canvas, x1, y1, x0, y1, char)
+  line(canvas, x0, y1, x0, y0, char)
+  return canvas
+}
+
+def fill_rect(canvas, rect, char="#") {
+  y = int(rect.y)
+  y_end = int(rect.y + rect.h)
+  while y < y_end {
+    x = int(rect.x)
+    x_end = int(rect.x + rect.w)
+    while x < x_end {
+      plot(canvas, x, y, char)
+      x = x + 1
+    }
+    y = y + 1
+  }
+  return canvas
+}
+
+def circle(canvas, shape, char="#") {
+  x0 = int(shape.x - shape.r)
+  x1 = int(shape.x + shape.r)
+  y0 = int(shape.y - shape.r)
+  y1 = int(shape.y + shape.r)
+  y = y0
+  while y <= y1 {
+    x = x0
+    while x <= x1 {
+      d = g2d.distance(g2d.vec2(x, y), g2d.vec2(shape.x, shape.y))
+      if abs(d - shape.r) <= 0.6 {
+        plot(canvas, x, y, char)
+      }
+      x = x + 1
+    }
+    y = y + 1
+  }
+  return canvas
+}
+
+def fill_circle(canvas, shape, char="#") {
+  x0 = int(shape.x - shape.r)
+  x1 = int(shape.x + shape.r)
+  y0 = int(shape.y - shape.r)
+  y1 = int(shape.y + shape.r)
+  y = y0
+  while y <= y1 {
+    x = x0
+    while x <= x1 {
+      d = g2d.distance(g2d.vec2(x, y), g2d.vec2(shape.x, shape.y))
+      if d <= shape.r {
+        plot(canvas, x, y, char)
+      }
+      x = x + 1
+    }
+    y = y + 1
+  }
+  return canvas
+}
+
+def text(canvas, x, y, value) {
+  chars = str(value)
+  i = 0
+  while i < len(chars) {
+    plot(canvas, x + i, y, chars[i])
+    i = i + 1
+  }
+  return canvas
+}
+
+def sprite(canvas, x, y, rows) {
+  row_index = 0
+  for row in rows {
+    col = 0
+    while col < len(row) {
+      char = row[col]
+      if char != " " {
+        plot(canvas, x + col, y + row_index, char)
+      }
+      col = col + 1
+    }
+    row_index = row_index + 1
+  }
+  return canvas
+}
+
+def sprite_asset(rows, transparent=" ") {
+  width = 0
+  for row in rows {
+    width = max(width, len(row))
+  }
+  return {
+    "rows": rows,
+    "width": width,
+    "height": len(rows),
+    "transparent": transparent
+  }
+}
+
+def draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false, transparent=nil) {
+  if transparent == nil {
+    transparent = asset.transparent
+  }
+  row_index = 0
+  while row_index < asset.height {
+    source_y = row_index
+    if flip_y {
+      source_y = asset.height - row_index - 1
+    }
+    row = asset.rows[source_y]
+    col = 0
+    while col < len(row) {
+      source_x = col
+      if flip_x {
+        source_x = len(row) - col - 1
+      }
+      char = row[source_x]
+      if char != transparent {
+        plot(canvas, x + col, y + row_index, char)
+      }
+      col = col + 1
+    }
+    row_index = row_index + 1
+  }
+  return canvas
+}
+
+def composite(canvas, layer, x=0, y=0, transparent=" ") {
+  row_index = 0
+  while row_index < layer.height {
+    col = 0
+    while col < layer.width {
+      char = layer.rows[row_index][col]
+      if char != transparent {
+        plot(canvas, x + col, y + row_index, char)
+      }
+      col = col + 1
+    }
+    row_index = row_index + 1
+  }
+  return canvas
+}
+
+def camera(position=g2d.vec2(0, 0), zoom=1) {
+  return {"position": position, "zoom": zoom}
+}
+
+def world_to_screen(point, cam, canvas) {
+  x = (point.x - cam.position.x) * cam.zoom + floor(canvas.width / 2)
+  y = (point.y - cam.position.y) * cam.zoom + floor(canvas.height / 2)
+  return g2d.vec2(x, y)
+}
+
+def plot_world(canvas, point, cam, char="#") {
+  p = world_to_screen(point, cam, canvas)
+  return plot(canvas, p.x, p.y, char)
+}
+
+def line_world(canvas, start, finish, cam, char="#") {
+  a = world_to_screen(start, cam, canvas)
+  b = world_to_screen(finish, cam, canvas)
+  return line(canvas, a.x, a.y, b.x, b.y, char)
+}
+
+def sprite_world(canvas, asset, position, cam, flip_x=false, flip_y=false) {
+  point = world_to_screen(position, cam, canvas)
+  return draw_sprite(canvas, asset, point.x, point.y, flip_x, flip_y)
+}
+
+def animation(frames, fps=8, loop=true) {
+  return {"frames": frames, "fps": fps, "loop": loop}
+}
+
+def animation_frame(value, seconds) {
+  ensure(len(value.frames) > 0, "PixelGarden animation needs at least one frame")
+  index = int(seconds * value.fps)
+  if value.loop {
+    index = index % len(value.frames)
+  } else {
+    index = min(index, len(value.frames) - 1)
+  }
+  return value.frames[index]
+}
+
+def frame_to_text(canvas) {
+  rows = []
+  for row in canvas.rows {
+    rows.append(row.join(""))
+  }
+  return rows.join("\n")
+}

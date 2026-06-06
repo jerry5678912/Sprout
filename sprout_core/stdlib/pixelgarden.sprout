@@ -1,0 +1,40 @@
+# PixelGarden: the fun terminal/ASCII 2D engine alias.
+# Old modules/geom2d.sprout and modules/canvas2d.sprout still work.
+
+import "geom2d.sprout" as g2d
+import "canvas2d.sprout" as c2d
+
+def vec2(x=0, y=0) { return g2d.vec2(x, y) }
+def rect(x=0, y=0, w=1, h=1) { return g2d.rect(x, y, w, h) }
+def circle_shape(x=0, y=0, r=1) { return g2d.circle(x, y, r) }
+def vadd(a, b) { return g2d.vadd(a, b) }
+def vsub(a, b) { return g2d.vsub(a, b) }
+def vscale(v, amount) { return g2d.vscale(v, amount) }
+def distance(a, b) { return g2d.distance(a, b) }
+def move_toward(current, target, max_delta) { return g2d.move_toward(current, target, max_delta) }
+def rects_overlap(a, b) { return g2d.rects_overlap(a, b) }
+def circle_rect_overlap(c, r) { return g2d.circle_rect_overlap(c, r) }
+def bounds(points) { return g2d.bounds(points) }
+
+def canvas(width, height, fill=" ") { return c2d.make_canvas(width, height, fill) }
+def clear(canvas, fill=nil) { return c2d.clear(canvas, fill) }
+def plot(canvas, x, y, char="#") { return c2d.plot(canvas, x, y, char) }
+def line(canvas, x0, y0, x1, y1, char="#") { return c2d.line(canvas, x0, y0, x1, y1, char) }
+def stroke_rect(canvas, rect, char="#") { return c2d.stroke_rect(canvas, rect, char) }
+def fill_rect(canvas, rect, char="#") { return c2d.fill_rect(canvas, rect, char) }
+def circle(canvas, shape, char="#") { return c2d.circle(canvas, shape, char) }
+def fill_circle(canvas, shape, char="#") { return c2d.fill_circle(canvas, shape, char) }
+def text(canvas, x, y, value) { return c2d.text(canvas, x, y, value) }
+def sprite(canvas, x, y, rows) { return c2d.sprite(canvas, x, y, rows) }
+def sprite_asset(rows, transparent=" ") { return c2d.sprite_asset(rows, transparent) }
+def draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false, transparent=nil) { return c2d.draw_sprite(canvas, asset, x, y, flip_x, flip_y, transparent) }
+def layer(width, height, fill=" ") { return c2d.make_canvas(width, height, fill) }
+def composite(canvas, layer, x=0, y=0, transparent=" ") { return c2d.composite(canvas, layer, x, y, transparent) }
+def camera(position=g2d.vec2(0, 0), zoom=1) { return c2d.camera(position, zoom) }
+def world_to_screen(point, camera, canvas) { return c2d.world_to_screen(point, camera, canvas) }
+def plot_world(canvas, point, camera, char="#") { return c2d.plot_world(canvas, point, camera, char) }
+def line_world(canvas, start, finish, camera, char="#") { return c2d.line_world(canvas, start, finish, camera, char) }
+def sprite_world(canvas, asset, position, camera, flip_x=false, flip_y=false) { return c2d.sprite_world(canvas, asset, position, camera, flip_x, flip_y) }
+def animation(frames, fps=8, loop=true) { return c2d.animation(frames, fps, loop) }
+def animation_frame(animation, seconds) { return c2d.animation_frame(animation, seconds) }
+def frame_to_text(canvas) { return c2d.frame_to_text(canvas) }

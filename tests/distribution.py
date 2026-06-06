@@ -52,6 +52,18 @@ def test_install_and_uninstall() -> None:
         )
         count = len(installed_manifest["cases"])
         assert conformance.stdout.strip().endswith(f"{count}/{count} conformance cases passed")
+        standard_library = Path(data["runtime"]) / "sprout_core" / "stdlib"
+        assert (standard_library / "pixelgarden.sprout").exists()
+        named_import = Path(tmp) / "named_import.sprout"
+        named_import.write_text("import gamekit\nsay gamekit.make_player(\"Mina\").name\n", encoding="utf-8")
+        imported = subprocess.run(
+            [*command[:-1], str(named_import)],
+            cwd=tmp,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert imported.stdout.strip() == "Mina"
         assert uninstall_language(prefix=prefix) == 0
         assert not launcher.exists()
         assert not manifest.exists()
@@ -105,7 +117,7 @@ def test_python_package_metadata() -> None:
     assert 'license = "Apache-2.0"' in metadata
     assert 'license-files = ["LICENSE", "NOTICE"]' in metadata
     assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
-    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout"]' in metadata
+    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]' in metadata
     module = subprocess.run(
         [sys.executable, "-m", "sprout_core", "version"],
         cwd=ROOT,

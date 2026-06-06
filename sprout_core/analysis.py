@@ -7,7 +7,7 @@ import os
 import re
 from typing import Any
 
-from .model import Diagnostic, KEYWORDS
+from .model import Diagnostic, KEYWORDS, resolve_module_file
 from .runtime import Interpreter
 from .tooling import module_search_paths_for, parse_source, project_for_path, read_source_file
 
@@ -19,7 +19,7 @@ CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 ENUM_RE = re.compile(r"^\s*enum\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 TYPE_ALIAS_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"\s+as\s+([A-Za-z_][A-Za-z0-9_]*)')
+IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
@@ -410,12 +410,21 @@ def expr_names(expr: Any) -> list[str]:
 
 def resolve_module_path(import_path: str, source_path: str) -> str | None:
     base = os.path.dirname(source_path)
-    candidates = [os.path.abspath(os.path.join(base, import_path))]
-    candidates.extend(os.path.abspath(os.path.join(root, import_path)) for root in module_search_paths_for(source_path))
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return None
+    return resolve_module_file(import_path, base, module_search_paths_for(source_path))
+
+
+def native_import_parts(match: re.Match[str]) -> tuple[str, str, int]:
+    quoted_path, bare_name, explicit_alias = match.groups()
+    if quoted_path is not None:
+        import_path = quoted_path
+        default_alias = os.path.splitext(os.path.basename(import_path))[0].replace("-", "_")
+        name_group = 1
+    else:
+        parts = (bare_name or "").split(".")
+        import_path = os.path.join(*parts)
+        default_alias = parts[-1]
+        name_group = 2
+    return import_path, explicit_alias or default_alias, 3 if explicit_alias else name_group
 
 
 def leading_indent(line: str) -> int:
@@ -482,7 +491,7 @@ def declaration_token_locations(lines: list[str]) -> set[tuple[int, int]]:
                 continue
             group = match.lastindex or 1
             if pattern is IMPORT_RE:
-                group = 2
+                group = native_import_parts(match)[2]
             elif pattern is IMPORTPY_RE:
                 group = 3 if match.group(3) else (1 if match.group(1) else 2)
             locations.add((line_no, match.start(group) + 1))
@@ -858,9 +867,9 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
 
         import_match = IMPORT_RE.match(line)
         if import_match:
-            import_path, alias = import_match.groups()
+            import_path, alias, name_group = native_import_parts(import_match)
             target = resolve_module_path(import_path, resolved)
-            symbol = SemanticSymbol(alias, "module", Location(resolved, line_no, import_match.start(2) + 1), module_path=target)
+            symbol = SemanticSymbol(alias, "module", Location(resolved, line_no, import_match.start(name_group) + 1), module_path=target)
             analysis.symbols.append(symbol)
             analysis.imports[alias] = symbol
             continue
@@ -960,6 +969,31 @@ def build_workspace_index(
             resolved = normalize_path(path)
             if resolved not in index.files and resolved.endswith(".sprout"):
                 index.update_document(resolved, source)
+
+    pending_imports = [
+        symbol.module_path
+        for analysis in list(index.files.values())
+        for symbol in analysis.imports.values()
+        if symbol.kind == "module" and symbol.module_path
+    ]
+    visited_imports: set[str] = set()
+    while pending_imports:
+        imported = normalize_path(pending_imports.pop())
+        if imported in visited_imports:
+            continue
+        visited_imports.add(imported)
+        if imported not in index.files:
+            try:
+                index.update_file(imported)
+            except OSError:
+                continue
+        imported_analysis = index.files.get(imported)
+        if imported_analysis:
+            pending_imports.extend(
+                symbol.module_path
+                for symbol in imported_analysis.imports.values()
+                if symbol.kind == "module" and symbol.module_path
+            )
 
     index.refresh_imports()
     return index

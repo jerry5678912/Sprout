@@ -97,6 +97,20 @@ def test_docs_help_does_not_generate_files() -> None:
         assert not (project / "docs/API.html").exists()
 
 
+def test_named_standard_library_import() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp)
+        source = project / "main.sprout"
+        source.write_text(
+            "import pixelgarden as pix\n"
+            "import gamekit\n"
+            'say gamekit.make_player("Mina").name, pix.vec2(3, 4).y\n',
+            encoding="utf-8",
+        )
+        result = run([str(source)], cwd=project)
+        assert result.stdout == "Mina 4\n"
+
+
 def test_http_server_resource_without_socket() -> None:
     class FakeServer:
         server_address = ("127.0.0.1", 4321)
@@ -125,6 +139,7 @@ def main() -> int:
     test_application_examples()
     test_docs_command()
     test_docs_help_does_not_generate_files()
+    test_named_standard_library_import()
     test_http_server_resource_without_socket()
     print("sprout application tests passed")
     return 0

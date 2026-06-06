@@ -42,4 +42,4 @@ Changelog = "https://github.com/jerry5678912/Sprout/blob/main/CHANGELOG.md"
 include = ["sprout_core*"]
 
 [tool.setuptools.package-data]
-sprout_core = ["conformance/*.json", "conformance/*.sprout"]
+sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]

@@ -1,4 +1,4 @@
-import "modules/geom2d.sprout" as g2d
+import geom2d as g2d
 
 player = g2d.vec2(1, 2)
 target = g2d.vec2(7, 5)

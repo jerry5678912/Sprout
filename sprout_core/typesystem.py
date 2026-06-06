@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .lexer import Lexer
-from .model import Diagnostic, SproutError
+from .model import Diagnostic, SproutError, resolve_module_file
 from .parser import Parser
 
 
@@ -227,19 +227,13 @@ class TypeChecker:
                 self.collect_import(stmt[1], stmt[2])
 
     def collect_import(self, import_path: str, alias: str) -> None:
-        requested = import_path if import_path.endswith(".sprout") else import_path + ".sprout"
-        candidates = [
-            requested if os.path.isabs(requested)
-            else os.path.join(os.path.dirname(os.path.abspath(self.path)), requested)
-        ]
-        if not os.path.isabs(requested):
-            try:
-                from .tooling import module_search_paths_for
-                candidates.extend(os.path.join(root, requested) for root in module_search_paths_for(self.path))
-            except Exception:
-                pass
-        resolved = os.path.abspath(next((item for item in candidates if os.path.isfile(item)), candidates[0]))
-        if not os.path.isfile(resolved):
+        try:
+            from .tooling import module_search_paths_for
+            search_paths = module_search_paths_for(self.path)
+        except Exception:
+            search_paths = []
+        resolved = resolve_module_file(import_path, os.path.dirname(os.path.abspath(self.path)), search_paths)
+        if resolved is None:
             self.error(f"Could not resolve imported module '{import_path}'", code="SPROUT_IMPORT")
             return
         checker = self.module_cache.get(resolved)

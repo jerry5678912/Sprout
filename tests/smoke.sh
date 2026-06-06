@@ -55,6 +55,7 @@ python3 sprout.py examples/geom2d_demo.sprout >/tmp/sprout_geom2d.out
 python3 sprout.py examples/canvas2d_demo.sprout >/tmp/sprout_canvas2d.out
 python3 sprout.py examples/pixelgarden_demo.sprout >/tmp/sprout_pixelgarden.out
 python3 sprout.py examples/starbloom3d_demo.sprout >/tmp/sprout_starbloom3d.out
+python3 sprout.py examples/named_imports.sprout >/tmp/sprout_named_imports.out
 python3 sprout.py examples/engine3d_demo.sprout >/tmp/sprout_engine3d.out
 python3 sprout.py examples/engine3d_solid_demo.sprout >/tmp/sprout_engine3d_solid.out
 python3 sprout.py examples/engine3d_obj_demo.sprout >/tmp/sprout_engine3d_obj.out
@@ -230,6 +231,7 @@ grep -q "sprite size: 3 3" /tmp/sprout_pixelgarden.out
 grep -q "StarBloom3D" /tmp/sprout_starbloom3d.out
 grep -q "\\*" /tmp/sprout_starbloom3d.out
 grep -q "scene objects: 2" /tmp/sprout_starbloom3d.out
+grep -q "named imports: Mina 3 5" /tmp/sprout_named_imports.out
 grep -q "4 passed" /tmp/sprout_graphics_tests.out
 grep -q "vertices: 8 edges: 12" /tmp/sprout_engine3d.out
 grep -q "\\*" /tmp/sprout_engine3d.out
