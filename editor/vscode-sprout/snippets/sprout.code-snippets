@@ -83,6 +83,14 @@
     ],
     "description": "Catch Sprout errors"
   },
+  "Test Case": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:name}\":",
+      "  expect(${2:actual}).to_equal(${3:expected})"
+    ],
+    "description": "Define a Sprout test case"
+  },
   "Import Python": {
     "prefix": "importpython",
     "body": "importpython ${1:math}",

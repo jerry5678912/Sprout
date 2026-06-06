@@ -8,12 +8,29 @@ import math
 import os
 import random
 import statistics
+import threading
 import time
 import types
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from .lexer import Lexer
+from .application import (
+    Expectation,
+    MessageQueue,
+    NativeResource,
+    RouteHttpServer,
+    SQLiteDatabase,
+    convert_unit,
+    http_request,
+    mat_mul,
+    submit_task,
+    vec_add,
+    vec_dot,
+    vec_magnitude,
+    vec_normalize,
+    vec_sub,
+)
 from .model import BreakSignal, ContinueSignal, ReturnSignal, SproutError, SproutRaised
 from .parser import Parser
 
@@ -305,6 +322,7 @@ class Interpreter:
         self.argv = argv or []
         self.module_cache = module_cache if module_cache is not None else {}
         self.module_search_paths = [os.path.abspath(path) for path in (module_search_paths or [])]
+        self.task_lock = threading.RLock()
         self.install_builtins()
 
     def install_builtins(self) -> None:
@@ -365,6 +383,22 @@ class Interpreter:
         self.globals.define("lines", Builtin("lines", 1, lambda text: str(text).splitlines()))
         self.globals.define("ensure", Builtin("ensure", 2, self.builtin_ensure))
         self.globals.define("fail", Builtin("fail", 1, self.builtin_fail))
+        self.globals.define("expect", Builtin("expect", 1, Expectation))
+        self.globals.define("task_spawn", Builtin("task_spawn", None, self.builtin_task_spawn))
+        self.globals.define("task_after", Builtin("task_after", None, self.builtin_task_after))
+        self.globals.define("task_wait_all", Builtin("task_wait_all", 1, self.builtin_task_wait_all))
+        self.globals.define("queue_open", Builtin("queue_open", 0, MessageQueue))
+        self.globals.define("http_request", Builtin("http_request", None, http_request))
+        self.globals.define("http_get", Builtin("http_get", None, self.builtin_http_get))
+        self.globals.define("http_post", Builtin("http_post", None, self.builtin_http_post))
+        self.globals.define("http_server", Builtin("http_server", None, self.builtin_http_server))
+        self.globals.define("sqlite_open", Builtin("sqlite_open", 1, self.builtin_sqlite_open))
+        self.globals.define("sqlite_exec", Builtin("sqlite_exec", None, self.builtin_sqlite_exec))
+        self.globals.define("sqlite_query", Builtin("sqlite_query", None, self.builtin_sqlite_query))
+        self.globals.define("sqlite_begin", Builtin("sqlite_begin", 1, self.builtin_sqlite_begin))
+        self.globals.define("sqlite_commit", Builtin("sqlite_commit", 1, self.builtin_sqlite_commit))
+        self.globals.define("sqlite_rollback", Builtin("sqlite_rollback", 1, self.builtin_sqlite_rollback))
+        self.globals.define("sqlite_close", Builtin("sqlite_close", 1, self.builtin_sqlite_close))
         self.install_standard_library()
 
     def define_builtin(self, name: str, arity: int | None, fn: Callable[..., Any]) -> None:
@@ -464,6 +498,17 @@ class Interpreter:
             "seed": (1, lambda value: random.seed(value)),
             "shuffle": (1, shuffle_values),
             "sample": (2, lambda xs, n: random.sample(require_list(xs), int(n))),
+            "vec_add": (2, vec_add),
+            "vec_sub": (2, vec_sub),
+            "vec_dot": (2, vec_dot),
+            "vec_magnitude": (1, vec_magnitude),
+            "vec_normalize": (1, vec_normalize),
+            "mat_mul": (2, mat_mul),
+            "unit_convert": (3, convert_unit),
+            "interpolate": (3, lambda a, b, t: float(a) + (float(b) - float(a)) * float(t)),
+            "kinetic_energy": (2, lambda mass, speed: 0.5 * float(mass) * float(speed) ** 2),
+            "force": (2, lambda mass, acceleration: float(mass) * float(acceleration)),
+            "pressure": (2, lambda force_value, area: float(force_value) / float(area)),
         }
         for name, (arity, fn) in builtins.items():
             self.define_builtin(name, arity, fn)
@@ -622,6 +667,64 @@ class Interpreter:
     def builtin_fail(self, message: Any) -> None:
         raise SproutRaised(message)
 
+    def call_value(self, callable_value: Any, args: list[Any] | None = None) -> Any:
+        if not hasattr(callable_value, "call"):
+            raise SproutError("Task expects a callable value")
+        with self.task_lock:
+            return callable_value.call(self, args or [], {})
+
+    def builtin_task_spawn(self, callable_value: Any, args: Any = None) -> Any:
+        call_args = [] if args is None else require_list(args)
+        return submit_task(lambda: self.call_value(callable_value, call_args))
+
+    def builtin_task_after(self, seconds: Any, callable_value: Any, args: Any = None) -> Any:
+        call_args = [] if args is None else require_list(args)
+        return submit_task(lambda: self.call_value(callable_value, call_args), float(seconds))
+
+    def builtin_task_wait_all(self, tasks: Any) -> list[Any]:
+        out = []
+        for task in require_list(tasks):
+            if not hasattr(task, "result"):
+                raise SproutError("task_wait_all expects task futures")
+            out.append(task.result())
+        return out
+
+    def builtin_http_get(self, url: Any, headers: Any = None, timeout: Any = 10) -> Any:
+        return http_request("GET", url, None, headers, timeout)
+
+    def builtin_http_post(self, url: Any, data: Any = None, headers: Any = None, timeout: Any = 10) -> Any:
+        return http_request("POST", url, data, headers, timeout)
+
+    def builtin_http_server(self, routes: Any, host: Any = "127.0.0.1", port: Any = 0) -> RouteHttpServer:
+        return RouteHttpServer(require_dict(routes), str(host), int(port))
+
+    def builtin_sqlite_open(self, path: Any) -> SQLiteDatabase:
+        raw = str(path)
+        return SQLiteDatabase(raw if raw == ":memory:" else self.resolve_path(raw))
+
+    def require_database(self, value: Any) -> SQLiteDatabase:
+        if not isinstance(value, SQLiteDatabase):
+            raise SproutError("Expected a SQLite database connection")
+        return value
+
+    def builtin_sqlite_exec(self, database: Any, sql: Any, params: Any = None) -> int:
+        return self.require_database(database).execute(sql, params)
+
+    def builtin_sqlite_query(self, database: Any, sql: Any, params: Any = None) -> list[dict[str, Any]]:
+        return self.require_database(database).query(sql, params)
+
+    def builtin_sqlite_begin(self, database: Any) -> None:
+        return self.require_database(database).begin()
+
+    def builtin_sqlite_commit(self, database: Any) -> None:
+        return self.require_database(database).commit()
+
+    def builtin_sqlite_rollback(self, database: Any) -> None:
+        return self.require_database(database).rollback()
+
+    def builtin_sqlite_close(self, database: Any) -> None:
+        return self.require_database(database).close()
+
     def builtin_functions(self) -> list[str]:
         return sorted(name for name, value in self.globals.values.items() if hasattr(value, "call"))
 
@@ -669,6 +772,8 @@ class Interpreter:
             self.env.define(stmt[2], self.import_python(stmt[1]))
         elif kind == "fn":
             self.env.define(stmt[1], Function(stmt[1], stmt[2], stmt[3], self.env, self.source_path, stmt[4], stmt[5]))
+        elif kind == "test":
+            return
         elif kind == "class":
             methods = {}
             self.env.define(stmt[1], None)
@@ -929,6 +1034,8 @@ class Interpreter:
         if isinstance(obj, PythonModule):
             return obj.get(name)
         if isinstance(obj, PythonObject):
+            return obj.get(name)
+        if isinstance(obj, NativeResource):
             return obj.get(name)
         if isinstance(obj, dict):
             if name in obj:
@@ -1274,6 +1381,8 @@ def type_name(value: Any) -> str:
         return "python-function"
     if isinstance(value, PythonObject):
         return "python-object"
+    if isinstance(value, NativeResource):
+        return value.__class__.__name__
     if isinstance(value, Function):
         return "function"
     if isinstance(value, (Builtin, NativeMethod, BoundMethod)):
@@ -1304,6 +1413,8 @@ def format_value(value: Any) -> str:
     if isinstance(value, PythonCallable):
         return repr(value)
     if isinstance(value, PythonObject):
+        return repr(value)
+    if isinstance(value, NativeResource):
         return repr(value)
     return str(value)
 

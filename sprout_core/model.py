@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 
-SPROUT_VERSION = "0.1.0"
+SPROUT_VERSION = "0.2.0"
 
 
 KEYWORDS = {
@@ -46,6 +46,7 @@ KEYWORDS = {
     "seedfn",
     "sprout",
     "super",
+    "test",
     "true",
     "try",
     "whirl",

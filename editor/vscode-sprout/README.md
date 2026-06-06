@@ -15,6 +15,7 @@ It adds:
 - Hover help with signatures, `##` documentation comments, and source locations
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json`
+- Application-layer completions and highlighting for `test`, expectations, tasks, HTTP, SQLite, engineering helpers, and reusable game APIs
 
 ## Use It Locally
 

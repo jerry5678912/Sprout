@@ -1,0 +1,13 @@
+db = sqlite_open(":memory:")
+sqlite_exec(db, "create table notes (id integer primary key, text)")
+
+sqlite_begin(db)
+sqlite_exec(db, "insert into notes (text) values (?)", ["learn Sprout"])
+sqlite_exec(db, "insert into notes (text) values (?)", ["ship app"])
+sqlite_commit(db)
+
+rows = sqlite_query(db, "select id, text from notes order by id")
+for row in rows:
+  say row.id, row.text
+
+sqlite_close(db)

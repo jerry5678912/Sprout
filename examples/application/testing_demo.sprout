@@ -1,0 +1,8 @@
+def add(a, b):
+  return a + b
+
+test "addition":
+  expect(add(2, 3)).to_equal(5)
+
+test "arrays contain values":
+  expect(["seed", "leaf"]).to_contain("leaf")

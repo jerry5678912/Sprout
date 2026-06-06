@@ -1963,7 +1963,173 @@ python3 tests/dogfood.py
 
 Notes and pain points from dogfooding live in `docs/DOGFOOD.md`.
 
-## 30. Current Limitations
+## 30. Application Development Layer
+
+### Testing
+
+Sprout test files use named `test` declarations:
+
+```sprout
+def add(a, b):
+  return a + b
+
+test "addition":
+  expect(add(2, 3)).to_equal(5)
+```
+
+Run tests with:
+
+```sh
+python3 sprout.py test
+python3 sprout.py test tests/
+python3 sprout.py test tests/application_test.sprout --verbose
+```
+
+The runner discovers `.sprout` files, runs setup declarations before test blocks, reports failures, prints a summary, and returns a non-zero exit code when tests fail.
+
+Expectation methods:
+
+```sprout
+expect(value).to_equal(expected)
+expect(value).not_to_equal(expected)
+expect(value).to_be_true()
+expect(value).to_be_false()
+expect(value).to_contain(item)
+```
+
+### Tasks, Futures, and Queues
+
+```sprout
+def work(value):
+  return value * value
+
+task = task_spawn(work, [5])
+say task.done
+say task.result()
+
+later = task_after(0.1, work, [6])
+say task_wait_all([task, later])
+
+messages = queue_open()
+messages.send("ready")
+say messages.receive()
+```
+
+Tasks use a scheduler with future-like results and delayed execution. Sprout function execution is currently serialized through a runtime lock so interpreter state remains correct. This provides safe task/timer foundations, not CPU-parallel Sprout execution.
+
+### HTTP
+
+HTTP client:
+
+```sprout
+response = http_get("https://example.com")
+say response.status
+say response.ok
+say response.text
+```
+
+JSON responses:
+
+```sprout
+data = response.json()
+```
+
+Request helpers:
+
+```sprout
+http_get(url, headers=nil, timeout=10)
+http_post(url, data=nil, headers=nil, timeout=10)
+http_request(method, url, data=nil, headers=nil, timeout=10)
+```
+
+Small route-based local server:
+
+```sprout
+server = http_server({
+  "/": "hello",
+  "/health": {"body": {"ok": true}}
+})
+server.start()
+say server.url
+server.stop()
+```
+
+### SQLite
+
+```sprout
+db = sqlite_open("app.db")
+sqlite_exec(db, "create table if not exists notes (text)")
+sqlite_exec(db, "insert into notes values (?)", ["hello"])
+rows = sqlite_query(db, "select * from notes")
+say rows
+sqlite_close(db)
+```
+
+Transactions:
+
+```sprout
+sqlite_begin(db)
+sqlite_exec(db, "insert into notes values (?)", ["draft"])
+sqlite_commit(db)
+# sqlite_rollback(db) is also available.
+```
+
+Rows are returned as Sprout dictionaries.
+
+### Engineering
+
+Native engineering helpers:
+
+```sprout
+vec_add(a, b)
+vec_sub(a, b)
+vec_dot(a, b)
+vec_magnitude(vector)
+vec_normalize(vector)
+mat_mul(a, b)
+unit_convert(value, source, target)
+interpolate(a, b, t)
+kinetic_energy(mass, speed)
+force(mass, acceleration)
+pressure(force, area)
+```
+
+The higher-level module is `examples/modules/engineering.sprout`.
+
+### Game Application Structure
+
+`examples/modules/appgame.sprout` provides game state, entities, scenes, normalized input state, rectangle collision, timers, text/JSON asset loading, and a deterministic fixed-step loop.
+
+This module complements PixelGarden, StarBloom3D, Window2D, and PandaWindow3D rather than replacing them.
+
+### Documentation Generation
+
+Write `##` comments immediately above functions or classes:
+
+```sprout
+## Creates a player with optional hit points.
+def player(name, hp=10):
+  return {"name": name, "hp": hp}
+```
+
+Generate project documentation:
+
+```sh
+python3 sprout.py docs .
+python3 sprout.py docs . --html
+```
+
+Output is written to `docs/API.md` and optionally `docs/API.html`.
+
+Standard-library groups can be inspected with:
+
+```sh
+python3 sprout.py stdlib --groups
+```
+
+Application examples live under `examples/application`.
+
+## 31. Current Limitations
 
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 
@@ -1978,11 +2144,14 @@ Known limitations:
 - There is no online package manager. Local package metadata exists as a foundation only.
 - There is no static type checker.
 - The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.
+- `test` declarations and native application resources currently run through the stable interpreter, not the experimental VM.
+- Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.
+- The HTTP server is intentionally small and route-based. It is not yet a production web framework.
 - PixelGarden and StarBloom3D are terminal software engines.
 - Window2D and PandaWindow3D are thin wrappers and require external Python packages.
 - Python interop depends on the Python runtime executing `sprout.py`.
 
-## 31. Accuracy Notes
+## 32. Accuracy Notes
 
 This manual describes the current `sprout.py` implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 

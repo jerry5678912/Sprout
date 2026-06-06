@@ -157,6 +157,8 @@ class Compiler:
         elif kind == "importpython":
             self.emit("IMPORT_PYTHON", stmt[1])
             self.emit("STORE_NAME", stmt[2])
+        elif kind == "test":
+            raise BytecodeUnsupported("test declarations")
         elif kind == "say":
             for expr in stmt[1]:
                 self.expression(expr)

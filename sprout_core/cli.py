@@ -10,6 +10,9 @@ from .model import SPROUT_VERSION, SproutError, SproutRaised
 from .package import doctor, ensure_release_docs, new_project, pkg_add, pkg_info, pkg_init, pkg_list, pkg_remove, release_check
 from .parser import Parser
 from .runtime import Interpreter, format_error, format_value
+from .testing import run_tests
+from .docsgen import generate_docs
+from .application import STANDARD_LIBRARY_GROUPS
 from .tooling import builtin_function_names, check_file, example_files, format_file, intelligence_file, lint_file, print_help, run_file
 
 def brace_balance(source: str) -> int:
@@ -147,6 +150,20 @@ def main(argv: list[str]) -> int:
             for name, count in result["call_counts"].items():
                 seconds = result["call_times"].get(name, 0.0)
                 print(f"  {name}: calls={count} time={seconds:.6f}s")
+        elif argv[1] == "test":
+            target = None
+            for value in argv[2:]:
+                if not value.startswith("--"):
+                    target = value
+                    break
+            return run_tests(target, verbose="--verbose" in argv[2:])
+        elif argv[1] == "docs":
+            target = "."
+            for value in argv[2:]:
+                if not value.startswith("--"):
+                    target = value
+                    break
+            return generate_docs(target, html_mode="--html" in argv[2:])
         elif argv[1] == "pkg":
             if len(argv) < 3:
                 print("usage: sprout.py pkg init|list|add|remove|info [...]", file=sys.stderr)
@@ -203,10 +220,14 @@ def main(argv: list[str]) -> int:
                 source_path=options.get("--source"),
             )
         elif argv[1] == "stdlib":
-            names = builtin_function_names()
-            print(f"{len(names)} functions")
-            for name in names:
-                print(name)
+            if "--groups" in argv[2:]:
+                for group, names in STANDARD_LIBRARY_GROUPS.items():
+                    print(f"{group}: {', '.join(names)}")
+            else:
+                names = builtin_function_names()
+                print(f"{len(names)} functions")
+                for name in names:
+                    print(name)
         elif argv[1] == "examples":
             for path in example_files():
                 print(path)

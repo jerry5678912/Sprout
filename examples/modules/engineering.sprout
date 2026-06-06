@@ -1,0 +1,63 @@
+## Creates a vector from any number of numeric values.
+def vector(*values):
+  return values
+
+## Adds two vectors.
+def add(a, b):
+  return vec_add(a, b)
+
+## Subtracts vector b from vector a.
+def subtract(a, b):
+  return vec_sub(a, b)
+
+## Returns the dot product of two vectors.
+def dot(a, b):
+  return vec_dot(a, b)
+
+## Returns vector magnitude.
+def magnitude(value):
+  return vec_magnitude(value)
+
+## Returns a unit-length vector.
+def normalize(value):
+  return vec_normalize(value)
+
+## Multiplies two matrices.
+def matrix_multiply(a, b):
+  return mat_mul(a, b)
+
+## Converts a value between supported units.
+def convert(value, source, target):
+  return unit_convert(value, source, target)
+
+## Linearly interpolates between two values.
+def lerp_value(a, b, t):
+  return interpolate(a, b, t)
+
+## Returns kinetic energy in joules for SI inputs.
+def energy(mass_kg, speed_mps):
+  return kinetic_energy(mass_kg, speed_mps)
+
+## Returns force in newtons for SI inputs.
+def newtons(mass_kg, acceleration_mps2):
+  return force(mass_kg, acceleration_mps2)
+
+## Returns pressure in pascals for SI inputs.
+def pascals(force_n, area_m2):
+  return pressure(force_n, area_m2)
+
+## Samples y values between adjacent [x, y] points.
+def interpolate_points(points, x):
+  if len(points) == 0:
+    return nil
+  if x <= points[0][0]:
+    return points[0][1]
+  i = 0
+  while i < len(points) - 1:
+    left = points[i]
+    right = points[i + 1]
+    if x <= right[0]:
+      t = (x - left[0]) / (right[0] - left[0])
+      return interpolate(left[1], right[1], t)
+    i = i + 1
+  return last(points)[1]

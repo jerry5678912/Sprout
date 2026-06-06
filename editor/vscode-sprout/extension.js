@@ -33,6 +33,7 @@ const entries = [
   ["while", "Loop while a condition is truthy.", "while ${1:condition}:\n  ${2}"],
   ["for", "Loop over arrays, strings, ranges, or dictionary keys.", "for ${1:item} in ${2:items}:\n  ${3}"],
   ["try", "Catch Sprout errors and raised values.", "try:\n  ${1}\ncatch ${2:err}:\n  ${3:say err}"],
+  ["test", "Define a Sprout test case.", "test \"${1:name}\":\n  expect(${2:actual}).to_equal(${3:expected})"],
   ["import", "Import another .sprout file.", "import \"${1:modules/gamekit.sprout}\" as ${2:game}"],
   ["importpython", "Import a Python standard-library module.", "importpython ${1:math}"],
   ["super", "Call a parent class method from a subclass.", "super.${1:method}(${2})"],
@@ -88,6 +89,33 @@ const entries = [
   ["cos", "Cosine.", "cos(${1:radians})"],
   ["json_parse", "Parse JSON text into Sprout values.", "json_parse(${1:text})"],
   ["json_stringify", "Convert Sprout values to JSON text.", "json_stringify(${1:value})"]
+  ,["expect", "Create a fluent test expectation.", "expect(${1:value}).to_equal(${2:expected})"]
+  ,["task_spawn", "Run a callable as a scheduled task.", "task_spawn(${1:function}, ${2:args})"]
+  ,["task_after", "Run a callable after a delay.", "task_after(${1:seconds}, ${2:function}, ${3:args})"]
+  ,["task_wait_all", "Wait for task futures and return their results.", "task_wait_all(${1:tasks})"]
+  ,["queue_open", "Create a message queue.", "queue_open()"]
+  ,["http_get", "Perform an HTTP GET request.", "http_get(${1:url})"]
+  ,["http_post", "Perform an HTTP POST request.", "http_post(${1:url}, ${2:data})"]
+  ,["http_request", "Perform a configurable HTTP request.", "http_request(${1:method}, ${2:url})"]
+  ,["http_server", "Create a small route-based HTTP server.", "http_server(${1:routes})"]
+  ,["sqlite_open", "Open a SQLite database.", "sqlite_open(${1:path})"]
+  ,["sqlite_exec", "Execute a SQLite statement.", "sqlite_exec(${1:db}, ${2:sql}, ${3:params})"]
+  ,["sqlite_query", "Query SQLite rows as dictionaries.", "sqlite_query(${1:db}, ${2:sql}, ${3:params})"]
+  ,["sqlite_begin", "Begin a SQLite transaction.", "sqlite_begin(${1:db})"]
+  ,["sqlite_commit", "Commit a SQLite transaction.", "sqlite_commit(${1:db})"]
+  ,["sqlite_rollback", "Roll back a SQLite transaction.", "sqlite_rollback(${1:db})"]
+  ,["sqlite_close", "Close a SQLite database.", "sqlite_close(${1:db})"]
+  ,["vec_add", "Add numeric vectors.", "vec_add(${1:a}, ${2:b})"]
+  ,["vec_sub", "Subtract numeric vectors.", "vec_sub(${1:a}, ${2:b})"]
+  ,["vec_dot", "Calculate a vector dot product.", "vec_dot(${1:a}, ${2:b})"]
+  ,["vec_magnitude", "Calculate vector magnitude.", "vec_magnitude(${1:value})"]
+  ,["vec_normalize", "Normalize a vector.", "vec_normalize(${1:value})"]
+  ,["mat_mul", "Multiply matrices.", "mat_mul(${1:a}, ${2:b})"]
+  ,["unit_convert", "Convert supported engineering units.", "unit_convert(${1:value}, ${2:source}, ${3:target})"]
+  ,["interpolate", "Linearly interpolate numbers.", "interpolate(${1:a}, ${2:b}, ${3:t})"]
+  ,["kinetic_energy", "Calculate kinetic energy.", "kinetic_energy(${1:mass}, ${2:speed})"]
+  ,["force", "Calculate force.", "force(${1:mass}, ${2:acceleration})"]
+  ,["pressure", "Calculate pressure.", "pressure(${1:force}, ${2:area})"]
 ];
 
 const keywordEntries = [
@@ -107,6 +135,7 @@ const keywordEntries = [
   ["for", "Loop over arrays, strings, ranges, or dictionary keys.", "for ${1:item} in ${2:items}:\n  ${3}"],
   ["each", "Garden-flavored for loop.", "each ${1:item} in ${2:items} bloom\n  ${3}\nend"],
   ["try", "Catch Sprout errors and raised values.", "try:\n  ${1}\ncatch ${2:err}:\n  ${3:say err}"],
+  ["test", "Define a Sprout test case.", "test \"${1:name}\":\n  expect(${2:actual}).to_equal(${3:expected})"],
   ["catch", "Handle a Sprout try block error.", "catch ${1:err}:\n  ${2}"],
   ["raise", "Raise a value as a recoverable Sprout error.", "raise ${1:value}"],
   ["return", "Return a value from a function.", "return ${1:value}"],
@@ -252,6 +281,37 @@ const gameEntries = [
   ["status", "Format a game player status line.", "status(${1:hero})"]
 ];
 
+const engineeringEntries = [
+  ["vector", "Create an engineering vector.", "vector(${1:values})"],
+  ["add", "Add vectors.", "add(${1:a}, ${2:b})"],
+  ["subtract", "Subtract vectors.", "subtract(${1:a}, ${2:b})"],
+  ["dot", "Vector dot product.", "dot(${1:a}, ${2:b})"],
+  ["magnitude", "Vector magnitude.", "magnitude(${1:value})"],
+  ["normalize", "Normalize a vector.", "normalize(${1:value})"],
+  ["matrix_multiply", "Multiply matrices.", "matrix_multiply(${1:a}, ${2:b})"],
+  ["convert", "Convert engineering units.", "convert(${1:value}, ${2:source}, ${3:target})"],
+  ["lerp_value", "Interpolate values.", "lerp_value(${1:a}, ${2:b}, ${3:t})"],
+  ["energy", "Calculate kinetic energy.", "energy(${1:mass}, ${2:speed})"],
+  ["newtons", "Calculate force in newtons.", "newtons(${1:mass}, ${2:acceleration})"],
+  ["pascals", "Calculate pressure in pascals.", "pascals(${1:force}, ${2:area})"],
+  ["interpolate_points", "Interpolate sampled points.", "interpolate_points(${1:points}, ${2:x})"]
+];
+
+const appGameEntries = [
+  ["game", "Create game application state.", "game(${1:title})"],
+  ["entity", "Create an entity.", "entity(${1:name}, ${2:x}, ${3:y}, ${4:w}, ${5:h})"],
+  ["add_entity", "Add an entity.", "add_entity(${1:state}, ${2:entity})"],
+  ["add_scene", "Register a scene.", "add_scene(${1:state}, ${2:name}, ${3:scene})"],
+  ["change_scene", "Change active scene.", "change_scene(${1:state}, ${2:name})"],
+  ["set_input", "Set an input action.", "set_input(${1:state}, ${2:action}, ${3:pressed})"],
+  ["pressed", "Check an input action.", "pressed(${1:state}, ${2:action})"],
+  ["collides", "Test entity rectangle collision.", "collides(${1:a}, ${2:b})"],
+  ["timer", "Create a game timer.", "timer(${1:seconds})"],
+  ["tick_timer", "Advance a game timer.", "tick_timer(${1:timer}, ${2:dt})"],
+  ["load_text", "Load a text asset.", "load_text(${1:path})"],
+  ["load_json", "Load a JSON asset.", "load_json(${1:path})"]
+];
+
 const allBuiltinNames = [
   "abs", "acos", "appendfile", "array", "asin", "ask", "atan", "atan2", "avg", "basename", "between", "bundle",
   "ceil", "chant", "chars", "choose", "chunks", "clamp", "clear", "compact", "concat", "contains", "copy", "cos",
@@ -265,7 +325,10 @@ const allBuiltinNames = [
   "readjson", "remove", "repeat", "replace", "rest", "reverse", "round", "rtrim", "sample", "say", "seed", "shout",
   "shuffle", "sign", "sin", "sleep", "slice", "sort", "sparkle", "sprinkle", "sqrt", "startswith", "str", "substr",
   "sum", "take", "tan", "title", "trim", "type", "unique", "upper", "values", "weave", "whisper", "words", "wrap",
-  "writefile", "writejson", "zipbud"
+  "writefile", "writejson", "zipbud", "expect", "task_spawn", "task_after", "task_wait_all", "queue_open",
+  "http_get", "http_post", "http_request", "http_server", "sqlite_open", "sqlite_exec", "sqlite_query",
+  "sqlite_begin", "sqlite_commit", "sqlite_rollback", "sqlite_close", "vec_add", "vec_sub", "vec_dot",
+  "vec_magnitude", "vec_normalize", "mat_mul", "unit_convert", "interpolate", "kinetic_energy", "force", "pressure"
 ];
 
 const allEngineNames = [
@@ -495,6 +558,8 @@ const completeStarBloomEntries = completeNamedSet(allEngineNames, engineEntries,
 const completeWindow2dEntries = completeNamedSet(allWindow2dNames, window2dEntries, "Window2D API");
 const completePandaEntries = completeNamedSet(allPandaNames, pandaEntries, "PandaWindow3D API");
 const completeGameEntries = completeNamedSet(allGameNames, gameEntries, "Gamekit API");
+const completeEngineeringEntries = engineeringEntries;
+const completeAppGameEntries = appGameEntries;
 
 function completion(label, docs, insertText, kind = vscode.CompletionItemKind.Function) {
   const item = new vscode.CompletionItem(label, kind);
@@ -963,6 +1028,12 @@ function activate(context) {
         }
         if (before.endsWith("game.")) {
           return completeGameEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+        }
+        if (before.endsWith("eng.")) {
+          return completeEngineeringEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+        }
+        if (before.endsWith("app.")) {
+          return completeAppGameEntries.map(([label, docs, insert]) => completion(label, docs, insert));
         }
         if (before.endsWith(".")) {
           return methodEntries.map(([label, docs, insert]) => completion(label, docs, insert, vscode.CompletionItemKind.Method));

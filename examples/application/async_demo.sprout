@@ -1,0 +1,13 @@
+def work(value):
+  sleep(0.02)
+  return value * value
+
+first_task = task_spawn(work, [4])
+second_task = task_after(0.01, work, [5])
+results = task_wait_all([first_task, second_task])
+say "task results:", results
+
+messages = queue_open()
+messages.send("build")
+messages.send("test")
+say "queue:", messages.receive(), messages.receive(), "empty", messages.empty()

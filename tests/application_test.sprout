@@ -1,0 +1,44 @@
+import "engineering.sprout" as eng
+import "appgame.sprout" as game
+
+def double(value):
+  return value * 2
+
+test "expectation helpers":
+  expect(2 + 3).to_equal(5)
+  expect("sprout").to_contain("out")
+  expect(true).to_be_true()
+
+test "engineering vectors and units":
+  expect(eng.add([1, 2, 3], [4, 5, 6])).to_equal([5.0, 7.0, 9.0])
+  expect(round(eng.magnitude([3, 4]), 2)).to_equal(5.0)
+  expect(round(eng.convert(100, "cm", "m"), 2)).to_equal(1.0)
+
+test "tasks and queues":
+  task = task_spawn(double, [6])
+  expect(task.result()).to_equal(12)
+  messages = queue_open()
+  messages.send("ready")
+  expect(messages.receive()).to_equal("ready")
+
+test "sqlite rows and transactions":
+  db = sqlite_open(":memory:")
+  sqlite_exec(db, "create table notes (text)")
+  sqlite_begin(db)
+  sqlite_exec(db, "insert into notes values (?)", ["hello"])
+  sqlite_commit(db)
+  rows = sqlite_query(db, "select text from notes")
+  expect(rows[0].text).to_equal("hello")
+  sqlite_close(db)
+
+test "http client json response":
+  response = http_get("data:application/json,%7B%22ok%22%3Atrue%7D")
+  expect(response.status).to_equal(200)
+  expect(response.json().ok).to_be_true()
+
+test "game collision and timers":
+  player = game.entity("player", 0, 0, 2, 2)
+  wall = game.entity("wall", 1, 1, 2, 2)
+  expect(game.collides(player, wall)).to_be_true()
+  clock = game.timer(1)
+  expect(game.tick_timer(clock, 1)).to_be_true()

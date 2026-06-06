@@ -1,0 +1,16 @@
+import "modules/appgame.sprout" as app
+
+state = app.game("Tiny Runner")
+player = app.add_entity(state, app.entity("player", 0, 0, 1, 1))
+goal = app.add_entity(state, app.entity("goal", 3, 0, 1, 1))
+
+def update(game, dt):
+  player.x = player.x + 1
+  if app.collides(player, goal):
+    game.running = false
+
+def draw(game):
+  say "frame", game.frame, "player", player.x, "goal", goal.x
+
+app.run(state, update, draw, frames=10, dt=0.1)
+say "finished:", state.frame, state.time

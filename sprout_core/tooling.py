@@ -538,6 +538,8 @@ def print_help() -> None:
         "  python3 sprout.py bench FILE            Time tree-walk vs VM when supported\n"
         "  python3 sprout.py debug FILE            Step experimental VM bytecode\n"
         "  python3 sprout.py profile FILE          Profile experimental VM execution\n"
+        "  python3 sprout.py test [PATH]           Discover and run Sprout tests\n"
+        "  python3 sprout.py docs [DIR] [--html]  Generate project API documentation\n"
         "  python3 sprout.py pkg COMMAND           Manage local packages\n"
         "  python3 sprout.py new TEMPLATE NAME     Create a Sprout project\n"
         "  python3 sprout.py doctor                Check local release readiness\n"

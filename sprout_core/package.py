@@ -202,14 +202,23 @@ TEMPLATE_SOURCES = {
 
 LIBRARY_MODULE_SOURCE = '## Returns a friendly greeting.\ndef greet(name):\n  return "hello " + name\n\n## Converts text into a lowercase dash slug.\ndef slug(text):\n  return lower(replace(text, " ", "-"))\n'
 
-LIBRARY_TEST_SOURCE = 'import "{name}.sprout" as lib\n\nensure(lib.greet("Sprout") == "hello Sprout", "greet should return a greeting")\nensure(lib.slug("My Library") == "my-library", "slug should lowercase and dash text")\nsay "library tests passed"\n'
+LIBRARY_TEST_SOURCE = 'import "{name}.sprout" as lib\n\ntest "greeting":\n  expect(lib.greet("Sprout")).to_equal("hello Sprout")\n\ntest "slug":\n  expect(lib.slug("My Library")).to_equal("my-library")\n'
 
 
 def doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     checks.append(("python >= 3.9", sys.version_info >= (3, 9), platform.python_version()))
-    for path in ["sprout.py", "README.md", "docs/MANUAL.md", "editor/vscode-sprout/package.json", "tests/smoke.sh"]:
+    for path in [
+        "sprout.py",
+        "README.md",
+        "docs/MANUAL.md",
+        "editor/vscode-sprout/package.json",
+        "tests/smoke.sh",
+        "tests/application.py",
+        "examples/modules/engineering.sprout",
+        "examples/modules/appgame.sprout",
+    ]:
         full = os.path.join(root, path)
         checks.append((path, os.path.exists(full), full))
     project = load_project(root) if os.path.exists(os.path.join(root, "sprout.toml")) else None

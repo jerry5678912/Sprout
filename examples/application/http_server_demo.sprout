@@ -1,0 +1,12 @@
+server = http_server({
+  "/": "Sprout HTTP server",
+  "/health": {"body": {"ok": true, "language": "Sprout"}}
+})
+
+server.start()
+say "server:", server.url
+
+response = http_get(server.url + "/health")
+say "health:", response.status, response.json()
+
+server.stop()

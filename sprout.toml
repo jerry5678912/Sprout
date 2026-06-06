@@ -1,9 +1,9 @@
 [project]
 name = "sprout"
-version = "0.1.0"
+version = "0.2.0"
 main = "examples/fibonacci.sprout"
 authors = []
-description = "A small experimental programming language with editor tooling and an experimental VM."
+description = "A programming language platform with tooling, an experimental VM, and practical application libraries."
 license = "MIT"
 
 [paths]

@@ -47,6 +47,10 @@ class Parser:
                 alias = self.consume("IDENT", "Expected alias after as").value
             self.terminator("Expected a line ending after import")
             return ("import", path, alias)
+        if self.match("TEST"):
+            token = self.previous()
+            name = self.consume("STRING", "Expected test name string after test")
+            return ("test", name.value, self.block(), token.line, token.col)
         if self.match("FN", "DEF", "BLOOM"):
             return self.function_decl()
         if self.match("CLASS"):

@@ -58,6 +58,9 @@ def test_templates() -> None:
             formatted = run(["fmt", "."], project).stdout
             assert "src/main.sprout" in formatted
             run(["fmt", ".", "--write"], project)
+            if template == "library":
+                tests = run(["test"], project).stdout
+                assert "2 tests: 2 passed, 0 failed" in tests
 
 
 def test_doctor_and_release_docs() -> None:

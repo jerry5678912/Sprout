@@ -1,0 +1,8 @@
+import "modules/engineering.sprout" as eng
+
+load = eng.vector(3, 4, 0)
+say "magnitude:", eng.magnitude(load)
+say "direction:", eng.normalize(load)
+say "100 cm:", eng.convert(100, "cm", "m"), "m"
+say "energy:", eng.energy(2, 5), "J"
+say "sample:", eng.interpolate_points([[0, 0], [10, 100]], 2.5)

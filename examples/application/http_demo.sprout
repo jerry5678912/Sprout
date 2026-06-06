@@ -1,0 +1,8 @@
+url = "https://example.com"
+if len(argv) > 0:
+  url = argv[0]
+
+response = http_get(url)
+say "status:", response.status
+say "ok:", response.ok
+say "bytes:", len(response.text)

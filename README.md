@@ -251,6 +251,59 @@ python3 tests/dogfood.py
 
 Notes from dogfooding live in [docs/DOGFOOD.md](docs/DOGFOOD.md).
 
+## Application Layer
+
+Sprout now includes foundations for testing, tasks, HTTP, SQLite, engineering utilities, documentation generation, and reusable game application structure.
+
+Run Sprout tests:
+
+```sh
+python3 sprout.py test
+python3 sprout.py test tests/
+python3 sprout.py test tests/application_test.sprout --verbose
+```
+
+Test syntax:
+
+```sprout
+test "addition":
+  expect(add(2, 3)).to_equal(5)
+```
+
+Application examples:
+
+```sh
+python3 sprout.py run examples/application/async_demo.sprout
+python3 sprout.py run examples/application/http_server_demo.sprout
+python3 sprout.py run examples/application/sqlite_demo.sprout
+python3 sprout.py run examples/application/engineering_demo.sprout
+python3 sprout.py run examples/application/game_app_demo.sprout
+```
+
+Key APIs:
+
+- Tasks and queues: `task_spawn`, `task_after`, `task_wait_all`, `queue_open`
+- HTTP: `http_get`, `http_post`, `http_request`, `http_server`
+- SQLite: `sqlite_open`, `sqlite_exec`, `sqlite_query`, transactions, `sqlite_close`
+- Engineering: vector/matrix functions, unit conversion, interpolation, force, pressure, and energy
+- Game structure: `examples/modules/appgame.sprout`
+- Engineering module: `examples/modules/engineering.sprout`
+
+Generate project API documentation from `##` comments:
+
+```sh
+python3 sprout.py docs .
+python3 sprout.py docs . --html
+```
+
+Inspect standard-library groups:
+
+```sh
+python3 sprout.py stdlib --groups
+```
+
+The task foundation runs work on a scheduler and supports delayed tasks, futures, and queues. Sprout function execution is serialized through a runtime lock in this first version so shared interpreter state remains correct.
+
 ## Language Tour
 
 ```sprout

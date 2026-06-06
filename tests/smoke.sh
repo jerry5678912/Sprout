@@ -86,6 +86,13 @@ python3 tests/intellisense.py >/tmp/sprout_intellisense_tests.out
 python3 tests/vm.py >/tmp/sprout_vm_tests.out
 python3 tests/package.py >/tmp/sprout_package_tests.out
 python3 tests/dogfood.py >/tmp/sprout_dogfood_tests.out
+python3 tests/application.py >/tmp/sprout_application_tests.out
+python3 sprout.py test tests/application_test.sprout >/tmp/sprout_language_tests.out
+python3 sprout.py run examples/application/async_demo.sprout >/tmp/sprout_async_demo.out
+python3 sprout.py run examples/application/sqlite_demo.sprout >/tmp/sprout_sqlite_demo.out
+python3 sprout.py run examples/application/engineering_demo.sprout >/tmp/sprout_engineering_demo.out
+python3 sprout.py run examples/application/game_app_demo.sprout >/tmp/sprout_game_app_demo.out
+python3 sprout.py stdlib --groups >/tmp/sprout_stdlib_groups.out
 
 test "$(wc -l </tmp/sprout_fib.out | tr -d ' ')" = "10"
 grep -q "34" /tmp/sprout_fib.out
@@ -193,7 +200,7 @@ grep -q "super status: Mina @(3,2) hp=13" /tmp/sprout_super.out
 grep -q "super error: Superclass Base has no method 'nope'" /tmp/sprout_super_errors.out
 grep -q "Tic-Tac-Toe" /tmp/sprout_tictactoe.out
 grep -q "Player X wins!" /tmp/sprout_tictactoe.out
-grep -q "function count: 148" /tmp/sprout_stdlib100.out
+grep -q "function count: 175" /tmp/sprout_stdlib100.out
 grep -q "stdlib ok" /tmp/sprout_stdlib100.out
 grep -q "step: 3 3" /tmp/sprout_geom2d.out
 grep -q "distance: 7" /tmp/sprout_geom2d.out
@@ -229,13 +236,13 @@ grep -q "ok .*examples/window2d_demo.sprout" /tmp/sprout_window2d_check.out
 grep -q "ok .*examples/panda3d_window_demo.sprout" /tmp/sprout_panda3d_check.out
 grep -q "ok .*examples/modules/window2d.sprout" /tmp/sprout_window2d_module_check.out
 grep -q "ok .*examples/modules/panda3d_window.sprout" /tmp/sprout_panda3d_module_check.out
-grep -q "148 functions" /tmp/sprout_stdlib_cmd.out
+grep -q "175 functions" /tmp/sprout_stdlib_cmd.out
 grep -q "^json_parse$" /tmp/sprout_stdlib_cmd.out
 grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out
 grep -q "^py_available$" /tmp/sprout_stdlib_cmd.out
 grep -q "examples/tictactoe.sprout" /tmp/sprout_examples_cmd.out
-grep -q "Sprout 0.1.0" /tmp/sprout_version.out
+grep -q "Sprout 0.2.0" /tmp/sprout_version.out
 grep -q "ok python >= 3.9" /tmp/sprout_doctor.out
 grep -q "\\[0, 1, 1, 2, 3, 5, 8, 13\\]" /tmp/sprout_repl.out
 grep -q '"snippets"' /tmp/sprout_vscode_package.out
@@ -246,5 +253,12 @@ grep -q "sprout intellisense tests passed" /tmp/sprout_intellisense_tests.out
 grep -q "sprout vm tests passed" /tmp/sprout_vm_tests.out
 grep -q "sprout package tests passed" /tmp/sprout_package_tests.out
 grep -q "sprout dogfood tests passed" /tmp/sprout_dogfood_tests.out
+grep -q "sprout application tests passed" /tmp/sprout_application_tests.out
+grep -q "6 tests: 6 passed, 0 failed" /tmp/sprout_language_tests.out
+grep -q "task results: \\[16, 25\\]" /tmp/sprout_async_demo.out
+grep -q "2 ship app" /tmp/sprout_sqlite_demo.out
+grep -q "magnitude: 5.0" /tmp/sprout_engineering_demo.out
+grep -q "finished: 3" /tmp/sprout_game_app_demo.out
+grep -q "sqlite:" /tmp/sprout_stdlib_groups.out
 
 echo "sprout smoke tests passed"
