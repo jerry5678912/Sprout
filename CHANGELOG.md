@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 - Added a VS Code interpreter selector, interpreter status item, validation,
   and an integrated-terminal command for running the current Sprout file.

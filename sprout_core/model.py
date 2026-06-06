@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 
-SPROUT_VERSION = "0.3.1"
+SPROUT_VERSION = "0.3.2"
 
 
 KEYWORDS = {
