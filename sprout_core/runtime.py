@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import re
 import statistics
 import threading
 import time
@@ -212,7 +213,12 @@ class Builtin:
             raise SproutError(f"{self.name} does not accept keyword args")
         if self.arity is not None and len(args) != self.arity:
             raise SproutError(f"{self.name} expected {self.arity} args, got {len(args)}")
-        return self.fn(*args)
+        try:
+            return self.fn(*args)
+        except (SproutError, SproutRaised):
+            raise
+        except Exception as exc:
+            raise native_runtime_error(self.name, exc) from None
 
     def __repr__(self) -> str:
         return f"<builtin {self.name}>"
@@ -229,7 +235,12 @@ class NativeMethod:
             raise SproutError(f"{self.name} does not accept keyword args")
         if self.arity is not None and len(args) != self.arity:
             raise SproutError(f"{self.name} expected {self.arity} args, got {len(args)}")
-        return self.fn(*args)
+        try:
+            return self.fn(*args)
+        except (SproutError, SproutRaised):
+            raise
+        except Exception as exc:
+            raise native_runtime_error(self.name, exc) from None
 
     def __repr__(self) -> str:
         return f"<method {self.name}>"
@@ -261,7 +272,11 @@ class PythonCallable:
             py_kwargs = {key: unwrap_sprout_value(value) for key, value in (kwargs or {}).items()}
             return wrap_python_value(self.fn(*[unwrap_sprout_value(arg) for arg in args], **py_kwargs), self.name)
         except Exception as exc:
-            raise SproutError(f"Python call {self.name} failed: {exc}")
+            raise SproutError(
+                f"Python bridge call '{self.name}' failed: {clean_native_message(exc)}",
+                category="InteropError",
+                hint="Check the values passed to the imported Python function.",
+            ) from None
 
     def __repr__(self) -> str:
         return f"<python function {self.name}>"
@@ -286,7 +301,10 @@ class PythonObject:
         try:
             setattr(self.value, name, unwrap_sprout_value(value))
         except Exception as exc:
-            raise SproutError(f"Could not set Python object field {self.name}.{name}: {exc}")
+            raise SproutError(
+                f"Could not set Python bridge field '{self.name}.{name}': {clean_native_message(exc)}",
+                category="InteropError",
+            ) from None
 
     def __repr__(self) -> str:
         return f"<python object {self.name}>"
@@ -594,14 +612,14 @@ class Interpreter:
             with open(self.resolve_path(str(path)), "r", encoding="utf-8") as fh:
                 return fh.read()
         except OSError as exc:
-            raise SproutError(str(exc))
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
 
     def builtin_writefile(self, path: Any, text: Any) -> Any:
         try:
             with open(self.resolve_path(str(path)), "w", encoding="utf-8") as fh:
                 fh.write(format_value(text))
         except OSError as exc:
-            raise SproutError(str(exc))
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
         return None
 
     def builtin_appendfile(self, path: Any, text: Any) -> Any:
@@ -609,7 +627,7 @@ class Interpreter:
             with open(self.resolve_path(str(path)), "a", encoding="utf-8") as fh:
                 fh.write(format_value(text))
         except OSError as exc:
-            raise SproutError(str(exc))
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
         return None
 
     def builtin_exists(self, path: Any) -> bool:
@@ -625,21 +643,28 @@ class Interpreter:
         try:
             return sorted(os.listdir(self.resolve_path(str(path))))
         except OSError as exc:
-            raise SproutError(str(exc))
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
 
     def builtin_mkdir(self, path: Any) -> None:
         try:
             os.makedirs(self.resolve_path(str(path)), exist_ok=True)
         except OSError as exc:
-            raise SproutError(str(exc))
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
         return None
 
     def builtin_readjson(self, path: Any) -> Any:
+        resolved = self.resolve_path(str(path))
         try:
-            with open(self.resolve_path(str(path)), "r", encoding="utf-8") as fh:
+            with open(resolved, "r", encoding="utf-8") as fh:
                 return wrap_python_value(json.load(fh))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SproutError(str(exc))
+        except OSError as exc:
+            raise SproutError(friendly_os_error(exc), category="FileError") from None
+        except json.JSONDecodeError as exc:
+            raise SproutError(
+                f"Invalid JSON in '{resolved}' at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+                category="DataError",
+                hint="Fix the JSON syntax near the reported position.",
+            ) from None
 
     def builtin_writejson(self, path: Any, value: Any) -> None:
         try:
@@ -881,7 +906,11 @@ class Interpreter:
         try:
             return PythonModule(importlib.import_module(module_name))
         except ImportError as exc:
-            raise SproutError(f"Could not import Python module '{module_name}': {exc}")
+            raise SproutError(
+                f"Could not import Python module '{module_name}': {clean_native_message(exc)}",
+                category="ImportError",
+                hint="Install the Python package or check the module name.",
+            ) from None
 
     def resolve_path(self, path: str) -> str:
         return path if os.path.isabs(path) else os.path.abspath(os.path.join(self.current_dir, path))
@@ -905,7 +934,11 @@ class Interpreter:
             with open(resolved, "r", encoding="utf-8") as fh:
                 source = fh.read()
         except OSError as exc:
-            raise SproutError(f"Could not import Sprout module '{path}': {exc}")
+            raise SproutError(
+                f"Could not import Sprout module '{path}': {friendly_os_error(exc)}",
+                category="ImportError",
+                hint="Check the module path and the project's configured source folders.",
+            ) from None
 
         module_env = Env(self.globals, is_scope_boundary=True)
         module = SproutModule(alias, resolved, module_env)
@@ -916,6 +949,9 @@ class Interpreter:
             self.current_dir = os.path.dirname(resolved)
             self.source_path = resolved
             self.execute_block(Parser(Lexer(source).tokenize()).parse(), module_env)
+        except SproutError as exc:
+            attach_error_source(exc, resolved, source)
+            raise
         finally:
             self.current_dir = previous_dir
             self.source_path = previous_source_path
@@ -951,7 +987,25 @@ class Interpreter:
         if kind == "index":
             obj = self.evaluate(expr[1])
             index = self.evaluate(expr[2])
-            return obj[int(index)] if isinstance(obj, list) else obj[index]
+            try:
+                return obj[int(index)] if isinstance(obj, list) else obj[index]
+            except IndexError:
+                raise SproutError(
+                    f"Index {index} is outside the available range",
+                    category="IndexError",
+                    hint=f"This value contains {len(obj)} item(s).",
+                ) from None
+            except KeyError:
+                raise SproutError(
+                    f"Dictionary has no key {format_value(index)}",
+                    category="KeyError",
+                    hint="Check that the key exists before reading it.",
+                ) from None
+            except (TypeError, ValueError) as exc:
+                raise SproutError(
+                    f"Invalid index {format_value(index)}: {clean_native_message(exc)}",
+                    category="TypeError",
+                ) from None
         if kind == "slice":
             obj = self.evaluate(expr[1])
             start = None if expr[2] is None else int(self.evaluate(expr[2]))
@@ -986,6 +1040,10 @@ class Interpreter:
             try:
                 return callee.call(self, args, kwargs)
             except SproutError as exc:
+                if exc.line is None:
+                    exc.path = exc.path or self.source_path
+                    exc.line = expr[4]
+                    exc.col = expr[5]
                 exc.add_frame(f"called at {self.location_label(expr[4], expr[5])}")
                 raise
         raise SproutError(f"Unknown expression {kind}")
@@ -1080,32 +1138,41 @@ class Interpreter:
             return left if truthy(left) else self.evaluate(right_expr)
         left = self.evaluate(left_expr)
         right = self.evaluate(right_expr)
-        if op == "+":
-            return left + right
-        if op == "-":
-            return left - right
-        if op == "*":
-            return left * right
-        if op == "/":
-            return left / right
-        if op == "//":
-            return left // right
-        if op == "%":
-            return left % right
-        if op == "==":
-            return left == right
-        if op == "!=":
-            return left != right
-        if op == "<":
-            return left < right
-        if op == "<=":
-            return left <= right
-        if op == ">":
-            return left > right
-        if op == ">=":
-            return left >= right
-        if op == "in":
-            return left in right
+        try:
+            if op == "+":
+                return left + right
+            if op == "-":
+                return left - right
+            if op == "*":
+                return left * right
+            if op == "/":
+                return left / right
+            if op == "//":
+                return left // right
+            if op == "%":
+                return left % right
+            if op == "==":
+                return left == right
+            if op == "!=":
+                return left != right
+            if op == "<":
+                return left < right
+            if op == "<=":
+                return left <= right
+            if op == ">":
+                return left > right
+            if op == ">=":
+                return left >= right
+            if op == "in":
+                return left in right
+        except ZeroDivisionError:
+            raise SproutError("Division by zero", category="MathError") from None
+        except (TypeError, ValueError) as exc:
+            raise SproutError(
+                f"Operator '{op}' cannot use {type_name(left)} and {type_name(right)}: {clean_native_message(exc)}",
+                category="TypeError",
+                hint="Use compatible values or convert them before this operation.",
+            ) from None
         raise SproutError(f"Unknown operator {op}")
 
 
@@ -1420,7 +1487,33 @@ def format_value(value: Any) -> str:
 
 
 def format_error(exc: SproutError) -> str:
-    lines = [f"error: {exc}"]
+    message, parsed_line, parsed_col = split_error_location(str(exc))
+    if exc.line is None:
+        exc.line = parsed_line
+    if exc.col is None:
+        exc.col = parsed_col
+    category = exc.category or classify_error(message)
+    lines = [f"error: {category}: {message}"]
+    if exc.path and exc.line:
+        path = display_path(exc.path)
+        location = f"{path}:{exc.line}"
+        if exc.col:
+            location += f":{exc.col}"
+        lines.append(f"  --> {location}")
+        source_line = exc.source_line or read_source_line(exc.path, exc.line)
+        if source_line is not None:
+            number = str(exc.line)
+            gutter = " " * len(number)
+            lines.extend(
+                [
+                    f"  {gutter} |",
+                    f"  {number} | {source_line}",
+                    f"  {gutter} | {' ' * max((exc.col or 1) - 1, 0)}^",
+                ]
+            )
+    hint = exc.hint or error_hint(message)
+    if hint:
+        lines.append(f"  = hint: {hint}")
     if exc.frames:
         lines.append("stack:")
         for frame in exc.frames:
@@ -1429,3 +1522,140 @@ def format_error(exc: SproutError) -> str:
             else:
                 lines.append(f"  at {frame}")
     return "\n".join(lines)
+
+
+ERROR_LOCATION = re.compile(r"^(.*) at (\d+):(\d+)$", re.DOTALL)
+
+
+def split_error_location(message: str) -> tuple[str, int | None, int | None]:
+    match = ERROR_LOCATION.match(message)
+    if not match:
+        return message, None, None
+    return match.group(1), int(match.group(2)), int(match.group(3))
+
+
+def attach_error_source(exc: SproutError, path: str | None, source: str | None = None) -> SproutError:
+    message, line, col = split_error_location(str(exc))
+    if line is not None:
+        exc.message = message
+        exc.line = exc.line or line
+        exc.col = exc.col or col
+    return exc.attach_source(path, source)
+
+
+def display_path(path: str) -> str:
+    try:
+        relative = os.path.relpath(path, os.getcwd())
+        if relative == ".." or relative.startswith(f"..{os.sep}"):
+            return os.path.abspath(path)
+        return relative
+    except ValueError:
+        return path
+
+
+def read_source_line(path: str, line: int) -> str | None:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for number, text in enumerate(fh, start=1):
+                if number == line:
+                    return text.rstrip("\r\n")
+    except OSError:
+        return None
+    return None
+
+
+def classify_error(message: str) -> str:
+    lower = message.lower()
+    if (
+        lower.startswith("expected")
+        or lower.startswith("unexpected")
+        or lower.startswith("unterminated")
+        or "indentation" in lower
+        or "parameter" in lower and "must be last" in lower
+    ):
+        return "SyntaxError"
+    if lower.startswith("undefined variable"):
+        return "NameError"
+    if "could not import" in lower or lower.startswith("no sprout.toml"):
+        return "ImportError"
+    if "no such file" in lower or "file not found" in lower or "is a directory" in lower:
+        return "FileError"
+    if "python bridge" in lower:
+        return "InteropError"
+    if (
+        "expected" in lower
+        or "expects" in lower
+        or "can only" in lower
+        or "cannot loop" in lower
+        or "must be" in lower
+    ):
+        return "TypeError"
+    if "division by zero" in lower or "modulo by zero" in lower:
+        return "MathError"
+    if "has no property" in lower or "has no method" in lower:
+        return "PropertyError"
+    return "RuntimeError"
+
+
+def error_hint(message: str) -> str | None:
+    lower = message.lower()
+    if "line ending after" in lower:
+        return "End the statement with a newline or ';'. Move the next statement onto a new line."
+    if "expected an indented block" in lower:
+        return "Indent the block body one level beneath the line ending in ':'."
+    if "unexpected indentation" in lower:
+        return "Remove the extra indentation, or add a block opener ending in ':'."
+    if "inconsistent indentation" in lower:
+        return "Use the same number of spaces as the surrounding block."
+    if "expected expression" in lower:
+        return "Check for a missing value, an extra operator, or an unmatched bracket."
+    if "unterminated string" in lower:
+        return "Add a closing double quote before the end of the string."
+    if lower.startswith("undefined variable"):
+        return "Define the name before using it, or check its spelling and scope."
+    if "can only call functions" in lower:
+        return "Only functions, classes, and callable values can be followed by '(...)'."
+    if "division by zero" in lower or "modulo by zero" in lower:
+        return "Check that the divisor is not zero before performing this operation."
+    if "no such file" in lower or "file not found" in lower:
+        return "Check the path. Relative paths start from the current Sprout file or project."
+    if "has no property" in lower or "has no method" in lower:
+        return "Check the member name and the value's type."
+    if "missing required argument" in lower or "expected" in lower and "args, got" in lower:
+        return "Check the function signature and the arguments supplied at this call."
+    return None
+
+
+def clean_native_message(exc: Exception) -> str:
+    message = str(exc).strip()
+    return message or "the native operation failed"
+
+
+def friendly_os_error(exc: OSError) -> str:
+    filename = getattr(exc, "filename", None)
+    shown = f"'{filename}'" if filename else "the requested path"
+    if isinstance(exc, FileNotFoundError):
+        return f"File not found: {shown}"
+    if isinstance(exc, IsADirectoryError):
+        return f"Expected a file but found a directory: {shown}"
+    if isinstance(exc, PermissionError):
+        return f"Permission denied: {shown}"
+    return clean_native_message(exc)
+
+
+def native_runtime_error(name: str, exc: Exception) -> SproutError:
+    if isinstance(exc, ZeroDivisionError):
+        return SproutError("Division by zero", category="MathError")
+    if isinstance(exc, IndexError):
+        return SproutError(f"{name} could not access that index", category="IndexError")
+    if isinstance(exc, KeyError):
+        return SproutError(f"{name} could not find key {exc}", category="KeyError")
+    if isinstance(exc, OSError):
+        return SproutError(friendly_os_error(exc), category="FileError")
+    if isinstance(exc, (TypeError, ValueError)):
+        return SproutError(f"{name} received an invalid value: {clean_native_message(exc)}", category="TypeError")
+    return SproutError(
+        f"{name} failed during a native operation",
+        category="RuntimeError",
+        hint="Run again with SPROUT_DEBUG_PYTHON=1 when reporting this as a Sprout bug.",
+    )

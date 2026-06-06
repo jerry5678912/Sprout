@@ -920,7 +920,7 @@ try {
 
 `return`, `break`, and `continue` are control flow and are not caught as normal errors.
 
-Uncaught runtime errors print a Sprout call stack. This is useful when a larger game, tool, or multi-file program fails inside nested function calls.
+Uncaught errors use Sprout's source-aware reporter. It prints an error category, the file and position, the relevant source line, a caret, a practical hint when available, and the Sprout call stack. This is useful when a larger game, tool, or multi-file program fails inside nested function calls.
 
 ```sprout
 def load_config(path) {
@@ -937,13 +937,20 @@ boot_game()
 Example output:
 
 ```text
-error: [Errno 2] No such file or directory: '.../data/missing_config.txt'
+error: FileError: File not found: '.../data/missing_config.txt'
+  --> examples/stacktrace.sprout:2:18
+    |
+  2 |   text = readfile(path)
+    |                  ^
+  = hint: Check the path. Relative paths start from the current Sprout file or project.
 stack:
   called at examples/stacktrace.sprout:2:18
   at load_config (examples/stacktrace.sprout:1:5)
   called at examples/stacktrace.sprout:7:21
   at boot_game (examples/stacktrace.sprout:6:5)
 ```
+
+Sprout does not show Python tracebacks during normal program execution. Errors from native helpers and `importpython` calls are converted to Sprout-facing errors. `SPROUT_DEBUG_PYTHON=1 sprout program.sprout` is reserved for language developers diagnosing an unexpected internal Sprout failure.
 
 ## 19. Files and Command-Line Programs
 

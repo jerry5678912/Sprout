@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+- Added categorized, source-aware syntax and runtime errors with code excerpts, carets, hints, and clean Sprout stack traces.
+- Prevented Python tracebacks from leaking during normal execution and translated native, file, math, and Python-interop failures into Sprout errors.
 - Expanded VM parity with slices, slice assignment, `seedfn`, inheritance, and `super`.
 - Added parser-level handling for test declarations during ordinary VM execution.
 - Added source locations to bytecode disassembly, debugging, and VM stack traces.

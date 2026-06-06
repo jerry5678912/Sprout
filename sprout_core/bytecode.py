@@ -10,7 +10,18 @@ import time
 from typing import Any
 
 from .model import SproutError, SproutRaised
-from .runtime import Builtin, Env, Interpreter, NativeMethod, bind_arguments, format_value, iterable_values, truthy
+from .runtime import (
+    Builtin,
+    Env,
+    Interpreter,
+    NativeMethod,
+    attach_error_source,
+    bind_arguments,
+    format_value,
+    iterable_values,
+    native_runtime_error,
+    truthy,
+)
 from .tooling import module_search_paths_for, parse_source, read_source_file, run_file
 
 
@@ -477,6 +488,10 @@ class BytecodeVM:
         except SproutError as exc:
             instr = instructions[self.ip - 1] if instructions and self.ip else None
             if instr and instr.source and instr.line:
+                if exc.line is None:
+                    exc.path = exc.path or instr.source
+                    exc.line = instr.line
+                    exc.col = instr.col
                 location = self.location_label(instr)
                 if code.name == "<module>":
                     exc.add_frame(f"called at {location}")
@@ -749,37 +764,44 @@ def call_value(vm: BytecodeVM, callee: Any, args: list[Any], kwargs: dict[str, A
 
 
 def evaluate_binary_value(op: str, left: Any, right: Any) -> Any:
-    if op == "+":
-        return left + right
-    if op == "-":
-        return left - right
-    if op == "*":
-        return left * right
-    if op == "/":
-        return left / right
-    if op == "//":
-        return left // right
-    if op == "%":
-        return left % right
-    if op == "==":
-        return left == right
-    if op == "!=":
-        return left != right
-    if op == "<":
-        return left < right
-    if op == "<=":
-        return left <= right
-    if op == ">":
-        return left > right
-    if op == ">=":
-        return left >= right
-    if op == "in":
-        return left in right
+    try:
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "/":
+            return left / right
+        if op == "//":
+            return left // right
+        if op == "%":
+            return left % right
+        if op == "==":
+            return left == right
+        if op == "!=":
+            return left != right
+        if op == "<":
+            return left < right
+        if op == "<=":
+            return left <= right
+        if op == ">":
+            return left > right
+        if op == ">=":
+            return left >= right
+        if op == "in":
+            return left in right
+    except Exception as exc:
+        raise native_runtime_error(f"operator '{op}'", exc) from None
     raise SproutError(f"Unknown operator {op}")
 
 
 def compile_source(source: str, source_path: str | None = None) -> CodeObject:
-    return Compiler(source_path, source).compile(parse_source(source))
+    try:
+        return Compiler(source_path, source).compile(parse_source(source))
+    except SproutError as exc:
+        attach_error_source(exc, source_path, source)
+        raise
 
 
 def compile_file(path: str) -> CodeObject:
@@ -831,7 +853,15 @@ def run_file_vm(path: str, args: list[str] | None = None, fallback: bool = True)
             run_file(path, args or [])
             return
         raise
-    BytecodeVM(resolved, argv=args or []).run(code)
+    try:
+        BytecodeVM(resolved, argv=args or []).run(code)
+    except SproutError as exc:
+        attach_error_source(exc, resolved, source)
+        raise
+    except Exception as exc:
+        error = native_runtime_error("VM program", exc)
+        attach_error_source(error, resolved, source)
+        raise error from None
 
 
 def parse_breakpoint(text: str, default_path: str | None = None) -> tuple[str | None, int]:

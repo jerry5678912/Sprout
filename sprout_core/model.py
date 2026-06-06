@@ -165,13 +165,37 @@ class SproutProject:
 
 
 class SproutError(Exception):
-    def __init__(self, message: Any):
+    def __init__(
+        self,
+        message: Any,
+        *,
+        category: str | None = None,
+        hint: str | None = None,
+        path: str | None = None,
+        line: int | None = None,
+        col: int | None = None,
+    ):
         super().__init__(str(message))
         self.message = str(message)
+        self.category = category
+        self.hint = hint
+        self.path = path
+        self.line = line
+        self.col = col
+        self.source_line: str | None = None
         self.frames: list[str] = []
 
     def add_frame(self, name: str) -> None:
         self.frames.append(name)
+
+    def attach_source(self, path: str | None, source: str | None = None) -> SproutError:
+        if path and not self.path:
+            self.path = path
+        if source and self.line and not self.source_line:
+            lines = source.splitlines()
+            if 1 <= self.line <= len(lines):
+                self.source_line = lines[self.line - 1]
+        return self
 
     def __str__(self) -> str:
         return self.message

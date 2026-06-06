@@ -9,7 +9,7 @@ from .lexer import Lexer
 from .model import SPROUT_VERSION, SproutError, SproutRaised
 from .package import doctor, ensure_release_docs, new_project, pkg_add, pkg_info, pkg_init, pkg_list, pkg_remove, release_check
 from .parser import Parser
-from .runtime import Interpreter, format_error, format_value
+from .runtime import Interpreter, attach_error_source, format_error, format_value, native_runtime_error
 from .testing import run_tests
 from .docsgen import generate_docs
 from .ecosystem import (
@@ -88,9 +88,15 @@ def repl(argv: list[str] | None = None) -> None:
         try:
             interpreter.run(Parser(Lexer(source).tokenize()).parse())
         except SproutError as exc:
+            attach_error_source(exc, "<repl>", source)
             print(format_error(exc), file=sys.stderr)
         except SproutRaised as exc:
-            print(f"error: raised {format_value(exc.value)}", file=sys.stderr)
+            print(format_error(SproutError(
+                f"Uncaught value: {format_value(exc.value)}",
+                category="RaisedError",
+                hint="Handle this value with try/catch, or remove the raise.",
+                path="<repl>",
+            )), file=sys.stderr)
         pending = []
 
 
@@ -313,10 +319,25 @@ def main(argv: list[str]) -> int:
         print(format_error(exc), file=sys.stderr)
         return 1
     except SproutRaised as exc:
-        print(f"error: raised {format_value(exc.value)}", file=sys.stderr)
+        print(format_error(SproutError(
+            f"Uncaught value: {format_value(exc.value)}",
+            category="RaisedError",
+            hint="Handle this value with try/catch, or remove the raise.",
+        )), file=sys.stderr)
         return 1
     except (OSError, IndexError, TypeError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        if os.environ.get("SPROUT_DEBUG_PYTHON") == "1":
+            raise
+        print(format_error(native_runtime_error("command", exc)), file=sys.stderr)
+        return 1
+    except Exception:
+        if os.environ.get("SPROUT_DEBUG_PYTHON") == "1":
+            raise
+        print(format_error(SproutError(
+            "Sprout encountered an unexpected internal runtime failure.",
+            category="InternalError",
+            hint="Run again with SPROUT_DEBUG_PYTHON=1 when reporting this as a Sprout bug.",
+        )), file=sys.stderr)
         return 1
 
 

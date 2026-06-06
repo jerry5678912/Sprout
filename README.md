@@ -717,10 +717,17 @@ try {
 }
 ```
 
-Uncaught errors show Sprout call stacks:
+Uncaught errors use Sprout's source-aware error reporter. It shows the error
+category, exact file location, source line, caret, practical hint, and Sprout
+call stack:
 
 ```text
-error: [Errno 2] No such file or directory: '.../missing_config.txt'
+error: FileError: File not found: '.../missing_config.txt'
+  --> examples/stacktrace.sprout:2:18
+    |
+  2 |   text = readfile(path)
+    |                  ^
+  = hint: Check the path. Relative paths start from the current Sprout file or project.
 stack:
   called at examples/stacktrace.sprout:2:18
   at load_config (examples/stacktrace.sprout:1:5)
@@ -729,6 +736,12 @@ stack:
   called at examples/stacktrace.sprout:12:19
   at main (examples/stacktrace.sprout:11:5)
 ```
+
+Normal execution never prints Python tracebacks. Native operations and Python
+interop are translated into Sprout errors such as `MathError`, `FileError`,
+`TypeError`, and `InteropError`. Language developers can set
+`SPROUT_DEBUG_PYTHON=1` to expose an unexpected internal traceback while
+debugging Sprout itself.
 
 ## Project Layout
 

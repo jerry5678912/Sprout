@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
 from .lexer import Lexer
 from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS
 from .parser import Parser
-from .runtime import Interpreter, format_value
+from .runtime import Interpreter, attach_error_source, format_value, native_runtime_error
 
 def parse_error_location(message: str) -> tuple[str, int | None, int | None]:
     marker = " at "
@@ -180,9 +180,17 @@ def run_source(
     argv: list[str] | None = None,
     module_search_paths: list[str] | None = None,
 ) -> None:
-    tokens = Lexer(source).tokenize()
-    program = Parser(tokens).parse()
-    Interpreter(source_path=source_path, argv=argv, module_search_paths=module_search_paths).run(program)
+    try:
+        tokens = Lexer(source).tokenize()
+        program = Parser(tokens).parse()
+        Interpreter(source_path=source_path, argv=argv, module_search_paths=module_search_paths).run(program)
+    except SproutError as exc:
+        attach_error_source(exc, source_path, source)
+        raise
+    except Exception as exc:
+        error = native_runtime_error("program", exc)
+        attach_error_source(error, source_path, source)
+        raise error from None
 
 
 def parse_source(source: str) -> list[Any]:
