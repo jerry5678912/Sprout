@@ -66,7 +66,7 @@ def test_templates() -> None:
 def test_doctor_and_release_docs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         release_root = Path(tmp)
-        for item in ["sprout.py", "sprout_core", "README.md", "docs", "editor", "tests", "examples", "tools"]:
+        for item in ["sprout.py", "install.py", "sprout_core", "README.md", "docs", "editor", "tests", "examples", "tools", ".github", "sprout.toml"]:
             source = ROOT / item
             dest = release_root / item
             if source.is_dir():

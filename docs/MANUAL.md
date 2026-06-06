@@ -1,6 +1,6 @@
 # The Sprout Programming Language Manual
 
-Version: 0.1  
+Version: 0.3.0
 Implementation: modular Python tree-walk interpreter in `sprout_core/`, launched by `sprout.py`  
 File extension: `.sprout`
 
@@ -17,6 +17,15 @@ From the Sprout folder:
 ```sh
 python3 sprout.py examples/fibonacci.sprout
 ```
+
+Install the `sprout` command:
+
+```sh
+python3 install.py
+~/.local/bin/sprout version
+```
+
+The default Unix installation prefix is `~/.local`. Select a custom prefix with `python3 install.py --prefix PATH`.
 
 Start the REPL:
 
@@ -985,7 +994,7 @@ say listdir("/tmp/sprout-save")
 
 ## 20. Built-In Functions
 
-Sprout currently exposes **148 callable global functions**. Use `functions()` to inspect them from Sprout itself, and `methods()` to inspect built-in method names.
+Sprout currently exposes **175 callable global functions**. Use `functions()` to inspect them from Sprout itself, and `methods()` to inspect built-in method names.
 
 ```sprout
 say len(functions())
@@ -1727,7 +1736,7 @@ python3 sprout.py fmt . --write
 
 It trims trailing whitespace, expands tabs to spaces, preserves comments, and avoids risky rewrites.
 
-Sprout has a local-first package manager foundation:
+Sprout keeps local path packages for development:
 
 ```sh
 python3 sprout.py pkg init
@@ -1737,7 +1746,7 @@ python3 sprout.py pkg info local_package
 python3 sprout.py pkg remove local_package
 ```
 
-Package dependencies are stored in `[dependencies]` with local `path` entries. There is no online package registry yet.
+Package dependencies are stored in `[dependencies]`. Local `path` entries work alongside registry version constraints. The full build, registry, publishing, and distribution workflow is documented in section 31.
 
 Project templates create working folders with `sprout.toml`, `src/main.sprout`, `modules/`, `tests/`, and a README:
 
@@ -1892,16 +1901,14 @@ It provides:
 - red syntax diagnostics powered by `sprout.py check`
 - yellow style warnings for tabs and Python-style constants like `True` / `False` / `None`
 
-Install by copying it into VS Code's extension folder:
+Build and install the self-contained VSIX:
 
 ```sh
-mkdir -p ~/.vscode/extensions
-cp -R editor/vscode-sprout ~/.vscode/extensions/sprout-language-0.1.0
-cp sprout.py ~/.vscode/extensions/sprout-language-0.1.0/
-cp -R sprout_core ~/.vscode/extensions/sprout-language-0.1.0/
+python3 sprout.py vscode-package
+code --install-extension dist/sprout-language-0.3.0.vsix
 ```
 
-Then run **Developer: Reload Window** in VS Code.
+The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
 
 For extension development:
 
@@ -2129,7 +2136,89 @@ python3 sprout.py stdlib --groups
 
 Application examples live under `examples/application`.
 
-## 31. Current Limitations
+## 31. Build, Distribution, And Package Registry
+
+Sprout projects can now produce deterministic build images and portable package bundles:
+
+```sh
+python3 sprout.py build
+python3 sprout.py build --vm
+python3 sprout.py build project/
+python3 sprout.py package
+python3 sprout.py package project/
+```
+
+Builds validate project metadata, source, and dependencies; write `sprout.lock`; copy configured source, module, documentation, and asset folders; materialize dependencies; and generate a hash-based `build-manifest.json`. VM builds also include readable experimental bytecode for the main file.
+
+Packages use semantic versions and constraints:
+
+```toml
+[package]
+name = "physics_tools"
+version = "1.2.0"
+description = "Engineering helpers"
+author = "Ada Example"
+license = "MIT"
+
+[dependencies]
+vectors = "^2.0.0"
+geometry = { path = "../geometry", version = "~1.4.0" }
+```
+
+Supported constraints include exact versions, `*`, `latest`, `^`, `~`, comparisons, and comma-separated ranges. Resolution is deterministic, dependency conflicts are errors, and exact results are stored in `sprout.lock`.
+
+Use `SPROUT_REGISTRY` or `--registry PATH` to select a registry:
+
+```sh
+python3 sprout.py pkg search physics
+python3 sprout.py pkg install physics_tools@^1.0.0
+python3 sprout.py pkg update
+python3 sprout.py pkg tree
+python3 sprout.py pkg docs physics_tools
+python3 sprout.py pkg publish
+```
+
+The registry is a lightweight JSON index with immutable, versioned `.sproutpkg` bundles. Registry metadata includes SHA-256 checksums and installs verify bundle integrity. Local registries are readable and writable. HTTP/HTTPS JSON registries are read-only in this milestone.
+
+Publishing validates metadata, source, dependencies, tests, and documentation. `release` performs the same quality checks, generates API documentation, creates a bundle, and writes `dist/release.json`:
+
+```sh
+python3 sprout.py release
+python3 sprout.py release --publish --registry ./registry
+```
+
+Aliases are available through `search`, `info`, and `list-installed`. Full ecosystem details are in `docs/ECOSYSTEM.md`.
+
+## 32. Installing And Releasing Sprout
+
+Install Sprout from a checkout or extracted release:
+
+```sh
+python3 install.py
+python3 install.py --prefix /custom/prefix
+python3 install.py --force
+```
+
+The installer copies the runtime and supporting files under the prefix and creates a `sprout` launcher under its `bin` directory. The equivalent CLI commands are:
+
+```sh
+python3 sprout.py install
+python3 sprout.py install --prefix /custom/prefix
+python3 sprout.py uninstall --prefix /custom/prefix
+```
+
+Create language release artifacts:
+
+```sh
+python3 sprout.py language-package
+python3 sprout.py vscode-package
+```
+
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.0` must match the runtime version before the release workflow publishes artifacts.
+
+The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
+
+## 33. Current Limitations
 
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 
@@ -2141,7 +2230,7 @@ Known limitations:
 - There are no comprehensions.
 - Sprout-defined functions support `*rest` positional arguments, `**options` keyword-rest arguments, and call-site `*args` / `**opts` spreading.
 - Built-in Sprout functions generally reject keyword arguments unless documented.
-- There is no online package manager. Local package metadata exists as a foundation only.
+- The package registry is local/JSON-backed. HTTP registries are read-only, and there is no hosted Sprout registry, authentication, signing, or trust service yet.
 - There is no static type checker.
 - The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.
 - `test` declarations and native application resources currently run through the stable interpreter, not the experimental VM.
@@ -2151,7 +2240,7 @@ Known limitations:
 - Window2D and PandaWindow3D are thin wrappers and require external Python packages.
 - Python interop depends on the Python runtime executing `sprout.py`.
 
-## 32. Accuracy Notes
+## 34. Accuracy Notes
 
 This manual describes the current `sprout.py` implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 

@@ -8,6 +8,17 @@ Sprout can also call Python standard-library modules with `importpython`, includ
 
 ## Run It
 
+Install Sprout from a source checkout or downloaded release:
+
+```sh
+python3 install.py
+~/.local/bin/sprout version
+```
+
+If `~/.local/bin` is on `PATH`, the `sprout` command works from any folder. Use `--prefix PATH` for a custom installation and `--force` to replace an existing installation.
+
+Without installing, run directly from the repository:
+
 ```sh
 python3 sprout.py examples/fibonacci.sprout
 ```
@@ -124,6 +135,9 @@ python3 sprout.py profile examples/vm_expanded.sprout
 python3 sprout.py pkg init
 python3 sprout.py new cli my_tool
 python3 sprout.py doctor
+python3 sprout.py install
+python3 sprout.py language-package
+python3 sprout.py vscode-package
 python3 sprout.py stdlib
 python3 sprout.py examples
 python3 sprout.py version
@@ -177,9 +191,9 @@ python3 sprout.py intel file.sprout --kind completions --line 20 --col 8
 
 There is also a stdio LSP foundation at `tools/sprout_lsp.py` with workspace diagnostics, semantic completions, hover, definition, references, rename, signature help, and document symbols.
 
-## Packages And Templates
+## Builds, Packages, And Templates
 
-Sprout has a local-first package manager foundation. It does not use an online registry yet.
+Sprout 0.3 adds deterministic builds, portable `.sproutpkg` bundles, semantic-version constraints, lockfiles, and a local/JSON registry foundation.
 
 ```sh
 python3 sprout.py pkg init
@@ -187,7 +201,23 @@ python3 sprout.py pkg list
 python3 sprout.py pkg add ./local-package
 python3 sprout.py pkg info local_package
 python3 sprout.py pkg remove local_package
+python3 sprout.py build
+python3 sprout.py build --vm
+python3 sprout.py package
 ```
+
+Use a registry by setting `SPROUT_REGISTRY` or passing `--registry PATH`:
+
+```sh
+python3 sprout.py pkg search physics
+python3 sprout.py pkg install physics_tools@^1.0.0
+python3 sprout.py pkg update
+python3 sprout.py pkg tree
+python3 sprout.py pkg publish
+python3 sprout.py pkg docs physics_tools
+```
+
+`build/` contains a validated project image, assets, dependencies, hashes, metadata, and `sprout.lock`. `dist/` contains reproducible package bundles and release metadata. The registry is writable locally and readable from local JSON or HTTP-hosted JSON; publishing to a hosted service is intentionally deferred.
 
 Create working projects from templates:
 
@@ -211,7 +241,20 @@ Release-readiness helpers:
 python3 sprout.py doctor
 python3 sprout.py release-docs
 python3 sprout.py release-check
+python3 sprout.py release
+python3 sprout.py language-package
+python3 sprout.py vscode-package
 ```
+
+See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for package metadata, constraints, registry layout, publishing checks, and distribution commands.
+
+## Language Releases
+
+`language-package` creates `dist/sprout-VERSION.zip` with the installer, runtime, tools, documentation, examples, editor sources, and tests.
+
+`vscode-package` creates `dist/sprout-language-VERSION.vsix`. The VSIX includes the Sprout runner and core, so diagnostics and IntelliSense work without separately configuring `sprout.runnerPath`.
+
+GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching version tag, such as `v0.3.0`, verifies the release and publishes the ZIP and VSIX as GitHub release assets.
 
 ## Experimental Bytecode VM
 
@@ -376,7 +419,7 @@ end
 - Built-ins: `say`, `print`, `len`, `push`, `range`, `str`, `int`, `num`, `type`, `keys`, `values`, `items`, `has`, `get`, `argv`, `ask`, `clear`, `ensure`, `fail`
 - Special Sprout helpers: `sparkle`, `whisper`, `shout`, `mirror`, `chant`, `weave`, `grow`, `plant`, `harvest`, `prune`, `sprinkle`, `bundle`, `first`, `last`, `rest`, `unique`, `countby`, `zipbud`, `dice`
 - Game helpers: `choose`, `clamp`, `wrap`, `dist`, `sleep`, `now`
-- Expanded standard library with `functions()` reporting 148 callable global functions
+- Expanded standard library with `functions()` reporting 175 callable global functions
 - PixelGarden terminal engine for fun ASCII 2D drawing, sprites, text, simple cameras, vectors, bounds, and collision checks
 - StarBloom3D terminal engine for fun ASCII 3D wireframe/solid software rendering
 - Window2D optional Pygame-backed module for real 2D windows
@@ -707,11 +750,11 @@ Yes, Sprout can be used in a code editor. This project includes a local VS Code 
 
 It recognizes `.sprout` files, highlights keywords and special helpers, supports `#` comments, auto-closes braces/quotes, indents after `{`, `:`, and `bloom`, provides snippets, and runs `sprout.py check` diagnostics in the editor. When the extension can find `sprout.py`, it also asks Sprout's semantic analyzer for project-aware completions, hover help, go-to definition, find references, rename edits, and signature help. If the runner is missing, it falls back to static completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D. Red underlines show syntax errors. Yellow underlines show style warnings for tabs and Python-style constants like `True` / `False` / `None`.
 
-If you install the extension manually into `~/.vscode/extensions`, keep the runner files beside it too:
+Build and install the self-contained VSIX:
 
 ```sh
-cp sprout.py ~/.vscode/extensions/sprout-language-0.1.0/
-cp -R sprout_core ~/.vscode/extensions/sprout-language-0.1.0/
+python3 sprout.py vscode-package
+code --install-extension dist/sprout-language-0.3.0.vsix
 ```
 
 Quick local development flow:
@@ -754,4 +797,4 @@ Sprout now covers a meaningful middle slice of Python:
 - Similar via bridge: Python standard-library modules can be imported with `importpython`.
 - Different: Sprout has its own garden-style `bloom` / `end` blocks, old-compatible brace blocks, and no comprehensions yet.
 
-Good next features for getting beyond this would be comprehensions, package tooling, and a real game/window library binding.
+Good next work includes hosted-registry authentication, signed packages, stronger sandboxing, and broader VM coverage.

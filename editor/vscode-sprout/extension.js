@@ -616,6 +616,11 @@ function findRunner(context, document) {
   return undefined;
 }
 
+function pythonExecutable() {
+  return vscode.workspace.getConfiguration("sprout").get("pythonPath")
+    || (process.platform === "win32" ? "python" : "python3");
+}
+
 function diagnosticFromOutput(text, document) {
   const message = text.replace(/^error:\s*/, "").trim() || "Sprout check failed";
   const match = message.match(/ at (\d+):(\d+)$/);
@@ -705,7 +710,7 @@ function checkDocument(context, diagnostics, document) {
     return;
   }
 
-  const pythonPath = vscode.workspace.getConfiguration("sprout").get("pythonPath") || "python3";
+  const pythonPath = pythonExecutable();
   const tempPath = path.join(os.tmpdir(), `sprout-vscode-${process.pid}-${Date.now()}.sprout`);
   fs.writeFile(tempPath, document.getText(), "utf8", (writeError) => {
     if (writeError) {
@@ -751,7 +756,7 @@ function runIntelQuery(context, document, position, kind) {
   if (!runner) {
     return Promise.resolve(undefined);
   }
-  const pythonPath = vscode.workspace.getConfiguration("sprout").get("pythonPath") || "python3";
+  const pythonPath = pythonExecutable();
   const tempPath = path.join(os.tmpdir(), `sprout-vscode-intel-${process.pid}-${Date.now()}.sprout`);
   const targetPath = document.uri.scheme === "file" ? document.uri.fsPath : tempPath;
   const args = [

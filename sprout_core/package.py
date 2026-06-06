@@ -9,6 +9,7 @@ import sys
 from typing import Any
 
 from .model import SPROUT_VERSION, SproutError
+from .distribution import verify_release_versions
 from .tooling import check_file, example_files, load_project, parse_simple_toml
 
 
@@ -31,7 +32,7 @@ def read_toml_file(path: str) -> dict[str, Any]:
 
 def dump_sprout_toml(data: dict[str, Any]) -> str:
     lines: list[str] = []
-    for section in ("project", "paths", "dependencies", "tool"):
+    for section in ("project", "package", "paths", "dependencies", "build", "registry", "tool"):
         value = data.get(section)
         if not isinstance(value, dict):
             continue
@@ -126,7 +127,9 @@ def pkg_add(package_path: str, root: str | None = None) -> int:
     if not os.path.isdir(resolved):
         raise SproutError(f"Package path does not exist: {package_path}")
     name = package_name_from_path(resolved)
-    deps[name] = {"path": os.path.relpath(resolved, root), "version": "0.1.0"}
+    metadata = read_toml_file(os.path.join(resolved, "sprout.toml")) if os.path.isfile(os.path.join(resolved, "sprout.toml")) else {}
+    package = {**metadata.get("project", {}), **metadata.get("package", {})}
+    deps[name] = {"path": os.path.relpath(resolved, root), "version": str(package.get("version", "0.1.0"))}
     save_project_data(data, root)
     print(f"added {name} -> {deps[name]['path']}")
     return 0
@@ -211,18 +214,26 @@ def doctor() -> int:
     checks.append(("python >= 3.9", sys.version_info >= (3, 9), platform.python_version()))
     for path in [
         "sprout.py",
+        "install.py",
         "README.md",
         "docs/MANUAL.md",
         "editor/vscode-sprout/package.json",
         "tests/smoke.sh",
         "tests/application.py",
+        "tests/ecosystem.py",
+        "tests/distribution.py",
+        "tools/package_vscode.py",
+        "docs/ECOSYSTEM.md",
+        "docs/CAPABILITY_AUDIT.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
         "examples/modules/engineering.sprout",
         "examples/modules/appgame.sprout",
     ]:
         full = os.path.join(root, path)
         checks.append((path, os.path.exists(full), full))
     project = load_project(root) if os.path.exists(os.path.join(root, "sprout.toml")) else None
-    checks.append(("sprout.toml optional", project is not None or True, "root package metadata may be added before release"))
+    checks.append(("sprout.toml", project is not None, "project and package metadata"))
     ok = True
     for name, passed, detail in checks:
         ok = ok and passed
@@ -238,7 +249,10 @@ def release_check() -> int:
         if check_file(os.path.join(root, rel)) != 0:
             examples_ok = False
     smoke = subprocess.run(["sh", "tests/smoke.sh"], cwd=root)
-    ok = status == 0 and examples_ok and smoke.returncode == 0
+    version_errors = verify_release_versions()
+    for error in version_errors:
+        print(f"fail version {error}")
+    ok = status == 0 and examples_ok and smoke.returncode == 0 and not version_errors
     print("release-check:", "ok" if ok else "failed")
     return 0 if ok else 1
 
@@ -251,8 +265,9 @@ def ensure_release_docs(root: str | None = None) -> int:
         "CODE_OF_CONDUCT.md": "# Code of Conduct\n\nBe kind, curious, and respectful. Harassment, threats, and exclusionary behavior are not welcome.\n",
         "SECURITY.md": "# Security Policy\n\nPlease report security issues privately to the project maintainers. Do not publish exploit details before a fix is available.\n",
         "CHANGELOG.md": "# Changelog\n\n## 0.1.0\n\n- Early Sprout language, tooling, VM, editor, and package-manager foundations.\n",
-        "ROADMAP.md": "# Roadmap\n\n- Stabilize package metadata.\n- Expand VM compatibility.\n- Improve debugger and profiler.\n- Prepare a public package registry later.\n",
+        "ROADMAP.md": "# Roadmap\n\n- Host the JSON registry with authentication.\n- Add package signing and trust policy.\n- Expand VM compatibility and release automation.\n",
         ".github/ISSUE_TEMPLATE/bug_report.md": "---\nname: Bug report\nabout: Report a Sprout problem\n---\n\n## What happened?\n\n## How to reproduce\n\n## Expected behavior\n",
+        ".github/ISSUE_TEMPLATE/package_request.md": "---\nname: Package or registry issue\nabout: Report an ecosystem problem\n---\n\n## Package and version\n\n## Command\n\n## Expected behavior\n\n## Actual output\n",
         ".github/pull_request_template.md": "## Summary\n\n## Tests\n\n## Docs\n",
     }
     for path, text in files.items():

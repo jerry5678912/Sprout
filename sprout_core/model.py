@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 
-SPROUT_VERSION = "0.2.0"
+SPROUT_VERSION = "0.3.0"
 
 
 KEYWORDS = {
@@ -140,6 +140,12 @@ class SproutProject:
                 nested = os.path.join(path, child)
                 if os.path.isdir(nested):
                     paths.append(nested)
+            bundled = os.path.join(path, "dependencies")
+            if os.path.isdir(bundled):
+                for name in sorted(os.listdir(bundled)):
+                    nested = os.path.join(bundled, name)
+                    if os.path.isdir(nested):
+                        add_package_path(nested)
 
         dep_paths = self.dependencies.get("paths") if isinstance(self.dependencies, dict) else None
         if isinstance(dep_paths, list):

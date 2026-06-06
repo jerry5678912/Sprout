@@ -63,35 +63,65 @@ def parse_simple_toml(text: str) -> dict[str, Any]:
         if "=" not in line:
             continue
         key, value = [part.strip() for part in line.split("=", 1)]
-        if value.startswith("{") and value.endswith("}"):
-            parsed = {}
-            inner = value[1:-1].strip()
-            if inner:
-                for item in inner.split(","):
-                    if "=" not in item:
-                        continue
-                    subkey, subvalue = [part.strip() for part in item.split("=", 1)]
-                    if subvalue.startswith('"') and subvalue.endswith('"'):
-                        parsed[subkey] = subvalue[1:-1]
-                    elif subvalue in {"true", "false"}:
-                        parsed[subkey] = subvalue == "true"
-                    else:
-                        parsed[subkey] = subvalue
-        elif value.startswith('"') and value.endswith('"'):
-            parsed: Any = value[1:-1]
-        elif value.startswith("[") and value.endswith("]"):
-            parsed = []
-            inner = value[1:-1].strip()
-            if inner:
-                for item in inner.split(","):
-                    item = item.strip()
-                    parsed.append(item[1:-1] if item.startswith('"') and item.endswith('"') else item)
-        elif value in {"true", "false"}:
-            parsed = value == "true"
-        else:
-            parsed = value
-        section[key] = parsed
+        section[key] = parse_simple_toml_value(value)
     return data
+
+
+def split_simple_toml_items(text: str) -> list[str]:
+    items: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            items.append(text[start:index].strip())
+            start = index + 1
+    final = text[start:].strip()
+    if final:
+        items.append(final)
+    return items
+
+
+def parse_simple_toml_value(value: str) -> Any:
+    value = value.strip()
+    if value.startswith("{") and value.endswith("}"):
+        parsed: dict[str, Any] = {}
+        for item in split_simple_toml_items(value[1:-1].strip()):
+            if "=" in item:
+                key, subvalue = [part.strip() for part in item.split("=", 1)]
+                parsed[key] = parse_simple_toml_value(subvalue)
+        return parsed
+    if value.startswith("[") and value.endswith("]"):
+        return [parse_simple_toml_value(item) for item in split_simple_toml_items(value[1:-1].strip())]
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        if value[0] == '"':
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+        return value[1:-1]
+    if value in {"true", "false"}:
+        return value == "true"
+    if re.fullmatch(r"-?\d+", value):
+        return int(value)
+    if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)", value):
+        return float(value)
+    return value
 
 
 def load_project(path: str) -> SproutProject | None:
@@ -107,22 +137,25 @@ def load_project(path: str) -> SproutProject | None:
         else:
             data = parse_simple_toml(fh.read().decode("utf-8"))
     project_data = data.get("project", {})
+    package_data = data.get("package", {})
+    metadata = {**project_data, **package_data}
     paths_data = data.get("paths", {})
     tool_data = data.get("tool", {})
-    package_data = data.get("package", {})
     dependencies = data.get("dependencies", {})
-    if package_data:
-        dependencies = {"packages": package_data, **dependencies}
     source_folders = paths_data.get("source", project_data.get("source_folders", project_data.get("src", ["."])))
     module_paths = paths_data.get("modules", project_data.get("module_paths", []))
+    if isinstance(source_folders, str):
+        source_folders = [source_folders]
+    if isinstance(module_paths, str):
+        module_paths = [module_paths]
     return SproutProject(
         root=root,
-        name=str(project_data.get("name", os.path.basename(root) or "sprout-project")),
-        version=str(project_data.get("version", "0.1.0")),
-        main=str(project_data.get("main", "main.sprout")),
-        authors=[str(item) for item in project_data.get("authors", [])],
-        description=str(project_data.get("description", "")),
-        license=str(project_data.get("license", "")),
+        name=str(metadata.get("name", os.path.basename(root) or "sprout-project")),
+        version=str(metadata.get("version", "0.1.0")),
+        main=str(metadata.get("main", project_data.get("main", "main.sprout"))),
+        authors=[str(item) for item in metadata.get("authors", [metadata["author"]] if metadata.get("author") else [])],
+        description=str(metadata.get("description", "")),
+        license=str(metadata.get("license", "")),
         source_folders=[str(item) for item in source_folders],
         module_paths=[str(item) for item in module_paths],
         dependencies=dependencies,
@@ -539,11 +572,21 @@ def print_help() -> None:
         "  python3 sprout.py debug FILE            Step experimental VM bytecode\n"
         "  python3 sprout.py profile FILE          Profile experimental VM execution\n"
         "  python3 sprout.py test [PATH]           Discover and run Sprout tests\n"
-        "  python3 sprout.py docs [DIR] [--html]  Generate project API documentation\n"
-        "  python3 sprout.py pkg COMMAND           Manage local packages\n"
+        "  python3 sprout.py docs [DIR] [--html]   Generate project/package documentation\n"
+        "  python3 sprout.py build [DIR] [--vm]    Create a reproducible project build\n"
+        "  python3 sprout.py package [DIR]         Create a portable .sproutpkg bundle\n"
+        "  python3 sprout.py pkg COMMAND           Manage, install, and publish packages\n"
+        "  python3 sprout.py search [QUERY]        Search the configured package registry\n"
+        "  python3 sprout.py info PACKAGE          Show registry package metadata\n"
+        "  python3 sprout.py list-installed        List project package installations\n"
         "  python3 sprout.py new TEMPLATE NAME     Create a Sprout project\n"
         "  python3 sprout.py doctor                Check local release readiness\n"
         "  python3 sprout.py release-check         Run release readiness checks\n"
+        "  python3 sprout.py release [DIR]         Validate and create a project release\n"
+        "  python3 sprout.py install [--prefix P]  Install Sprout and its launcher\n"
+        "  python3 sprout.py uninstall [--prefix P] Remove an installed Sprout runtime\n"
+        "  python3 sprout.py language-package      Build the language release archive\n"
+        "  python3 sprout.py vscode-package        Build the VS Code .vsix package\n"
         "  python3 sprout.py check FILE [--json]   Parse without running\n"
         "  python3 sprout.py lint FILE [--json]    Run syntax and style checks\n"
         "  python3 sprout.py fmt FILE [--write]    Safely format a file\n"

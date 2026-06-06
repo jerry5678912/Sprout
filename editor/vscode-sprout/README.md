@@ -1,6 +1,6 @@
 # Sprout Language for VS Code
 
-This is a local VS Code language package for Sprout.
+This is the VS Code language package for Sprout.
 
 It adds:
 
@@ -17,12 +17,20 @@ It adds:
 - JSON syntax diagnostics powered by `sprout.py check --json`
 - Application-layer completions and highlighting for `test`, expectations, tasks, HTTP, SQLite, engineering helpers, and reusable game APIs
 
-## Use It Locally
+## Install The VSIX
 
-From VS Code:
+From the Sprout repository:
 
-1. Open the Extensions view.
-2. Choose `Install from VSIX...` if you package it later, or use this folder as the source while developing an extension.
+```sh
+python3 sprout.py vscode-package
+code --install-extension dist/sprout-language-0.3.0.vsix
+```
+
+The VSIX contains the Sprout runner and core. Diagnostics and semantic IntelliSense work immediately as long as Python 3.9 or newer is available.
+
+You can also open the Extensions view, choose `Install from VSIX...`, and select the generated file.
+
+## Develop It Locally
 
 For quick local extension development:
 
@@ -59,15 +67,8 @@ Those comments appear in hover help and completion descriptions.
 
 - `sprout.diagnostics.enabled`: turn editor diagnostics on or off.
 - `sprout.diagnostics.styleWarnings`: show yellow style warnings for tabs and Python-style constants.
-- `sprout.pythonPath`: Python executable used to run `sprout.py`.
-- `sprout.runnerPath`: explicit path to `sprout.py` if the extension cannot find it automatically.
-
-When installing this extension folder manually, copy the Sprout runner beside it too:
-
-```sh
-cp sprout.py ~/.vscode/extensions/sprout-language-0.1.0/
-cp -R sprout_core ~/.vscode/extensions/sprout-language-0.1.0/
-```
+- `sprout.pythonPath`: optional Python executable; empty selects `python` on Windows and `python3` elsewhere.
+- `sprout.runnerPath`: optional explicit path to `sprout.py`; packaged releases already include the runner.
 
 ## LSP Foundation
 

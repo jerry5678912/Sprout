@@ -2,7 +2,7 @@
   "name": "sprout-language",
   "displayName": "Sprout Language",
   "description": "Syntax highlighting, snippets, completions, and editor basics for the Sprout programming language.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "local-sprout",
   "main": "./extension.js",
   "activationEvents": [
@@ -98,8 +98,8 @@
         },
         "sprout.pythonPath": {
           "type": "string",
-          "default": "python3",
-          "description": "Python executable used to run sprout.py."
+          "default": "",
+          "description": "Python executable used to run sprout.py. Empty selects python on Windows and python3 elsewhere."
         },
         "sprout.runnerPath": {
           "type": "string",

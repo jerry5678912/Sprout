@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Compile Python sources
+        run: python -m compileall -q sprout.py install.py sprout_core tools tests
+      - name: Run structured tests
+        run: |
+          python tests/tooling.py
+          python tests/intellisense.py
+          python tests/vm.py
+          python tests/package.py
+          python tests/dogfood.py
+          python tests/application.py
+          python tests/ecosystem.py
+          python tests/distribution.py
+          python tools/check_editor_coverage.py
+      - name: Validate release metadata
+        run: |
+          python sprout.py doctor
+          python sprout.py language-package
+          python sprout.py vscode-package
+      - name: Run smoke tests
+        if: runner.os != 'Windows'
+        run: tests/smoke.sh

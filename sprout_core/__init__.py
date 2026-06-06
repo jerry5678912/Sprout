@@ -9,4 +9,6 @@ from .package import *
 from .application import *
 from .testing import *
 from .docsgen import *
+from .ecosystem import *
+from .distribution import *
 from .cli import brace_balance, repl, main

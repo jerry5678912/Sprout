@@ -12,6 +12,25 @@ from .parser import Parser
 from .runtime import Interpreter, format_error, format_value
 from .testing import run_tests
 from .docsgen import generate_docs
+from .ecosystem import (
+    build_project,
+    package_project,
+    pkg_docs,
+    pkg_install,
+    pkg_list_installed,
+    pkg_publish,
+    pkg_registry_info,
+    pkg_search,
+    pkg_tree,
+    pkg_update,
+    release_project,
+)
+from .distribution import (
+    install_language,
+    package_language,
+    package_vscode_extension,
+    uninstall_language,
+)
 from .application import STANDARD_LIBRARY_GROUPS
 from .tooling import builtin_function_names, check_file, example_files, format_file, intelligence_file, lint_file, print_help, run_file
 
@@ -163,10 +182,18 @@ def main(argv: list[str]) -> int:
                 if not value.startswith("--"):
                     target = value
                     break
+            if target != "." and not os.path.exists(target):
+                return pkg_docs(target, registry=option_value(argv, "--registry"))
             return generate_docs(target, html_mode="--html" in argv[2:])
+        elif argv[1] == "build":
+            target = positional_value(argv[2:], ".")
+            build_project(target, vm="--vm" in argv[2:], registry=option_value(argv, "--registry"))
+        elif argv[1] == "package":
+            target = positional_value(argv[2:], ".")
+            package_project(target, vm="--vm" in argv[2:], registry=option_value(argv, "--registry"))
         elif argv[1] == "pkg":
             if len(argv) < 3:
-                print("usage: sprout.py pkg init|list|add|remove|info [...]", file=sys.stderr)
+                print("usage: sprout.py pkg init|list|add|remove|info|search|install|update|publish|docs|tree [...]", file=sys.stderr)
                 return 2
             cmd = argv[2]
             if cmd == "init":
@@ -178,9 +205,33 @@ def main(argv: list[str]) -> int:
             if cmd == "remove" and len(argv) >= 4:
                 return pkg_remove(argv[3])
             if cmd == "info" and len(argv) >= 4:
-                return pkg_info(argv[3])
-            print("usage: sprout.py pkg init|list|add PATH|remove NAME|info NAME", file=sys.stderr)
+                try:
+                    return pkg_info(argv[3])
+                except SproutError:
+                    return pkg_registry_info(argv[3], option_value(argv, "--registry"))
+            if cmd == "search":
+                return pkg_search(positional_value(argv[3:], ""), option_value(argv, "--registry"))
+            if cmd == "install" and len(argv) >= 4:
+                return pkg_install(argv[3], registry=option_value(argv, "--registry"))
+            if cmd == "update":
+                return pkg_update(positional_value(argv[3:], "") or None, registry=option_value(argv, "--registry"))
+            if cmd == "publish":
+                return pkg_publish(positional_value(argv[3:], "."), option_value(argv, "--registry"))
+            if cmd == "docs" and len(argv) >= 4:
+                return pkg_docs(argv[3], registry=option_value(argv, "--registry"))
+            if cmd == "tree":
+                return pkg_tree(registry=option_value(argv, "--registry"))
+            print("usage: sprout.py pkg init|list|add PATH|remove NAME|info NAME|search QUERY|install NAME[@VERSION]|update|publish [DIR]|docs NAME|tree", file=sys.stderr)
             return 2
+        elif argv[1] == "search":
+            return pkg_search(positional_value(argv[2:], ""), option_value(argv, "--registry"))
+        elif argv[1] == "info":
+            if len(argv) < 3:
+                print("usage: sprout.py info PACKAGE [--registry PATH]", file=sys.stderr)
+                return 2
+            return pkg_registry_info(argv[2], option_value(argv, "--registry"))
+        elif argv[1] == "list-installed":
+            return pkg_list_installed()
         elif argv[1] == "new":
             if len(argv) < 4:
                 print("usage: sprout.py new cli|game2d|game3d|library NAME", file=sys.stderr)
@@ -190,8 +241,23 @@ def main(argv: list[str]) -> int:
             return doctor()
         elif argv[1] == "release-check":
             return release_check()
+        elif argv[1] == "release":
+            target = positional_value(argv[2:], ".")
+            return release_project(
+                target,
+                registry=option_value(argv, "--registry"),
+                publish="--publish" in argv[2:],
+            )
         elif argv[1] == "release-docs":
             return ensure_release_docs()
+        elif argv[1] == "install":
+            install_language(prefix=option_value(argv, "--prefix"), force="--force" in argv[2:])
+        elif argv[1] == "uninstall":
+            return uninstall_language(prefix=option_value(argv, "--prefix"))
+        elif argv[1] == "language-package":
+            package_language(option_value(argv, "--output"))
+        elif argv[1] == "vscode-package":
+            package_vscode_extension(option_value(argv, "--output"))
         elif argv[1] == "check":
             if len(argv) < 3:
                 print("usage: sprout.py check FILE.sprout|DIR [--json] [--warnings]", file=sys.stderr)
@@ -249,3 +315,27 @@ def main(argv: list[str]) -> int:
     except (OSError, IndexError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def option_value(argv: list[str], name: str) -> str | None:
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    if index + 1 >= len(argv):
+        raise SproutError(f"{name} needs a value")
+    return argv[index + 1]
+
+
+def positional_value(values: list[str], default: str) -> str:
+    skip_next = False
+    for value in values:
+        if skip_next:
+            skip_next = False
+            continue
+        if value in {"--registry", "--prefix", "--output"}:
+            skip_next = True
+            continue
+        if value.startswith("--"):
+            continue
+        return value
+    return default

@@ -3,6 +3,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+.sprout/
 
 # Local generated playground projects.
 hello_sprout/

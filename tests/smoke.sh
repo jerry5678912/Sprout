@@ -87,6 +87,8 @@ python3 tests/vm.py >/tmp/sprout_vm_tests.out
 python3 tests/package.py >/tmp/sprout_package_tests.out
 python3 tests/dogfood.py >/tmp/sprout_dogfood_tests.out
 python3 tests/application.py >/tmp/sprout_application_tests.out
+python3 tests/ecosystem.py >/tmp/sprout_ecosystem_tests.out
+python3 tests/distribution.py >/tmp/sprout_distribution_tests.out
 python3 sprout.py test tests/application_test.sprout >/tmp/sprout_language_tests.out
 python3 sprout.py run examples/application/async_demo.sprout >/tmp/sprout_async_demo.out
 python3 sprout.py run examples/application/sqlite_demo.sprout >/tmp/sprout_sqlite_demo.out
@@ -242,7 +244,7 @@ grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out
 grep -q "^py_available$" /tmp/sprout_stdlib_cmd.out
 grep -q "examples/tictactoe.sprout" /tmp/sprout_examples_cmd.out
-grep -q "Sprout 0.2.0" /tmp/sprout_version.out
+grep -q "Sprout 0.3.0" /tmp/sprout_version.out
 grep -q "ok python >= 3.9" /tmp/sprout_doctor.out
 grep -q "\\[0, 1, 1, 2, 3, 5, 8, 13\\]" /tmp/sprout_repl.out
 grep -q '"snippets"' /tmp/sprout_vscode_package.out
@@ -254,6 +256,8 @@ grep -q "sprout vm tests passed" /tmp/sprout_vm_tests.out
 grep -q "sprout package tests passed" /tmp/sprout_package_tests.out
 grep -q "sprout dogfood tests passed" /tmp/sprout_dogfood_tests.out
 grep -q "sprout application tests passed" /tmp/sprout_application_tests.out
+grep -q "sprout ecosystem tests passed" /tmp/sprout_ecosystem_tests.out
+grep -q "sprout distribution tests passed" /tmp/sprout_distribution_tests.out
 grep -q "6 tests: 6 passed, 0 failed" /tmp/sprout_language_tests.out
 grep -q "task results: \\[16, 25\\]" /tmp/sprout_async_demo.out
 grep -q "2 ship app" /tmp/sprout_sqlite_demo.out
