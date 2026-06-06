@@ -283,7 +283,7 @@ python3 sprout.py app package .
 
 `vscode-package` creates `dist/sprout-language-VERSION.vsix`. The VSIX includes the Sprout runner and core, so diagnostics and IntelliSense work without separately configuring `sprout.runnerPath`.
 
-GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching version tag, such as `v0.3.0`, verifies the release and publishes the ZIP and VSIX as GitHub release assets.
+GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching version tag, such as `v0.3.1`, verifies the release and publishes the ZIP and VSIX as GitHub release assets.
 
 ## Experimental Bytecode VM
 
@@ -923,17 +923,32 @@ expose the original raw traceback while debugging Sprout itself.
 
 ## Editor Support
 
-Yes, Sprout can be used in a code editor. This project includes a local VS Code language package:
+Install `sprout-language` from PyPI, then search the VS Code Extensions view for
+**Sprout Language** by `jerry5678912`:
+
+```sh
+python3 -m pip install sprout-language
+sprout version
+```
+
+Open a `.sprout` file after installing the extension. Click **Sprout: Auto** in
+the status bar to select an interpreter, then click the editor-title play icon
+or run **Sprout: Run Current File** from the Command Palette.
+
+The extension source is included in this repository:
 
 [editor/vscode-sprout](editor/vscode-sprout)
 
 It recognizes `.sprout` files, highlights keywords and special helpers, supports `#` comments, auto-closes braces/quotes, indents after `{`, `:`, and `bloom`, provides snippets, and runs `sprout.py check` diagnostics in the editor. When the extension can find `sprout.py`, it also asks Sprout's semantic analyzer for project-aware completions, hover help, go-to definition, find references, rename edits, and signature help. If the runner is missing, it falls back to static completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D. Red underlines show syntax errors. Yellow underlines show style warnings for tabs and Python-style constants like `True` / `False` / `None`.
 
+The interpreter selector supports the bundled, workspace, or a custom
+`sprout.py` interpreter. Programs run in an interactive integrated terminal.
+
 Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.0.vsix
+code --install-extension dist/sprout-language-0.3.1.vsix
 ```
 
 Quick local development flow:
