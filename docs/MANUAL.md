@@ -950,7 +950,7 @@ stack:
   at boot_game (examples/stacktrace.sprout:6:5)
 ```
 
-Sprout does not show Python tracebacks during normal program execution. Errors from native helpers and `importpython` calls are converted to Sprout-facing errors. `SPROUT_DEBUG_PYTHON=1 sprout program.sprout` is reserved for language developers diagnosing an unexpected internal Sprout failure.
+Sprout translates Python and native tracebacks into Sprout tracebacks during normal program execution; it does not discard them. Errors from native helpers and `importpython` calls retain Sprout call sites, named bridge boundaries, and relevant bridged function locations. `SPROUT_DEBUG_PYTHON=1 sprout program.sprout` additionally exposes the original raw traceback for language developers diagnosing an unexpected internal Sprout failure.
 
 ## 19. Files and Command-Line Programs
 
@@ -1667,7 +1667,7 @@ examples/panda3d_window_demo.sprout optional Panda3D-backed window demo
 examples/project                 sprout.toml project, source folders, and module paths
 ```
 
-## 26. Projects, Tooling, and LSP Foundation
+## 26. Projects, Tooling, and Language Server
 
 Sprout has an early project system based on `sprout.toml`.
 
@@ -1779,17 +1779,17 @@ python3 sprout.py release-docs
 python3 sprout.py release-check
 ```
 
-Sprout also includes an early stdio Language Server Protocol foundation:
+Sprout includes a production stdio Language Server Protocol implementation:
 
 ```sh
 python3 tools/sprout_lsp.py
 ```
 
-The LSP foundation currently supports document parsing, diagnostics, semantic completions, hover information, go-to definition, find references, rename symbol, signature help, and document symbols.
+The server supports incremental UTF-16 document synchronization, versioned diagnostics, semantic completions, hover information, go-to definition, find references, safe rename preparation and edits, signature help, document symbols, workspace symbols, workspace folders, watched-file invalidation, request cancellation, and proper initialize/shutdown/exit lifecycle handling.
 
 Semantic names are bound through lexical scopes rather than text matching alone. A parameter named `value` in one function is distinct from a parameter named `value` in another function. Definitions, references, and rename operations use stable symbol identities, including imported Sprout module members.
 
-The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. The cache is currently in memory and is rebuilt when the language-server process restarts.
+The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 
 Editor-style JSON queries are available through `intel`:
@@ -1876,7 +1876,7 @@ The VM remains experimental. Sprout module imports currently use the stable modu
 
 `bench` measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
 
-`debug` is a terminal debugger foundation. It can stop at breakpoints for bytecode instructions that preserve source positions:
+`debug` is the terminal debugger. It can stop at breakpoints for bytecode instructions that preserve source positions:
 
 ```sh
 python3 sprout.py debug examples/vm_expanded.sprout --break 21
@@ -1884,6 +1884,32 @@ python3 sprout.py debug examples/vm_expanded.sprout --break examples/vm_expanded
 ```
 
 At a stop, it prints the current instruction, source location, source line when known, value stack, and locals. In an interactive terminal, press Enter to step, `c` to continue, or `q` to stop.
+
+The VS Code extension also bundles Sprout's Debug Adapter Protocol server. It provides:
+
+- source-line breakpoints
+- stop on entry
+- continue and pause
+- step in, step over, and step out
+- Sprout call stacks
+- local and global variable scopes
+- variable inspection
+- expression evaluation in the Debug Console
+- program output in the VS Code Debug Console
+- conditional breakpoints using Sprout expressions
+- hit-count breakpoints
+- uncaught-error breakpoints
+
+To use it:
+
+1. Open a `.sprout` program in VS Code.
+2. Click beside a line number to add a breakpoint.
+3. Press `F5`.
+4. Choose `Debug current Sprout file` if VS Code asks for a configuration.
+
+The terminal and VS Code debuggers currently use the experimental bytecode VM. Programs that contain VM-unsupported behavior should still be run with the stable interpreter.
+
+Right-click a breakpoint to add a condition or hit count. A hit count can be `3`, `>= 5`, or `% 2`. The **Uncaught Sprout errors** checkbox in the Breakpoints view pauses before an unhandled error terminates the program.
 
 `profile` is a VM profiler foundation:
 
@@ -1908,6 +1934,9 @@ It provides:
 - `#` line comments
 - bracket and quote pairing
 - basic indentation after `{`, `:`, and `bloom`
+- native Test Explorer discovery and execution for Sprout `test` declarations
+- safe lightbulb quick fixes for tab indentation and Python-style `True`, `False`, and `None`
+- conditional breakpoints, hit counts, and uncaught-error stopping
 - snippets for functions, classes, loops, errors, Python imports, and Sprout3D scenes
 - semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when `sprout.py` is available
 - static fallback completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D

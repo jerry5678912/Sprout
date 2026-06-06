@@ -48,6 +48,14 @@ class CodeObject:
 
 
 @dataclass
+class DebugFrame:
+    code: CodeObject
+    env: Env
+    instruction: Instruction | None = None
+    ip: int = 0
+
+
+@dataclass
 class VMFunction:
     name: str
     code: CodeObject
@@ -434,6 +442,7 @@ class BytecodeVM:
         argv: list[str] | None = None,
         debug: bool = False,
         breakpoints: set[tuple[str | None, int]] | None = None,
+        debug_controller: Any = None,
     ):
         self.interpreter = Interpreter(source_path=source_path, argv=argv or [], module_search_paths=module_search_paths_for(source_path))
         self.globals = self.interpreter.globals
@@ -447,6 +456,8 @@ class BytecodeVM:
         self.debug = debug
         self.breakpoints = breakpoints or set()
         self.source_cache: dict[str, list[str]] = {}
+        self.debug_controller = debug_controller
+        self.debug_frames: list[DebugFrame] = []
 
     def run(self, code: CodeObject) -> Any:
         env = Env(self.globals, is_scope_boundary=True)
@@ -461,18 +472,26 @@ class BytecodeVM:
         self.ip = 0
         self.current_code = code
         self.handlers = []
+        frame = DebugFrame(code, env)
+        self.debug_frames.append(frame)
         try:
             instructions = code.instructions
             while self.ip < len(instructions):
                 instr = instructions[self.ip]
                 self.ip += 1
+                frame.instruction = instr
+                frame.ip = self.ip - 1
                 self.instruction_count += 1
+                if self.debug_controller is not None:
+                    self.debug_controller.before_instruction(self, instr, env)
                 if self.debug:
                     self.debug_hook(instr, env)
                 try:
                     result = self.execute(instr, env)
                 except (SproutRaised, SproutError) as exc:
                     if not self.handlers:
+                        if self.debug_controller is not None and hasattr(self.debug_controller, "on_exception"):
+                            self.debug_controller.on_exception(self, exc)
                         raise
                     handler_ip, name, handler_env, stack_len = self.handlers.pop()
                     del self.stack[stack_len:]
@@ -499,6 +518,7 @@ class BytecodeVM:
                     exc.add_frame(f"at {code.name} ({location})")
             raise
         finally:
+            self.debug_frames.pop()
             self.stack = previous_stack
             self.ip = previous_ip
             self.current_code = previous_code

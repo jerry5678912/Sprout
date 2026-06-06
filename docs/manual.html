@@ -1017,7 +1017,7 @@ stack:
   at boot_game (examples/stacktrace.sprout:6:5)
 </code></pre>
 <p>
-Sprout does not show Python tracebacks during normal program execution. Errors from native helpers and <code>importpython</code> calls are converted to Sprout-facing errors. <code>SPROUT_DEBUG_PYTHON=1 sprout program.sprout</code> is reserved for language developers diagnosing an unexpected internal Sprout failure.
+Sprout translates Python and native tracebacks into Sprout tracebacks during normal program execution; it does not discard them. Errors from native helpers and <code>importpython</code> calls retain Sprout call sites, named bridge boundaries, and relevant bridged function locations. <code>SPROUT_DEBUG_PYTHON=1 sprout program.sprout</code> additionally exposes the original raw traceback for language developers diagnosing an unexpected internal Sprout failure.
 </p>
 <h2 id="19-files-and-command-line-programs">19. Files and Command-Line Programs</h2>
 <p>
@@ -1713,7 +1713,7 @@ examples/window2d_demo.sprout    optional Pygame-backed window demo
 examples/panda3d_window_demo.sprout optional Panda3D-backed window demo
 examples/project                 sprout.toml project, source folders, and module paths
 </code></pre>
-<h2 id="26-projects-tooling-and-lsp-foundation">26. Projects, Tooling, and LSP Foundation</h2>
+<h2 id="26-projects-tooling-and-language-server">26. Projects, Tooling, and Language Server</h2>
 <p>
 Sprout has an early project system based on <code>sprout.toml</code>.
 </p>
@@ -1831,19 +1831,19 @@ python3 sprout.py release-docs
 python3 sprout.py release-check
 </code></pre>
 <p>
-Sprout also includes an early stdio Language Server Protocol foundation:
+Sprout includes a production stdio Language Server Protocol implementation:
 </p>
 <pre><code class="language-sh">
 python3 tools/sprout_lsp.py
 </code></pre>
 <p>
-The LSP foundation currently supports document parsing, diagnostics, semantic completions, hover information, go-to definition, find references, rename symbol, signature help, and document symbols.
+The server supports incremental UTF-16 document synchronization, versioned diagnostics, semantic completions, hover information, go-to definition, find references, safe rename preparation and edits, signature help, document symbols, workspace symbols, workspace folders, watched-file invalidation, request cancellation, and proper initialize/shutdown/exit lifecycle handling.
 </p>
 <p>
 Semantic names are bound through lexical scopes rather than text matching alone. A parameter named <code>value</code> in one function is distinct from a parameter named <code>value</code> in another function. Definitions, references, and rename operations use stable symbol identities, including imported Sprout module members.
 </p>
 <p>
-The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. The cache is currently in memory and is rebuilt when the language-server process restarts.
+The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
  
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 </p>
@@ -1941,7 +1941,7 @@ The VM remains experimental. Sprout module imports currently use the stable modu
 <code>bench</code> measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
 </p>
 <p>
-<code>debug</code> is a terminal debugger foundation. It can stop at breakpoints for bytecode instructions that preserve source positions:
+<code>debug</code> is the terminal debugger. It can stop at breakpoints for bytecode instructions that preserve source positions:
 </p>
 <pre><code class="language-sh">
 python3 sprout.py debug examples/vm_expanded.sprout --break 21
@@ -1949,6 +1949,41 @@ python3 sprout.py debug examples/vm_expanded.sprout --break examples/vm_expanded
 </code></pre>
 <p>
 At a stop, it prints the current instruction, source location, source line when known, value stack, and locals. In an interactive terminal, press Enter to step, <code>c</code> to continue, or <code>q</code> to stop.
+</p>
+<p>
+The VS Code extension also bundles Sprout&#x27;s Debug Adapter Protocol server. It provides:
+</p>
+<ul>
+<li>source-line breakpoints</li>
+<li>stop on entry</li>
+<li>continue and pause</li>
+<li>step in, step over, and step out</li>
+<li>Sprout call stacks</li>
+<li>local and global variable scopes</li>
+<li>variable inspection</li>
+<li>expression evaluation in the Debug Console</li>
+<li>program output in the VS Code Debug Console</li>
+<li>conditional breakpoints using Sprout expressions</li>
+<li>hit-count breakpoints</li>
+<li>uncaught-error breakpoints</li>
+</ul>
+<p>
+To use it:
+</p>
+<p>
+1. Open a <code>.sprout</code> program in VS Code.
+ 
+2. Click beside a line number to add a breakpoint.
+ 
+3. Press <code>F5</code>.
+ 
+4. Choose <code>Debug current Sprout file</code> if VS Code asks for a configuration.
+</p>
+<p>
+The terminal and VS Code debuggers currently use the experimental bytecode VM. Programs that contain VM-unsupported behavior should still be run with the stable interpreter.
+</p>
+<p>
+Right-click a breakpoint to add a condition or hit count. A hit count can be <code>3</code>, <code>&gt;= 5</code>, or <code>% 2</code>. The <strong>Uncaught Sprout errors</strong> checkbox in the Breakpoints view pauses before an unhandled error terminates the program.
 </p>
 <p>
 <code>profile</code> is a VM profiler foundation:
@@ -1975,6 +2010,9 @@ It provides:
 <li><code>#</code> line comments</li>
 <li>bracket and quote pairing</li>
 <li>basic indentation after <code>{</code>, <code>:</code>, and <code>bloom</code></li>
+<li>native Test Explorer discovery and execution for Sprout <code>test</code> declarations</li>
+<li>safe lightbulb quick fixes for tab indentation and Python-style <code>True</code>, <code>False</code>, and <code>None</code></li>
+<li>conditional breakpoints, hit counts, and uncaught-error stopping</li>
 <li>snippets for functions, classes, loops, errors, Python imports, and Sprout3D scenes</li>
 <li>semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when <code>sprout.py</code> is available</li>
 <li>static fallback completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D</li>

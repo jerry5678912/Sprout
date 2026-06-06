@@ -2,8 +2,15 @@
 
 ## 0.3.0
 
+- Added native VS Code Test Explorer discovery and per-test execution backed by structured test JSON.
+- Added LSP quick fixes for tab indentation and Python-style constant aliases.
+- Added conditional breakpoints, hit-count breakpoints, expression evaluation, and uncaught-error stopping.
+- Added a Debug Adapter Protocol server with source breakpoints, stepping, pause/continue, call stacks, scopes, variable inspection, expression evaluation, and Debug Console output.
+- Integrated the Sprout debugger with VS Code and bundled it in distributable VSIX packages.
+- Promoted the stdio LSP foundation into a lifecycle-correct persistent server with incremental sync, workspace symbols, cancellation, safe rename preparation, and protocol error handling.
+- Connected VS Code to the persistent language server with automatic command-based fallback and bundled the server in VSIX artifacts.
 - Added categorized, source-aware syntax and runtime errors with code excerpts, carets, hints, and clean Sprout stack traces.
-- Prevented Python tracebacks from leaking during normal execution and translated native, file, math, and Python-interop failures into Sprout errors.
+- Translated Python tracebacks into Sprout call stacks, preserving bridge boundaries and relevant bridged function locations without raw implementation noise.
 - Expanded VM parity with slices, slice assignment, `seedfn`, inheritance, and `super`.
 - Added parser-level handling for test declarations during ordinary VM execution.
 - Added source locations to bytecode disassembly, debugging, and VM stack traces.

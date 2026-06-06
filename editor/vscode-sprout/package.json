@@ -6,7 +6,8 @@
   "publisher": "local-sprout",
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:sprout"
+    "onLanguage:sprout",
+    "onDebug:sprout"
   ],
   "engines": {
     "vscode": "^1.80.0"
@@ -33,6 +34,70 @@
         "language": "sprout",
         "scopeName": "source.sprout",
         "path": "./syntaxes/sprout.tmLanguage.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "sprout"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "sprout",
+        "label": "Sprout",
+        "languages": [
+          "sprout"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Sprout file to debug."
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments passed to the Sprout program.",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Pause on the first executable Sprout line.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "sprout",
+            "request": "launch",
+            "name": "Debug current Sprout file",
+            "program": "${file}",
+            "args": [],
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Sprout: Debug current file",
+            "description": "Debug the currently open Sprout file with the bytecode VM.",
+            "body": {
+              "type": "sprout",
+              "request": "launch",
+              "name": "Debug current Sprout file",
+              "program": "${file}",
+              "args": [],
+              "stopOnEntry": false
+            }
+          }
+        ]
       }
     ],
         "snippets": [
@@ -105,6 +170,11 @@
           "type": "string",
           "default": "",
           "description": "Path to sprout.py. When empty, the extension tries the workspace and local development paths."
+        },
+        "sprout.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the persistent Sprout language server for diagnostics and IntelliSense."
         }
       }
     }

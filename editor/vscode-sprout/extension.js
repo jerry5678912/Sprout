@@ -3,6 +3,18 @@ const childProcess = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { SproutLanguageClient } = require("./lsp-client");
+const { createSproutTestController } = require("./test-controller");
+
+let languageClient;
+
+function findDebugAdapter(context, runner) {
+  const candidates = [
+    path.join(context.extensionPath, "tools", "sprout_dap.py"),
+    runner ? path.join(path.dirname(runner), "tools", "sprout_dap.py") : ""
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+}
 
 const semanticTokenTypes = [
   "class",
@@ -752,6 +764,51 @@ function runIntelQuery(context, document, position, kind) {
   if (document.languageId !== "sprout") {
     return Promise.resolve(undefined);
   }
+  if (languageClient?.ready) {
+    const methods = {
+      completions: "textDocument/completion",
+      hover: "textDocument/hover",
+      definition: "textDocument/definition",
+      references: "textDocument/references",
+      signature: "textDocument/signatureHelp"
+    };
+    const method = methods[kind];
+    if (method) {
+      const extra = kind === "references" ? { context: { includeDeclaration: true } } : {};
+      return languageClient.textRequest(method, document, position, extra).then((result) => {
+        if (kind === "completions") {
+          const items = Array.isArray(result) ? result : (result?.items || []);
+          return {
+            ok: true,
+            items: items.map((item) => ({
+              name: item.label,
+              kind: ({
+                2: "method",
+                3: "function",
+                5: "field",
+                6: "variable",
+                7: "class",
+                9: "module"
+              })[item.kind] || "variable",
+              signature: item.detail,
+              qualifiedName: item.label,
+              documentation: typeof item.documentation === "string"
+                ? item.documentation
+                : item.documentation?.value || ""
+            }))
+          };
+        }
+        if (kind === "hover") return { ok: true, lspHover: result };
+        if (kind === "definition") {
+          const locations = Array.isArray(result) ? result : (result ? [result] : []);
+          return { ok: true, lspDefinition: locations[0] };
+        }
+        if (kind === "references") return { ok: true, lspReferences: result || [] };
+        if (kind === "signature") return { ok: true, lspSignature: result };
+        return undefined;
+      }).catch(() => undefined);
+    }
+  }
   const runner = findRunner(context, document);
   if (!runner) {
     return Promise.resolve(undefined);
@@ -820,6 +877,19 @@ function locationFromJson(location) {
   if (!location || !location.path) return undefined;
   const start = new vscode.Position(Math.max(0, Number(location.line || 1) - 1), Math.max(0, Number(location.col || 1) - 1));
   return new vscode.Location(vscode.Uri.file(location.path), new vscode.Range(start, start.translate(0, 1)));
+}
+
+function locationFromLsp(location) {
+  if (!location || !location.uri || !location.range) return undefined;
+  return new vscode.Location(
+    vscode.Uri.parse(location.uri),
+    new vscode.Range(
+      location.range.start.line,
+      location.range.start.character,
+      location.range.end.line,
+      location.range.end.character
+    )
+  );
 }
 
 function ignoredRanges(text) {
@@ -989,12 +1059,57 @@ function collectSemanticTokens(document) {
   return builder.build();
 }
 
-function activate(context) {
+async function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("sprout");
   const timers = new Map();
+  const runner = findRunner(context);
+  await createSproutTestController(vscode, context, runner, pythonExecutable());
+  const lspEnabled = vscode.workspace.getConfiguration("sprout").get("languageServer.enabled");
+  if (runner && lspEnabled !== false) {
+    const client = new SproutLanguageClient(vscode, pythonExecutable(), runner, context.extensionPath, diagnostics);
+    try {
+      if (await client.start()) {
+        languageClient = client;
+        context.subscriptions.push({ dispose: () => client.stop() });
+        for (const document of vscode.workspace.textDocuments) client.open(document);
+      }
+    } catch (error) {
+      console.warn(`[Sprout LSP] Falling back to command-based tooling: ${error}`);
+    }
+  }
+
+  const debugAdapter = findDebugAdapter(context, runner);
+  if (debugAdapter) {
+    context.subscriptions.push(
+      vscode.debug.registerDebugAdapterDescriptorFactory("sprout", {
+        createDebugAdapterDescriptor() {
+          return new vscode.DebugAdapterExecutable(pythonExecutable(), [debugAdapter]);
+        }
+      }),
+      vscode.debug.registerDebugConfigurationProvider("sprout", {
+        resolveDebugConfiguration(_folder, config) {
+          const resolved = { ...config };
+          resolved.type = "sprout";
+          resolved.request = "launch";
+          resolved.name = resolved.name || "Debug Sprout file";
+          if (!resolved.program && vscode.window.activeTextEditor?.document.languageId === "sprout") {
+            resolved.program = vscode.window.activeTextEditor.document.uri.fsPath;
+          }
+          resolved.args = resolved.args || [];
+          resolved.stopOnEntry = Boolean(resolved.stopOnEntry);
+          if (!resolved.program) {
+            vscode.window.showErrorMessage("Open a Sprout file or set 'program' in launch.json.");
+            return undefined;
+          }
+          return resolved;
+        }
+      })
+    );
+  }
 
   function scheduleCheck(document) {
     if (document.languageId !== "sprout") return;
+    if (languageClient?.ready) return;
     const key = document.uri.toString();
     clearTimeout(timers.get(key));
     timers.set(key, setTimeout(() => checkDocument(context, diagnostics, document), 350));
@@ -1053,6 +1168,11 @@ function activate(context) {
   const hover = vscode.languages.registerHoverProvider("sprout", {
     provideHover(document, position) {
       return runIntelQuery(context, document, position, "hover").then((semantic) => {
+        if (semantic?.lspHover?.contents) {
+          const contents = semantic.lspHover.contents;
+          const value = typeof contents === "string" ? contents : contents.value;
+          return value ? new vscode.Hover(new vscode.MarkdownString(value)) : undefined;
+        }
         if (semantic && semantic.symbol) {
           const symbol = semantic.symbol;
           const label = symbol.signature || symbol.qualifiedName || symbol.name;
@@ -1078,13 +1198,18 @@ function activate(context) {
 
   const definition = vscode.languages.registerDefinitionProvider("sprout", {
     provideDefinition(document, position) {
-      return runIntelQuery(context, document, position, "definition").then((semantic) => locationFromJson(semantic && semantic.definition));
+      return runIntelQuery(context, document, position, "definition").then((semantic) => (
+        locationFromLsp(semantic?.lspDefinition) || locationFromJson(semantic && semantic.definition)
+      ));
     }
   });
 
   const references = vscode.languages.registerReferenceProvider("sprout", {
     provideReferences(document, position) {
       return runIntelQuery(context, document, position, "references").then((semantic) => {
+        if (semantic?.lspReferences) {
+          return semantic.lspReferences.map(locationFromLsp).filter(Boolean);
+        }
         if (!semantic || !Array.isArray(semantic.references)) return [];
         return semantic.references.map((ref) => locationFromJson(ref.location)).filter(Boolean);
       });
@@ -1092,9 +1217,51 @@ function activate(context) {
   });
 
   const rename = vscode.languages.registerRenameProvider("sprout", {
+    prepareRename(document, position) {
+      if (!languageClient?.ready) return document.getWordRangeAtPosition(position);
+      return languageClient.textRequest("textDocument/prepareRename", document, position).then((result) => {
+        if (!result?.range) return undefined;
+        return new vscode.Range(
+          result.range.start.line,
+          result.range.start.character,
+          result.range.end.line,
+          result.range.end.character
+        );
+      });
+    },
     provideRenameEdits(document, position, newName) {
+      if (languageClient?.ready) {
+        return languageClient.textRequest("textDocument/rename", document, position, { newName }).then((result) => {
+          const edit = new vscode.WorkspaceEdit();
+          for (const [uri, edits] of Object.entries(result?.changes || {})) {
+            for (const item of edits) {
+              edit.replace(
+                vscode.Uri.parse(uri),
+                new vscode.Range(
+                  item.range.start.line,
+                  item.range.start.character,
+                  item.range.end.line,
+                  item.range.end.character
+                ),
+                item.newText
+              );
+            }
+          }
+          return edit;
+        });
+      }
       return runIntelQuery(context, document, position, "references").then((semantic) => {
         const edit = new vscode.WorkspaceEdit();
+        if (semantic?.lspReferences) {
+          const wordRange = document.getWordRangeAtPosition(position);
+          const word = wordRange ? document.getText(wordRange) : "";
+          for (const ref of semantic.lspReferences) {
+            const location = locationFromLsp(ref);
+            if (!location) continue;
+            edit.replace(location.uri, location.range, newName);
+          }
+          return edit;
+        }
         if (!semantic || !Array.isArray(semantic.references) || !semantic.word) return edit;
         for (const ref of semantic.references) {
           const location = ref.location;
@@ -1113,6 +1280,21 @@ function activate(context) {
     {
       provideSignatureHelp(document, position) {
         return runIntelQuery(context, document, position, "signature").then((semantic) => {
+          if (semantic?.lspSignature?.signatures?.length) {
+            const result = semantic.lspSignature;
+            const help = new vscode.SignatureHelp();
+            help.signatures = result.signatures.map((signature) => new vscode.SignatureInformation(
+              signature.label,
+              new vscode.MarkdownString(
+                typeof signature.documentation === "string"
+                  ? signature.documentation
+                  : signature.documentation?.value || ""
+              )
+            ));
+            help.activeSignature = result.activeSignature || 0;
+            help.activeParameter = result.activeParameter || 0;
+            return help;
+          }
           if (!semantic || !semantic.signature) return undefined;
           const help = new vscode.SignatureHelp();
           const info = new vscode.SignatureInformation(
@@ -1128,6 +1310,57 @@ function activate(context) {
     },
     "(",
     ","
+  );
+
+  const codeActions = vscode.languages.registerCodeActionsProvider(
+    "sprout",
+    {
+      provideCodeActions(document, range, context, token) {
+        if (!languageClient?.ready) return [];
+        const diagnosticsPayload = context.diagnostics.map((diagnostic) => ({
+          range: {
+            start: { line: diagnostic.range.start.line, character: diagnostic.range.start.character },
+            end: { line: diagnostic.range.end.line, character: diagnostic.range.end.character }
+          },
+          severity: diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 2 : 1,
+          code: diagnostic.code,
+          source: diagnostic.source || "sprout",
+          message: diagnostic.message
+        }));
+        return languageClient.request("textDocument/codeAction", {
+          textDocument: { uri: document.uri.toString() },
+          range: {
+            start: { line: range.start.line, character: range.start.character },
+            end: { line: range.end.line, character: range.end.character }
+          },
+          context: { diagnostics: diagnosticsPayload, only: ["quickfix"] }
+        }, token).then((items) => (items || []).map((item) => {
+          const action = new vscode.CodeAction(item.title, vscode.CodeActionKind.QuickFix);
+          action.isPreferred = Boolean(item.isPreferred);
+          action.diagnostics = context.diagnostics.filter((diagnostic) => (
+            (item.diagnostics || []).some((candidate) => candidate.code === diagnostic.code)
+          ));
+          const edit = new vscode.WorkspaceEdit();
+          for (const [uri, changes] of Object.entries(item.edit?.changes || {})) {
+            for (const change of changes) {
+              edit.replace(
+                vscode.Uri.parse(uri),
+                new vscode.Range(
+                  change.range.start.line,
+                  change.range.start.character,
+                  change.range.end.line,
+                  change.range.end.character
+                ),
+                change.newText
+              );
+            }
+          }
+          action.edit = edit;
+          return action;
+        }));
+      }
+    },
+    { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
   );
 
   const semanticTokens = vscode.languages.registerDocumentSemanticTokensProvider(
@@ -1147,12 +1380,25 @@ function activate(context) {
     references,
     rename,
     signature,
+    codeActions,
     semanticTokens,
     diagnostics,
-    vscode.workspace.onDidOpenTextDocument(scheduleCheck),
-    vscode.workspace.onDidSaveTextDocument(scheduleCheck),
-    vscode.workspace.onDidChangeTextDocument((event) => scheduleCheck(event.document)),
-    vscode.workspace.onDidCloseTextDocument((document) => diagnostics.delete(document.uri))
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      languageClient?.open(document);
+      scheduleCheck(document);
+    }),
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      languageClient?.save(document);
+      scheduleCheck(document);
+    }),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      languageClient?.change(event);
+      scheduleCheck(event.document);
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      languageClient?.close(document);
+      diagnostics.delete(document.uri);
+    })
   );
 
   for (const document of vscode.workspace.textDocuments) {
@@ -1160,6 +1406,9 @@ function activate(context) {
   }
 }
 
-function deactivate() {}
+async function deactivate() {
+  if (languageClient) await languageClient.stop();
+  languageClient = undefined;
+}
 
 module.exports = { activate, deactivate };

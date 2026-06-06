@@ -285,6 +285,8 @@ def package_vscode_extension(output_dir: str | os.PathLike[str] | None = None) -
         if should_include(source.relative_to(extension_root)):
             files.append((source, f"extension/{source.relative_to(extension_root).as_posix()}"))
     files.append((root / "sprout.py", "extension/sprout.py"))
+    files.append((root / "tools" / "sprout_lsp.py", "extension/tools/sprout_lsp.py"))
+    files.append((root / "tools" / "sprout_dap.py", "extension/tools/sprout_dap.py"))
     for source in sorted(path for path in (root / "sprout_core").rglob("*") if path.is_file()):
         relative = source.relative_to(root)
         if should_include(relative):

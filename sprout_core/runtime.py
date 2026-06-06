@@ -11,6 +11,7 @@ import re
 import statistics
 import threading
 import time
+import traceback
 import types
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -272,11 +273,13 @@ class PythonCallable:
             py_kwargs = {key: unwrap_sprout_value(value) for key, value in (kwargs or {}).items()}
             return wrap_python_value(self.fn(*[unwrap_sprout_value(arg) for arg in args], **py_kwargs), self.name)
         except Exception as exc:
-            raise SproutError(
+            error = SproutError(
                 f"Python bridge call '{self.name}' failed: {clean_native_message(exc)}",
                 category="InteropError",
                 hint="Check the values passed to the imported Python function.",
-            ) from None
+            )
+            add_native_trace(error, exc, f"python bridge {self.name}")
+            raise error from None
 
     def __repr__(self) -> str:
         return f"<python function {self.name}>"
@@ -301,10 +304,12 @@ class PythonObject:
         try:
             setattr(self.value, name, unwrap_sprout_value(value))
         except Exception as exc:
-            raise SproutError(
+            error = SproutError(
                 f"Could not set Python bridge field '{self.name}.{name}': {clean_native_message(exc)}",
                 category="InteropError",
-            ) from None
+            )
+            add_native_trace(error, exc, f"python bridge {self.name}.{name}")
+            raise error from None
 
     def __repr__(self) -> str:
         return f"<python object {self.name}>"
@@ -959,10 +964,7 @@ class Interpreter:
 
     def location_label(self, line: int | None, col: int | None = None) -> str:
         if self.source_path and line:
-            try:
-                path = os.path.relpath(self.source_path, os.getcwd())
-            except ValueError:
-                path = self.source_path
+            path = display_path(self.source_path)
             if col:
                 return f"{path}:{line}:{col}"
             return f"{path}:{line}"
@@ -1645,17 +1647,36 @@ def friendly_os_error(exc: OSError) -> str:
 
 def native_runtime_error(name: str, exc: Exception) -> SproutError:
     if isinstance(exc, ZeroDivisionError):
-        return SproutError("Division by zero", category="MathError")
-    if isinstance(exc, IndexError):
-        return SproutError(f"{name} could not access that index", category="IndexError")
-    if isinstance(exc, KeyError):
-        return SproutError(f"{name} could not find key {exc}", category="KeyError")
-    if isinstance(exc, OSError):
-        return SproutError(friendly_os_error(exc), category="FileError")
-    if isinstance(exc, (TypeError, ValueError)):
-        return SproutError(f"{name} received an invalid value: {clean_native_message(exc)}", category="TypeError")
-    return SproutError(
-        f"{name} failed during a native operation",
-        category="RuntimeError",
-        hint="Run again with SPROUT_DEBUG_PYTHON=1 when reporting this as a Sprout bug.",
-    )
+        error = SproutError("Division by zero", category="MathError")
+    elif isinstance(exc, IndexError):
+        error = SproutError(f"{name} could not access that index", category="IndexError")
+    elif isinstance(exc, KeyError):
+        error = SproutError(f"{name} could not find key {exc}", category="KeyError")
+    elif isinstance(exc, OSError):
+        error = SproutError(friendly_os_error(exc), category="FileError")
+    elif isinstance(exc, (TypeError, ValueError)):
+        error = SproutError(f"{name} received an invalid value: {clean_native_message(exc)}", category="TypeError")
+    else:
+        error = SproutError(
+            f"{name} failed during a native operation: {clean_native_message(exc)}",
+            category="InternalError",
+            hint="The native failure was translated below. Report the Sprout stack if this looks like a language bug.",
+        )
+    add_native_trace(error, exc, f"native {name}")
+    return error
+
+
+def add_native_trace(error: SproutError, exc: Exception, boundary: str) -> None:
+    extracted = traceback.extract_tb(exc.__traceback__)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    translated: list[str] = []
+    for frame in extracted:
+        path = os.path.abspath(frame.filename)
+        if path.startswith(project_root + os.sep):
+            module = os.path.splitext(os.path.basename(path))[0]
+            translated.append(f"Sprout runtime {module}.{frame.name}")
+        else:
+            translated.append(f"bridged {frame.name} ({display_path(frame.filename)}:{frame.lineno})")
+    for frame in translated[-5:]:
+        error.add_frame(frame)
+    error.add_frame(boundary)

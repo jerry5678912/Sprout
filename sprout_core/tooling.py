@@ -589,6 +589,7 @@ def print_help() -> None:
         "  python3 sprout.py debug FILE            Step experimental VM bytecode\n"
         "  python3 sprout.py profile FILE          Profile experimental VM execution\n"
         "  python3 sprout.py test [PATH]           Discover and run Sprout tests\n"
+        "                    [--list] [--json] [--filter NAME]\n"
         "  python3 sprout.py docs [DIR] [--html]   Generate project/package documentation\n"
         "  python3 sprout.py build [DIR] [--vm]    Create a reproducible project build\n"
         "  python3 sprout.py package [DIR]         Create a portable .sproutpkg bundle\n"

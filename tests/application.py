@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,23 @@ def test_failure_exit_code() -> None:
         assert result.returncode == 1
         assert "1 tests: 0 passed, 1 failed" in result.stdout
         assert "expected 2 to equal 3" in result.stdout
+
+
+def test_structured_test_discovery_and_filtering() -> None:
+    listed = run(["test", "tests/application_test.sprout", "--list", "--json"])
+    manifest = json.loads(listed.stdout)
+    assert len(manifest["tests"]) == 6
+    assert manifest["tests"][0]["name"] == "expectation helpers"
+    filtered = run([
+        "test",
+        "tests/application_test.sprout",
+        "--filter",
+        "expectation helpers",
+        "--json",
+    ])
+    report = json.loads(filtered.stdout)
+    assert report["summary"] == {"total": 1, "passed": 1, "failed": 0}
+    assert report["tests"][0]["status"] == "passed"
 
 
 def test_application_examples() -> None:
@@ -93,6 +111,7 @@ def test_http_server_resource_without_socket() -> None:
 def main() -> int:
     test_language_tests()
     test_failure_exit_code()
+    test_structured_test_discovery_and_filtering()
     test_application_examples()
     test_docs_command()
     test_http_server_resource_without_socket()

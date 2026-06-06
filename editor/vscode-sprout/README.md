@@ -16,6 +16,10 @@ It adds:
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json`
 - Application-layer completions and highlighting for `test`, expectations, tasks, HTTP, SQLite, engineering helpers, and reusable game APIs
+- VS Code debugging with breakpoints, call stacks, variable scopes, expression evaluation, continue, pause, step in, step over, and step out
+- Native Testing view discovery and execution for Sprout test declarations
+- LSP quick fixes for tab indentation and Python-style boolean/nil aliases
+- Conditional breakpoints, hit counts, and uncaught-error breakpoints
 
 ## Install The VSIX
 
@@ -70,12 +74,43 @@ Those comments appear in hover help and completion descriptions.
 - `sprout.pythonPath`: optional Python executable; empty selects `python` on Windows and `python3` elsewhere.
 - `sprout.runnerPath`: optional explicit path to `sprout.py`; packaged releases already include the runner.
 
-## LSP Foundation
+## Language Server
 
-Sprout also includes an early stdio language server at:
+Sprout includes a production stdio language server at:
 
 ```sh
 python3 tools/sprout_lsp.py
 ```
 
-The bundled VS Code package uses direct extension providers backed by the same semantic analyzer through `sprout.py intel`. The stdio LSP server is also available for future editor clients.
+The extension starts the bundled server as one persistent process. It uses incremental document synchronization for diagnostics, completions, hover, definitions, references, rename, and signature help. If the server cannot start, the extension falls back to the older `sprout.py intel` providers.
+
+## Debugging
+
+The extension bundles `tools/sprout_dap.py`, Sprout's Debug Adapter Protocol server. To debug the active file:
+
+1. Open a `.sprout` file.
+2. Click beside a line number to set a breakpoint.
+3. Press `F5`.
+4. Select `Debug current Sprout file` if prompted.
+
+The debugger shows Sprout call frames, locals, globals, program output, and evaluated expressions in VS Code's standard debugging views. The toolbar supports continue, pause, step over, step into, step out, restart, and stop.
+
+The debugger currently executes through Sprout's experimental bytecode VM. Normal Run commands continue to use the stable tree-walk interpreter unless VM mode is explicitly selected.
+
+Right-click a breakpoint to add a Sprout expression condition. Hit counts support `3`, `>= 5`, and `% 2`. Enable **Uncaught Sprout errors** in the Breakpoints view to pause before an unhandled error exits.
+
+## Testing
+
+Open VS Code's Testing view to see Sprout tests grouped by file. Use the run button beside a file or individual test. Discovery and results use the structured commands:
+
+```sh
+python3 sprout.py test --list --json
+python3 sprout.py test tests/example_test.sprout --filter "addition" --json
+```
+
+## Quick Fixes
+
+Sprout diagnostics offer lightbulb actions for safe style corrections:
+
+- convert tab indentation to spaces
+- replace `True`, `False`, and `None` with `true`, `false`, and `nil`

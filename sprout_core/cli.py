@@ -180,11 +180,23 @@ def main(argv: list[str]) -> int:
                 print(f"  {name}: calls={count} time={seconds:.6f}s")
         elif argv[1] == "test":
             target = None
-            for value in argv[2:]:
+            i = 2
+            while i < len(argv):
+                value = argv[i]
+                if value == "--filter":
+                    i += 2
+                    continue
                 if not value.startswith("--"):
                     target = value
                     break
-            return run_tests(target, verbose="--verbose" in argv[2:])
+                i += 1
+            return run_tests(
+                target,
+                verbose="--verbose" in argv[2:],
+                json_mode="--json" in argv[2:],
+                list_only="--list" in argv[2:],
+                name_filter=option_value(argv, "--filter"),
+            )
         elif argv[1] == "docs":
             target = "."
             for value in argv[2:]:
@@ -330,14 +342,10 @@ def main(argv: list[str]) -> int:
             raise
         print(format_error(native_runtime_error("command", exc)), file=sys.stderr)
         return 1
-    except Exception:
+    except Exception as exc:
         if os.environ.get("SPROUT_DEBUG_PYTHON") == "1":
             raise
-        print(format_error(SproutError(
-            "Sprout encountered an unexpected internal runtime failure.",
-            category="InternalError",
-            hint="Run again with SPROUT_DEBUG_PYTHON=1 when reporting this as a Sprout bug.",
-        )), file=sys.stderr)
+        print(format_error(native_runtime_error("Sprout command", exc)), file=sys.stderr)
         return 1
 
 

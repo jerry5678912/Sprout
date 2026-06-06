@@ -91,6 +91,7 @@ python3 tests/ecosystem.py >/tmp/sprout_ecosystem_tests.out
 python3 tests/distribution.py >/tmp/sprout_distribution_tests.out
 python3 tests/lsp.py >/tmp/sprout_lsp_tests.out
 python3 tests/errors.py >/tmp/sprout_error_tests.out
+python3 tests/debug_adapter.py >/tmp/sprout_debug_adapter_tests.out
 python3 sprout.py test tests/application_test.sprout >/tmp/sprout_language_tests.out
 python3 sprout.py run examples/application/async_demo.sprout >/tmp/sprout_async_demo.out
 python3 sprout.py run examples/application/sqlite_demo.sprout >/tmp/sprout_sqlite_demo.out
@@ -262,6 +263,7 @@ grep -q "sprout ecosystem tests passed" /tmp/sprout_ecosystem_tests.out
 grep -q "sprout distribution tests passed" /tmp/sprout_distribution_tests.out
 grep -q "sprout lsp tests passed" /tmp/sprout_lsp_tests.out
 grep -q "sprout error reporting tests passed" /tmp/sprout_error_tests.out
+grep -q "sprout debug adapter tests passed" /tmp/sprout_debug_adapter_tests.out
 grep -q "6 tests: 6 passed, 0 failed" /tmp/sprout_language_tests.out
 grep -q "task results: \\[16, 25\\]" /tmp/sprout_async_demo.out
 grep -q "2 ship app" /tmp/sprout_sqlite_demo.out

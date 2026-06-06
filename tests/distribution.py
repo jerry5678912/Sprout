@@ -63,6 +63,10 @@ def test_release_archives() -> None:
             assert "extension/package.json" in names
             assert "extension/sprout.py" in names
             assert "extension/sprout_core/runtime.py" in names
+            assert "extension/tools/sprout_lsp.py" in names
+            assert "extension/tools/sprout_dap.py" in names
+            assert "extension/lsp-client.js" in names
+            assert "extension/test-controller.js" in names
             package = json.loads(archive.read("extension/package.json"))
             assert package["version"] == SPROUT_VERSION
 

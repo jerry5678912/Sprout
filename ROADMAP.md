@@ -6,4 +6,4 @@
 - Optimize VM dispatch and compile imported Sprout modules to bytecode.
 - Add signed release artifacts and native application bundles.
 - Add persistent workspace indexes, richer type inference, and control-flow analysis.
-- Complete the editor debugging, code-action, and testing workflow.
+- Add test debugging, coverage reporting, logpoints, data breakpoints, and broader semantic refactors.

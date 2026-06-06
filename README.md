@@ -189,9 +189,9 @@ python3 sprout.py fmt file.sprout --write
 python3 sprout.py intel file.sprout --kind completions --line 20 --col 8
 ```
 
-There is also a stdio LSP foundation at `tools/sprout_lsp.py` with workspace diagnostics, semantic completions, hover, definition, references, rename, signature help, and document symbols.
+The production stdio server at `tools/sprout_lsp.py` provides incremental document synchronization, versioned diagnostics, semantic completions, hover, definition, references, safe rename preparation and edits, signature help, document symbols, workspace symbols, workspace-folder updates, cancellation, and correct initialize/shutdown lifecycle handling.
 
-The semantic engine now uses lexical scopes and stable symbol identities. Parameters and local variables with the same spelling in different functions remain separate symbols, repeated assignments stay attached to their original binding, and imported module member references connect to their exported definitions. The language server keeps an in-memory workspace index and reanalyzes only files whose contents or filesystem signatures changed.
+The semantic engine uses lexical scopes and stable symbol identities. Parameters and local variables with the same spelling in different functions remain separate symbols, repeated assignments stay attached to their original binding, and imported module member references connect to their exported definitions. The language server keeps an in-memory workspace index and reanalyzes only files whose contents or filesystem signatures changed. The VS Code extension starts one persistent server process and falls back to command-based providers only when the server cannot start.
 
 This cache lasts for the language-server process. A persistent on-disk index is not implemented yet.
 
@@ -280,7 +280,11 @@ The current VM supports literals, variables, assignment, property/index/slice as
 
 Bytecode instructions carry source file, line, column, and function context. `dis`, the terminal debugger, and VM runtime errors expose this information. `bench` reports compile time, interpreter time, VM time, instruction count, support status, and whether fallback was used. The VM is still experimental and is not guaranteed to be faster yet.
 
-`debug` is a terminal debugger foundation. It can stop at source-line breakpoints for bytecode instructions that have source positions, show the current instruction, source line, stack, locals, and continue/step in an interactive terminal. `profile` reports compile time, run time, VM instruction count, and VM function call counts/times.
+`debug` remains available as a terminal debugger. The VS Code extension also includes a Debug Adapter Protocol server for graphical breakpoints, call stacks, scopes, variables, expression evaluation, continue, pause, step in, step over, and step out. Open a `.sprout` file, add a breakpoint, and press `F5` or choose **Run and Debug: Debug current Sprout file**. Both debuggers execute through the experimental VM.
+
+VS Code conditional breakpoints evaluate Sprout expressions in the current frame. Hit-count breakpoints accept a number such as `3`, comparisons such as `>= 5`, or `% 2` for every second hit. Enable **Uncaught Sprout errors** in the Breakpoints view to pause before an unhandled error exits.
+
+`profile` reports compile time, run time, VM instruction count, and VM function call counts/times.
 
 ## Dogfooding And Stability
 
@@ -310,7 +314,11 @@ Run Sprout tests:
 python3 sprout.py test
 python3 sprout.py test tests/
 python3 sprout.py test tests/application_test.sprout --verbose
+python3 sprout.py test --list --json
+python3 sprout.py test tests/application_test.sprout --filter "expectation helpers" --json
 ```
+
+The VS Code extension discovers these tests in the native Testing view. Individual tests and files can be run without parsing terminal text.
 
 Test syntax:
 
@@ -737,11 +745,12 @@ stack:
   at main (examples/stacktrace.sprout:11:5)
 ```
 
-Normal execution never prints Python tracebacks. Native operations and Python
-interop are translated into Sprout errors such as `MathError`, `FileError`,
-`TypeError`, and `InteropError`. Language developers can set
-`SPROUT_DEBUG_PYTHON=1` to expose an unexpected internal traceback while
-debugging Sprout itself.
+Normal execution translates Python and native tracebacks into Sprout tracebacks
+instead of discarding them. Native operations and Python interop become errors
+such as `MathError`, `FileError`, `TypeError`, and `InteropError`; their stack
+retains Sprout call sites, bridge boundaries, and relevant external function
+locations. Language developers can set `SPROUT_DEBUG_PYTHON=1` to additionally
+expose the original raw traceback while debugging Sprout itself.
 
 ## Project Layout
 
@@ -754,7 +763,7 @@ debugging Sprout itself.
 - `sprout_core/tooling.py`: project loading, module search paths, check/lint/fmt helpers, symbol collection, and JSON diagnostics
 - `sprout_core/analysis.py`: semantic workspace indexing, completions, hovers, definitions, references, rename edits, signatures, and editor diagnostics
 - `sprout_core/cli.py`: command-line interface and REPL
-- `tools/sprout_lsp.py`: stdio LSP foundation backed by the semantic workspace index
+- `tools/sprout_lsp.py`: production stdio LSP server backed by the semantic workspace index
 - `examples/`: sample Sprout programs
 - `examples/modules/`: importable Sprout modules
 - `examples/data/`: tiny data files for demos
