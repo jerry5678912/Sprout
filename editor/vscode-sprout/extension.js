@@ -51,7 +51,7 @@ const entries = [
   ["for", "Loop over arrays, strings, ranges, or dictionary keys.", "for ${1:item} in ${2:items}:\n  ${3}"],
   ["try", "Catch Sprout errors and raised values.", "try:\n  ${1}\ncatch ${2:err}:\n  ${3:say err}"],
   ["test", "Define a Sprout test case.", "test \"${1:name}\":\n  expect(${2:actual}).to_equal(${3:expected})"],
-  ["import", "Import another .sprout file.", "import \"${1:modules/gamekit.sprout}\" as ${2:game}"],
+  ["import", "Import a Sprout standard-library or project module.", "import ${1:pixelgarden} as ${2:pix}"],
   ["importpython", "Import a Python standard-library module.", "importpython ${1:math}"],
   ["super", "Call a parent class method from a subclass.", "super.${1:method}(${2})"],
   ["return", "Return a value from a function.", "return ${1:value}"],
@@ -178,7 +178,7 @@ const keywordEntries = [
   ["pluck", "Garden-flavored return.", "pluck ${1:value}"],
   ["break", "Exit the nearest loop.", "break"],
   ["continue", "Skip to the next loop iteration.", "continue"],
-  ["import", "Import another .sprout file.", "import \"${1:modules/gamekit.sprout}\" as ${2:game}"],
+  ["import", "Import a Sprout standard-library or project module.", "import ${1:pixelgarden} as ${2:pix}"],
   ["importpython", "Import a Python module through Sprout's Python bridge.", "importpython ${1:math}"],
   ["as", "Give an import an alias.", "as ${1:alias}"],
   ["let", "Declare a variable.", "let ${1:name} = ${2:value}"],
@@ -261,9 +261,16 @@ const canvasEntries = [
   ["fill_circle", "Draw a filled circle.", "fill_circle(${1:canvas}, ${2:circle}, char=${3:\"#\"})"],
   ["text", "Draw text onto a canvas.", "text(${1:canvas}, ${2:x}, ${3:y}, ${4:value})"],
   ["sprite", "Draw non-space characters from string rows.", "sprite(${1:canvas}, ${2:x}, ${3:y}, ${4:rows})"],
+  ["sprite_asset", "Create a reusable sprite asset.", "sprite_asset(${1:rows}, transparent=${2:\" \"})"],
+  ["draw_sprite", "Draw a reusable sprite with optional flips.", "draw_sprite(${1:canvas}, ${2:asset}, ${3:x}, ${4:y})"],
+  ["composite", "Composite one transparent canvas layer onto another.", "composite(${1:canvas}, ${2:layer})"],
   ["camera", "Create a simple 2D camera.", "camera(${1:position}, zoom=${2:1})"],
   ["world_to_screen", "Convert a world point through a 2D camera.", "world_to_screen(${1:point}, ${2:camera}, ${3:canvas})"],
   ["plot_world", "Draw a world-space point through a 2D camera.", "plot_world(${1:canvas}, ${2:point}, ${3:camera}, char=${4:\"#\"})"],
+  ["line_world", "Draw a world-space line through a 2D camera.", "line_world(${1:canvas}, ${2:start}, ${3:finish}, ${4:camera})"],
+  ["sprite_world", "Draw a sprite at a world-space position.", "sprite_world(${1:canvas}, ${2:asset}, ${3:position}, ${4:camera})"],
+  ["animation", "Create a frame animation.", "animation(${1:frames}, fps=${2:8})"],
+  ["animation_frame", "Select an animation frame for an elapsed time.", "animation_frame(${1:animation}, ${2:seconds})"],
   ["frame_to_text", "Convert a canvas to terminal text.", "frame_to_text(${1:canvas})"]
 ];
 
@@ -277,6 +284,15 @@ const pixelGardenEntries = [
   ["circle", "Draw a circle outline.", "circle(${1:canvas}, ${2:shape}, char=${3:\"#\"})"],
   ["text", "Draw text.", "text(${1:canvas}, ${2:x}, ${3:y}, ${4:value})"],
   ["sprite", "Draw a text sprite.", "sprite(${1:canvas}, ${2:x}, ${3:y}, ${4:rows})"],
+  ["sprite_asset", "Create a reusable PixelGarden sprite.", "sprite_asset(${1:rows})"],
+  ["draw_sprite", "Draw a sprite with optional horizontal or vertical flipping.", "draw_sprite(${1:canvas}, ${2:asset}, ${3:x}, ${4:y})"],
+  ["layer", "Create a transparent drawing layer.", "layer(${1:width}, ${2:height})"],
+  ["composite", "Composite a PixelGarden layer.", "composite(${1:canvas}, ${2:layer})"],
+  ["camera", "Create a PixelGarden world camera.", "camera(${1:position}, zoom=${2:1})"],
+  ["line_world", "Draw a line in world coordinates.", "line_world(${1:canvas}, ${2:start}, ${3:finish}, ${4:camera})"],
+  ["sprite_world", "Draw a sprite in world coordinates.", "sprite_world(${1:canvas}, ${2:asset}, ${3:position}, ${4:camera})"],
+  ["animation", "Create a PixelGarden frame animation.", "animation(${1:frames}, fps=${2:8})"],
+  ["animation_frame", "Get the active animation frame.", "animation_frame(${1:animation}, ${2:seconds})"],
   ["frame_to_text", "Convert a canvas to terminal text.", "frame_to_text(${1:canvas})"]
 ];
 
@@ -368,11 +384,11 @@ const allBuiltinNames = [
 ];
 
 const allEngineNames = [
-  "vec3", "vadd", "vsub", "vscale", "dot", "cross", "length", "normalize", "mesh", "cube", "edge_key", "unique_edges",
+  "vec3", "vadd", "vsub", "vscale", "dot", "cross", "length", "normalize", "mesh", "cube", "pyramid", "plane", "edge_key", "unique_edges",
   "parse_face_index", "obj_record", "obj_mesh", "load_obj", "translate_mesh", "scale_mesh", "rotate_x", "rotate_y",
-  "rotate_z", "rotate_mesh", "camera", "look_at_camera", "orbit_camera", "world_to_camera", "project", "make_frame",
+  "rotate_z", "rotate_mesh", "transform_mesh", "merge_meshes", "camera", "look_at_camera", "orbit_camera", "world_to_camera", "project", "make_frame",
   "make_zbuffer", "plot", "line", "edge_value", "shade_char", "face_normal", "draw_triangle", "render_solid",
-  "render_wireframe", "frame_to_text", "bounds"
+  "render_wireframe", "frame_to_text", "bounds", "object", "scene", "add", "object_mesh", "scene_mesh", "render"
 ];
 
 const allGeometryNames = [
@@ -383,13 +399,15 @@ const allGeometryNames = [
 
 const allCanvasNames = [
   "make_canvas", "clear", "plot", "line", "stroke_rect", "fill_rect", "circle", "fill_circle", "text", "sprite",
-  "camera", "world_to_screen", "plot_world", "frame_to_text"
+  "sprite_asset", "draw_sprite", "composite", "camera", "world_to_screen", "plot_world", "line_world",
+  "sprite_world", "animation", "animation_frame", "frame_to_text"
 ];
 
 const allPixelGardenNames = [
   "vec2", "rect", "circle_shape", "vadd", "vsub", "vscale", "distance", "move_toward", "rects_overlap",
   "circle_rect_overlap", "bounds", "canvas", "clear", "plot", "line", "stroke_rect", "fill_rect", "circle",
-  "fill_circle", "text", "sprite", "camera", "plot_world", "frame_to_text"
+  "fill_circle", "text", "sprite", "sprite_asset", "draw_sprite", "layer", "composite", "camera",
+  "world_to_screen", "plot_world", "line_world", "sprite_world", "animation", "animation_frame", "frame_to_text"
 ];
 
 const allWindow2dNames = [

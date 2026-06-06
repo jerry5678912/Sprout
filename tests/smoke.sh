@@ -55,6 +55,7 @@ python3 sprout.py examples/geom2d_demo.sprout >/tmp/sprout_geom2d.out
 python3 sprout.py examples/canvas2d_demo.sprout >/tmp/sprout_canvas2d.out
 python3 sprout.py examples/pixelgarden_demo.sprout >/tmp/sprout_pixelgarden.out
 python3 sprout.py examples/starbloom3d_demo.sprout >/tmp/sprout_starbloom3d.out
+python3 sprout.py examples/named_imports.sprout >/tmp/sprout_named_imports.out
 python3 sprout.py examples/engine3d_demo.sprout >/tmp/sprout_engine3d.out
 python3 sprout.py examples/engine3d_solid_demo.sprout >/tmp/sprout_engine3d_solid.out
 python3 sprout.py examples/engine3d_obj_demo.sprout >/tmp/sprout_engine3d_obj.out
@@ -99,6 +100,7 @@ python3 tests/lsp.py >/tmp/sprout_lsp_tests.out
 python3 tests/errors.py >/tmp/sprout_error_tests.out
 python3 tests/debug_adapter.py >/tmp/sprout_debug_adapter_tests.out
 python3 sprout.py test tests/application_test.sprout >/tmp/sprout_language_tests.out
+python3 sprout.py test tests/graphics_test.sprout >/tmp/sprout_graphics_tests.out
 python3 sprout.py run examples/application/async_demo.sprout >/tmp/sprout_async_demo.out
 python3 sprout.py run examples/application/sqlite_demo.sprout >/tmp/sprout_sqlite_demo.out
 python3 sprout.py run examples/application/engineering_demo.sprout >/tmp/sprout_engineering_demo.out
@@ -225,8 +227,12 @@ grep -q "oo@....#" /tmp/sprout_canvas2d.out
 grep -q "========..Sprout2D" /tmp/sprout_canvas2d.out
 grep -q "PixelGarden" /tmp/sprout_pixelgarden.out
 grep -q "garden step:" /tmp/sprout_pixelgarden.out
+grep -q "sprite size: 3 3" /tmp/sprout_pixelgarden.out
 grep -q "StarBloom3D" /tmp/sprout_starbloom3d.out
 grep -q "\\*" /tmp/sprout_starbloom3d.out
+grep -q "scene objects: 2" /tmp/sprout_starbloom3d.out
+grep -q "named imports: Mina 3 5" /tmp/sprout_named_imports.out
+grep -q "4 passed" /tmp/sprout_graphics_tests.out
 grep -q "vertices: 8 edges: 12" /tmp/sprout_engine3d.out
 grep -q "\\*" /tmp/sprout_engine3d.out
 grep -q "solid faces: 12 zbuffered: true" /tmp/sprout_engine3d_solid.out
@@ -253,7 +259,7 @@ grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out
 grep -q "^py_available$" /tmp/sprout_stdlib_cmd.out
 grep -q "examples/tictactoe.sprout" /tmp/sprout_examples_cmd.out
-grep -q "Sprout 0.3.2" /tmp/sprout_version.out
+grep -q "Sprout 0.3.3" /tmp/sprout_version.out
 grep -q "ok python >= 3.9" /tmp/sprout_doctor.out
 grep -q "\\[0, 1, 1, 2, 3, 5, 8, 13\\]" /tmp/sprout_repl.out
 grep -q '"snippets"' /tmp/sprout_vscode_package.out

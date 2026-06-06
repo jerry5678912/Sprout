@@ -34,6 +34,7 @@ def test_supported_programs() -> None:
     assert_same_output("examples/slices_defaults.sprout")
     assert_same_output("examples/seedfn.sprout")
     assert_same_output("tests/application_test.sprout")
+    assert_same_output("examples/named_imports.sprout")
 
 
 def test_disassembler() -> None:

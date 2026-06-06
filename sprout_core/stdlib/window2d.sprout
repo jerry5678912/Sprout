@@ -1,0 +1,87 @@
+# Window2D: real window-backed 2D engine wrapper for pygame.
+# Install pygame for this module: python3 -m pip install pygame
+
+def available() {
+  return py_available("pygame")
+}
+
+def require_pygame() {
+  if not available() {
+    fail("Window2D needs pygame. Install it with: python3 -m pip install pygame")
+  }
+  return py_import("pygame")
+}
+
+def color(r, g, b, a=255) {
+  return [int(r), int(g), int(b), int(a)]
+}
+
+def init() {
+  pg = require_pygame()
+  pg.init()
+  return pg
+}
+
+def quit() {
+  if available() {
+    pg = py_import("pygame")
+    pg.quit()
+  }
+  return nil
+}
+
+def window(width=800, height=600, title="Sprout Window2D") {
+  pg = init()
+  screen = pg.display.set_mode([int(width), int(height)])
+  pg.display.set_caption(title)
+  return {"pg": pg, "screen": screen, "width": width, "height": height, "open": true}
+}
+
+def clock(win) {
+  return win.pg.time.Clock()
+}
+
+def poll(win) {
+  events = []
+  for event in win.pg.event.get() {
+    if event.type == win.pg.QUIT {
+      win.open = false
+    }
+    events.append(event)
+  }
+  return events
+}
+
+def should_close(win) {
+  poll(win)
+  return not win.open
+}
+
+def fill(win, color) {
+  win.screen.fill(color)
+  return win
+}
+
+def flip(win) {
+  win.pg.display.flip()
+  return win
+}
+
+def tick(clock, fps=60) {
+  return clock.tick(int(fps))
+}
+
+def rect(win, x, y, w, h, color, width=0) {
+  win.pg.draw.rect(win.screen, color, [x, y, w, h], int(width))
+  return win
+}
+
+def circle(win, x, y, radius, color, width=0) {
+  win.pg.draw.circle(win.screen, color, [x, y], int(radius), int(width))
+  return win
+}
+
+def line(win, x0, y0, x1, y1, color, width=1) {
+  win.pg.draw.line(win.screen, color, [x0, y0], [x1, y1], int(width))
+  return win
+}

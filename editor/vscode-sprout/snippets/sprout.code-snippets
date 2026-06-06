@@ -197,10 +197,15 @@
     "body": "importpython ${1:math}",
     "description": "Import a Python module"
   },
+  "Import Sprout Module": {
+    "prefix": "import",
+    "body": "import ${1:pixelgarden} as ${2:pix}",
+    "description": "Import a Sprout standard-library or project module"
+  },
   "Sprout3D Scene": {
     "prefix": "s3dscene",
     "body": [
-      "import \"modules/engine3d.sprout\" as s3d",
+      "import engine3d as s3d",
       "",
       "target = s3d.vec3(0, 0, 7)",
       "cam = s3d.look_at_camera(s3d.vec3(4, 3, 0), target, fov=24)",

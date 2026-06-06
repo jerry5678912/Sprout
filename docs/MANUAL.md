@@ -1,6 +1,6 @@
 # The Sprout Programming Language Manual
 
-Version: 0.3.2
+Version: 0.3.3
 Implementation: modular Python tree-walk interpreter in `sprout_core/`, launched by `sprout.py`  
 File extension: `.sprout`
 
@@ -810,23 +810,40 @@ class Player extends Entity {
 
 ## 16. Modules
 
-Sprout supports native file imports:
+Sprout supports named native imports:
 
 ```sprout
-import "modules/gamekit.sprout" as game
+import gamekit as game
 
 hero = game.make_player("Ada")
 say game.status(hero)
 ```
 
-The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with `_` are private through module property access.
-
-Relative imports are resolved from the current script or module directory.
-
-If no alias is provided, Sprout derives one from the file name:
+Standard-library modules can omit an alias:
 
 ```sprout
-import "modules/gamekit.sprout"
+import pixelgarden
+canvas = pixelgarden.canvas(24, 10)
+```
+
+Qualified project names use dots:
+
+```sprout
+import game.player as player
+```
+
+Sprout searches the current file directory, project source folders, configured module paths, local package paths, and its packaged standard library. The imported file runs once and produces a module object. Public names are accessed as properties. Names beginning with `_` are private through module property access.
+
+Quoted file-path imports remain supported for compatibility and explicit relative paths:
+
+```sprout
+import "../shared/player.sprout" as player
+```
+
+If no alias is provided, Sprout derives one from the module or file name:
+
+```sprout
+import gamekit
 gamekit.make_player("Ada")
 ```
 
@@ -1375,14 +1392,14 @@ string.contains(needle)
 The current terminal/ASCII 2D engine is named PixelGarden:
 
 ```sprout
-import "modules/pixelgarden.sprout" as pix
+import pixelgarden as pix
 ```
 
 PixelGarden combines the lower-level geometry and terminal canvas modules into a playful terminal engine. The older lower-level modules still exist:
 
 ```sprout
-import "modules/geom2d.sprout" as g2d
-import "modules/canvas2d.sprout" as c2d
+import geom2d as g2d
+import canvas2d as c2d
 ```
 
 It uses plain dictionaries for vectors, rectangles, and circles. That makes values easy to print, save as JSON, inspect in a debugger, and pass between scripts.
@@ -1437,7 +1454,7 @@ These helpers are intended as practical foundations for terminal games, collisio
 Sprout2D also includes a tiny terminal canvas module:
 
 ```sprout
-import "modules/canvas2d.sprout" as c2d
+import canvas2d as c2d
 ```
 
 Canvas values are dictionaries with `width`, `height`, `fill`, and `rows`.
@@ -1453,9 +1470,16 @@ c2d.circle(canvas, circle, char="#")
 c2d.fill_circle(canvas, circle, char="#")
 c2d.text(canvas, x, y, value)
 c2d.sprite(canvas, x, y, rows)
+c2d.sprite_asset(rows, transparent=" ")
+c2d.draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false)
+c2d.composite(canvas, layer, x=0, y=0, transparent=" ")
 c2d.camera(position=g2d.vec2(0, 0), zoom=1)
 c2d.world_to_screen(point, camera, canvas)
 c2d.plot_world(canvas, point, camera, char="#")
+c2d.line_world(canvas, start, finish, camera, char="#")
+c2d.sprite_world(canvas, asset, position, camera)
+c2d.animation(frames, fps=8, loop=true)
+c2d.animation_frame(animation, seconds)
 c2d.frame_to_text(canvas)
 ```
 
@@ -1482,21 +1506,32 @@ pix.fill_rect(canvas, rect, char="#")
 pix.circle(canvas, shape, char="#")
 pix.text(canvas, x, y, value)
 pix.sprite(canvas, x, y, rows)
+pix.sprite_asset(rows, transparent=" ")
+pix.draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false)
+pix.layer(width, height, fill=" ")
+pix.composite(canvas, layer, x=0, y=0)
+pix.camera(position=pix.vec2(0, 0), zoom=1)
+pix.line_world(canvas, start, finish, camera, char="#")
+pix.sprite_world(canvas, asset, position, camera)
+pix.animation(frames, fps=8, loop=true)
+pix.animation_frame(animation, seconds)
 pix.frame_to_text(canvas)
 ```
+
+Reusable sprite assets store their dimensions and transparent character. Layers are ordinary canvases that can be composited without replacing transparent cells. Animations select frames deterministically from elapsed seconds, which makes them suitable for games and tests.
 
 ## 23. StarBloom3D Terminal Rendering
 
 The current terminal/ASCII 3D engine is named StarBloom3D:
 
 ```sprout
-import "modules/starbloom3d.sprout" as star
+import starbloom3d as star
 ```
 
 The older lower-level module still exists:
 
 ```sprout
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 ```
 
 It is a software 3D engine that works in any terminal. It does not require OpenGL, a window, or third-party packages. It is useful for learning, prototypes, ASCII games, engineering sketches, and testing Sprout's math/graphics capabilities. It supports OBJ model loading, oriented cameras, wireframe rendering, and filled shaded triangles.
@@ -1504,7 +1539,7 @@ It is a software 3D engine that works in any terminal. It does not require OpenG
 ### Basic Render Pipeline
 
 ```sprout
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 
 cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
 shape = s3d.cube(size=2.4)
@@ -1543,6 +1578,8 @@ Vectors are dictionaries with `x`, `y`, and `z` fields.
 ```sprout
 s3d.mesh(vertices, edges)
 s3d.cube(size=2)
+s3d.pyramid(size=2, height=2)
+s3d.plane(width=2, depth=2)
 s3d.obj_mesh(text)
 s3d.load_obj(path)
 s3d.parse_face_index(token)
@@ -1550,6 +1587,8 @@ s3d.unique_edges(edges)
 s3d.translate_mesh(mesh, offset)
 s3d.scale_mesh(mesh, amount)
 s3d.rotate_mesh(mesh, ax=0, ay=0, az=0)
+s3d.transform_mesh(mesh, position=s3d.vec3(0, 0, 0), rotation=s3d.vec3(0, 0, 0), scale=1)
+s3d.merge_meshes(meshes)
 s3d.bounds(mesh)
 ```
 
@@ -1595,6 +1634,29 @@ s3d.face_normal(a, b, c)
 s3d.shade_char(light, ramp=" .:-=+*#%@")
 ```
 
+### StarBloom3D Scenes
+
+StarBloom3D adds a higher-level scene API over the software renderer:
+
+```sprout
+cam = star.look_at_camera(star.vec3(0, 3, -8), star.vec3(0, 0, 7))
+world = star.scene(cam, width=48, height=20, mode="wireframe")
+
+cube = star.object(
+  star.cube(),
+  position=star.vec3(-2, 0, 7),
+  rotation=star.vec3(0, radians(30), 0),
+  char="*"
+)
+pyramid = star.object(star.pyramid(), position=star.vec3(2, 0, 7), char="+")
+
+star.add(world, cube)
+star.add(world, pyramid)
+say star.frame_to_text(star.render(world))
+```
+
+Objects store a mesh, position, rotation, scale, drawing character, and visibility. `star.render(scene)` composites visible wireframe objects while preserving each object's character. Set `mode="solid"` for a merged z-buffered solid render.
+
 Current limitation: StarBloom3D and `engine3d.sprout` are terminal/ASCII only. They do not yet have materials beyond character ramps, textures, skeletal animation, physics, or realtime window output.
 
 ## 24. Window2D and PandaWindow3D
@@ -1604,7 +1666,7 @@ Sprout also includes optional real-window wrappers that use Python graphics libr
 Window2D uses Pygame:
 
 ```sprout
-import "modules/window2d.sprout" as w2d
+import window2d as w2d
 
 if not w2d.available() {
   say "install pygame with python3 -m pip install pygame"
@@ -1624,7 +1686,7 @@ if not w2d.available() {
 PandaWindow3D uses Panda3D:
 
 ```sprout
-import "modules/panda3d_window.sprout" as p3d
+import panda3d_window as p3d
 
 if not p3d.available() {
   say "install Panda3D with python3 -m pip install panda3d"
@@ -1982,7 +2044,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.2.vsix
+code --install-extension dist/sprout-language-0.3.3.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2375,7 +2437,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.2` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.3` must match the runtime version before the release workflow publishes artifacts.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 

@@ -1,0 +1,83 @@
+## Creates a game state dictionary.
+def game(title="Sprout Game"):
+  return {
+    "title": title,
+    "running": true,
+    "frame": 0,
+    "time": 0,
+    "entities": [],
+    "scenes": {},
+    "scene": nil,
+    "input": {}
+  }
+
+## Creates a simple mutable entity.
+def entity(name, x=0, y=0, w=1, h=1):
+  return {"name": name, "x": x, "y": y, "w": w, "h": h, "active": true, "data": {}}
+
+## Adds an entity to a game.
+def add_entity(state, value):
+  state.entities.append(value)
+  return value
+
+## Registers a scene dictionary.
+def add_scene(state, name, scene):
+  state.scenes[name] = scene
+  if state.scene == nil:
+    state.scene = name
+  return scene
+
+## Changes the active scene.
+def change_scene(state, name):
+  ensure(has(state.scenes, name), "unknown scene: " + name)
+  state.scene = name
+  return state.scenes[name]
+
+## Stores a normalized input state.
+def set_input(state, action, pressed):
+  state.input[action] = pressed
+  return pressed
+
+## Returns whether an action is active.
+def pressed(state, action):
+  return get(state.input, action, false)
+
+## Axis-aligned rectangle collision.
+def collides(a, b):
+  return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y
+
+## Creates a countdown timer.
+def timer(seconds, repeat=false):
+  return {"duration": seconds, "remaining": seconds, "repeat": repeat, "done": false}
+
+## Advances a timer and returns true when it fires.
+def tick_timer(value, dt):
+  if value.done and not value.repeat:
+    return false
+  value.remaining = value.remaining - dt
+  if value.remaining <= 0:
+    value.done = true
+    if value.repeat:
+      value.remaining = value.duration
+      value.done = false
+    return true
+  return false
+
+## Runs a deterministic fixed-step game loop.
+def run(state, update, draw, frames=60, dt=0.016):
+  i = 0
+  while state.running and i < frames:
+    state.frame = state.frame + 1
+    state.time = state.time + dt
+    update(state, dt)
+    draw(state)
+    i = i + 1
+  return state
+
+## Loads a text asset relative to the current project/module.
+def load_text(path):
+  return readfile(path)
+
+## Loads a JSON asset relative to the current project/module.
+def load_json(path):
+  return readjson(path)

@@ -49,6 +49,14 @@ def test_project_module_exports() -> None:
     }
 
 
+def test_named_standard_library_exports() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "main.sprout"
+        source.write_text("import pixelgarden as pix\nsay pix.vec2(1, 2)\n", encoding="utf-8")
+        index = build_workspace_index(str(source))
+        assert {"vec2", "sprite_asset", "animation"}.issubset(names(member_completions(index, str(source), "pix")))
+
+
 def test_hover_and_signature_data() -> None:
     path = str(ROOT / "examples" / "intellisense.sprout")
     index = build_workspace_index(path)
@@ -189,6 +197,7 @@ def test_cli_intelligence_queries() -> None:
 def main() -> int:
     test_class_member_completion()
     test_project_module_exports()
+    test_named_standard_library_exports()
     test_hover_and_signature_data()
     test_references_and_rename_edits()
     test_python_module_members()

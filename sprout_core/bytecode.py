@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Any
 
-from .model import SproutError, SproutRaised
+from .model import SproutError, SproutRaised, module_file_candidates, resolve_module_file
 from .runtime import (
     Builtin,
     Env,
@@ -1145,13 +1145,9 @@ class BytecodeVM:
 
     def import_sprout(self, path: str, alias: str) -> SproutModule:
         base = os.path.dirname(self.current_code.source_path) if self.current_code and self.current_code.source_path else self.interpreter.current_dir
-        candidates = [path if os.path.isabs(path) else os.path.join(base, path)]
-        if not os.path.isabs(path):
-            candidates.extend(os.path.join(search, path) for search in self.interpreter.module_search_paths)
-        resolved = next((candidate for candidate in candidates if os.path.exists(candidate)), candidates[0])
-        if not resolved.endswith(".sprout"):
-            resolved += ".sprout"
-        resolved = os.path.abspath(resolved)
+        resolved = resolve_module_file(path, base, self.interpreter.module_search_paths)
+        if resolved is None:
+            resolved = module_file_candidates(path, base, self.interpreter.module_search_paths)[0]
         if resolved in self.module_cache:
             return self.module_cache[resolved]
         try:

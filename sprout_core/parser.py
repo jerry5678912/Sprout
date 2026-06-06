@@ -54,8 +54,15 @@ class Parser:
             self.terminator("Expected a line ending after importpython")
             return ("importpython", module_name, alias)
         if self.match("IMPORT"):
-            path = self.consume("STRING", "Expected module path string after import").value
-            alias = os.path.splitext(os.path.basename(path))[0].replace("-", "_")
+            if self.match("STRING"):
+                path = self.previous().value
+                alias = os.path.splitext(os.path.basename(path))[0].replace("-", "_")
+            else:
+                parts = [self.consume("IDENT", "Expected a module name or quoted path after import").value]
+                while self.match("."):
+                    parts.append(self.consume("IDENT", "Expected module name after '.'").value)
+                path = os.path.join(*parts)
+                alias = parts[-1]
             if self.match("AS"):
                 alias = self.consume("IDENT", "Expected alias after as").value
             self.terminator("Expected a line ending after import")

@@ -1,0 +1,73 @@
+# PandaWindow3D: real window-backed 3D wrapper for Panda3D.
+# Install Panda3D for this module: python3 -m pip install panda3d
+
+def available() {
+  return py_available("panda3d.core") and py_available("direct.showbase.ShowBase")
+}
+
+def require_core() {
+  if not available() {
+    fail("PandaWindow3D needs Panda3D. Install it with: python3 -m pip install panda3d")
+  }
+  return py_import("panda3d.core")
+}
+
+def require_showbase() {
+  if not available() {
+    fail("PandaWindow3D needs Panda3D. Install it with: python3 -m pip install panda3d")
+  }
+  return py_import("direct.showbase.ShowBase")
+}
+
+def vec3(x=0, y=0, z=0) {
+  core = require_core()
+  return core.Vec3(x, y, z)
+}
+
+def point3(x=0, y=0, z=0) {
+  core = require_core()
+  return core.Point3(x, y, z)
+}
+
+def color(r, g, b, a=1) {
+  core = require_core()
+  return core.Vec4(r, g, b, a)
+}
+
+def window(title="Sprout PandaWindow3D") {
+  showbase = require_showbase()
+  base = showbase.ShowBase()
+  if base.win {
+    core = require_core()
+    props = core.WindowProperties()
+    props.setTitle(title)
+    base.win.requestProperties(props)
+  }
+  return {"base": base, "core": require_core()}
+}
+
+def load_model(world, path) {
+  model = world.base.loader.loadModel(path)
+  model.reparentTo(world.base.render)
+  return model
+}
+
+def place(node, x=0, y=0, z=0) {
+  node.setPos(x, y, z)
+  return node
+}
+
+def rotate(node, h=0, p=0, r=0) {
+  node.setHpr(h, p, r)
+  return node
+}
+
+def scale(node, amount=1) {
+  node.setScale(amount)
+  return node
+}
+
+def run(world) {
+  world.base.run()
+  return nil
+}

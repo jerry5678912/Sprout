@@ -1,4 +1,4 @@
-import "modules/engine3d.sprout" as s3d
+import engine3d as s3d
 
 cam = s3d.camera(s3d.vec3(0, 0, -6), fov=20)
 shape = s3d.cube(size=2.4)
