@@ -253,9 +253,12 @@ def collect_symbols(program: list[Any], path: str | None = None) -> list[Symbol]
     symbols: list[Symbol] = []
 
     def walk_statement(stmt: Any) -> None:
+        if not isinstance(stmt, tuple) or not stmt or not isinstance(stmt[0], str):
+            return
         kind = stmt[0]
         if kind in {"fn", "async_fn"}:
             symbols.append(Symbol(stmt[1], "function", path, stmt[4], stmt[5]))
+            children = [stmt[3]]
         elif kind == "class":
             symbols.append(Symbol(stmt[1], "class", path, 1, 1))
             for method in stmt[3]:
@@ -266,13 +269,34 @@ def collect_symbols(program: list[Any], path: str | None = None) -> list[Symbol]
             for method in stmt[3]:
                 symbols.append(Symbol(f"{stmt[1]}.{method[0]}", "method", path, method[3], method[4]))
             return
+        elif kind == "enum":
+            symbols.append(Symbol(stmt[1], "enum", path, stmt[4], stmt[5]))
+            for variant in stmt[3]:
+                symbols.append(Symbol(f"{stmt[1]}.{variant[0]}", "enum-member", path, variant[2], variant[3]))
+            return
+        elif kind == "type_alias":
+            symbols.append(Symbol(stmt[1], "type", path, stmt[4], stmt[5]))
+            return
         elif kind == "import":
             symbols.append(Symbol(stmt[2], "module", path, 1, 1))
-        for part in stmt[1:]:
-            if isinstance(part, list):
-                for item in part:
-                    if isinstance(item, tuple) and item:
-                        walk_statement(item)
+            children = []
+        elif kind == "test":
+            children = [stmt[2]]
+        elif kind == "if":
+            children = [stmt[2], stmt[3]]
+        elif kind in {"while", "for", "async_for"}:
+            children = [stmt[-1]]
+        elif kind == "try":
+            children = [stmt[1], stmt[3]]
+        elif kind == "taskgroup":
+            children = [stmt[2]]
+        elif kind == "match":
+            children = [case[2] for case in stmt[2]]
+        else:
+            children = []
+        for child_list in children:
+            for item in child_list:
+                walk_statement(item)
 
     for statement in program:
         walk_statement(statement)
@@ -284,13 +308,30 @@ def iter_statements(program: list[Any]) -> list[Any]:
 
     def visit(stmt: Any) -> None:
         out.append(stmt)
-        if stmt[0] == "interface":
+        kind = stmt[0]
+        if kind in {"interface", "enum", "type_alias"}:
             return
-        for part in stmt[1:]:
-            if isinstance(part, list):
-                for item in part:
-                    if isinstance(item, tuple) and item:
-                        visit(item)
+        children: list[list[Any]] = []
+        if kind in {"fn", "async_fn"}:
+            children = [stmt[3]]
+        elif kind == "class":
+            children = [stmt[3]]
+        elif kind == "test":
+            children = [stmt[2]]
+        elif kind == "if":
+            children = [stmt[2], stmt[3]]
+        elif kind in {"while", "for", "async_for"}:
+            children = [stmt[-1]]
+        elif kind == "try":
+            children = [stmt[1], stmt[3]]
+        elif kind == "taskgroup":
+            children = [stmt[2]]
+        elif kind == "match":
+            children = [case[2] for case in stmt[2]]
+        for child_list in children:
+            for item in child_list:
+                if isinstance(item, tuple) and item:
+                    visit(item)
 
     for statement in program:
         visit(statement)
@@ -347,6 +388,14 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
                 diagnostics.append(Diagnostic("warning", f"Duplicate class name '{stmt[1]}' in this scope", path, 1, 1, "SPROUT_DUP_CLASS"))
             seen_classes.add(stmt[1])
             declared.setdefault(stmt[1], 1)
+        elif kind == "enum":
+            if stmt[1] in seen_classes:
+                diagnostics.append(Diagnostic("warning", f"Duplicate enum name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_ENUM"))
+            seen_classes.add(stmt[1])
+            declared.setdefault(stmt[1], stmt[4])
+        elif kind == "type_alias":
+            declared.setdefault(stmt[1], stmt[4])
+            used.add(stmt[1])
         elif kind == "let":
             declared.setdefault(stmt[1], 1)
             scan_expr(stmt[2])
@@ -377,7 +426,12 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
                 scan_expr(part)
             elif isinstance(part, list):
                 for item in part:
-                    if isinstance(item, tuple) and item and item[0] not in {"return", "break", "continue"}:
+                    if (
+                        isinstance(item, tuple)
+                        and item
+                        and isinstance(item[0], str)
+                        and item[0] not in {"return", "break", "continue"}
+                    ):
                         scan_expr(item)
 
     for statement_list in [program]:

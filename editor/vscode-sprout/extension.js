@@ -40,6 +40,8 @@ const entries = [
   ["defbraces", "Define a legacy brace-style Sprout function.", "def ${1:name}(${2:args}) {\n  ${3}\n}"],
   ["callspread", "Call a function with *args and **opts spread values.", "${1:fn}(*${2:args}, **${3:opts})"],
   ["class", "Define a Sprout class.", "class ${1:Name}:\n  def init(self${2:, value}):\n    ${3}"],
+  ["enum", "Define a tagged enum.", "enum ${1:Result}[${2:T}]:\n  ${3:Ok}(value: ${2:T})\n  ${4:Error}(message: String)"],
+  ["match", "Match values and destructure enum variants.", "match ${1:value}:\n  case ${2:Result.Ok}(${3:item}):\n    ${4}"],
   ["interface", "Define a structural interface.", "interface ${1:Named}:\n  def ${2:name}(self) -> ${3:String}"],
   ["implements", "Declare that a class satisfies an interface.", "class ${1:Thing} implements ${2:Named}:\n  ${3}"],
   ["if", "Run a block when a condition is truthy.", "if ${1:condition}:\n  ${2}"],
@@ -108,9 +110,17 @@ const entries = [
   ,["task_after", "Run a callable after a delay.", "task_after(${1:seconds}, ${2:function}, ${3:args})"]
   ,["task_wait_all", "Wait for task futures and return their results.", "task_wait_all(${1:tasks})"]
   ,["queue_open", "Create a message queue.", "queue_open()"]
+  ,["stream_open", "Create an asynchronous stream.", "stream_open()"]
+  ,["cancel_token", "Create a cooperative cancellation token.", "cancel_token()"]
+  ,["sleep_async", "Create a non-blocking timer task.", "sleep_async(${1:seconds})"]
+  ,["readfile_async", "Read a file on a scheduled task.", "readfile_async(${1:path})"]
+  ,["writefile_async", "Write a file on a scheduled task.", "writefile_async(${1:path}, ${2:text})"]
   ,["http_get", "Perform an HTTP GET request.", "http_get(${1:url})"]
   ,["http_post", "Perform an HTTP POST request.", "http_post(${1:url}, ${2:data})"]
   ,["http_request", "Perform a configurable HTTP request.", "http_request(${1:method}, ${2:url})"]
+  ,["http_get_async", "Perform an HTTP GET request asynchronously.", "http_get_async(${1:url})"]
+  ,["http_post_async", "Perform an HTTP POST request asynchronously.", "http_post_async(${1:url}, ${2:data})"]
+  ,["http_request_async", "Perform a configurable HTTP request asynchronously.", "http_request_async(${1:method}, ${2:url})"]
   ,["http_server", "Create a small route-based HTTP server.", "http_server(${1:routes})"]
   ,["sqlite_open", "Open a SQLite database.", "sqlite_open(${1:path})"]
   ,["sqlite_exec", "Execute a SQLite statement.", "sqlite_exec(${1:db}, ${2:sql}, ${3:params})"]
@@ -136,6 +146,11 @@ const keywordEntries = [
   ["async", "Define an asynchronous Sprout function.", "async def ${1:name}(${2:args}):\n  ${3}"],
   ["await", "Wait for an asynchronous Sprout task and return its value.", "await ${1:task}"],
   ["taskgroup", "Run child tasks in a structured scope that waits before exit.", "taskgroup ${1:tasks}:\n  ${1:tasks}.spawn(${2:function}${3:, arg})"],
+  ["enum", "Define immutable tagged variants.", "enum ${1:Result}[${2:T}]:\n  Ok(value: ${2:T})\n  Error(message: String)"],
+  ["match", "Pattern match a value.", "match ${1:value}:\n  case ${2:Result.Ok}(${3:item}):\n    ${4}\n  case _:\n    ${5}"],
+  ["case", "Add a pattern branch.", "case ${1:pattern}:\n  ${2}"],
+  ["yield", "Yield the next value from a lazy generator.", "yield ${1:value}"],
+  ["is", "Test and narrow a runtime type.", "is ${1:Type}"],
   ["def", "Define a Python-style Sprout function.", "def ${1:name}(${2:args}):\n  ${3}"],
   ["fn", "Define a Sprout function.", "fn ${1:name}(${2:args}):\n  ${3}"],
   ["bloom", "Define a garden-flavored function or open a garden block.", "bloom ${1:name}(${2:args}):\n  ${3}"],
@@ -152,6 +167,7 @@ const keywordEntries = [
   ["while", "Loop while a condition is truthy.", "while ${1:condition}:\n  ${2}"],
   ["whirl", "Garden-flavored while loop.", "whirl ${1:condition}:\n  ${2}"],
   ["for", "Loop over arrays, strings, ranges, or dictionary keys.", "for ${1:item} in ${2:items}:\n  ${3}"],
+  ["async for", "Consume an asynchronous stream.", "async for ${1:item} in ${2:stream}:\n  ${3}"],
   ["each", "Garden-flavored for loop.", "each ${1:item} in ${2:items} bloom\n  ${3}\nend"],
   ["try", "Catch Sprout errors and raised values.", "try:\n  ${1}\ncatch ${2:err}:\n  ${3:say err}"],
   ["test", "Define a Sprout test case.", "test \"${1:name}\":\n  expect(${2:actual}).to_equal(${3:expected})"],
@@ -863,6 +879,9 @@ function semanticKind(kind) {
     "method": vscode.CompletionItemKind.Method,
     "class": vscode.CompletionItemKind.Class,
     "interface": vscode.CompletionItemKind.Interface,
+    "enum": vscode.CompletionItemKind.Enum,
+    "enum-member": vscode.CompletionItemKind.EnumMember,
+    "type": vscode.CompletionItemKind.TypeParameter,
     "module": vscode.CompletionItemKind.Module,
     "python-module": vscode.CompletionItemKind.Module,
     "variable": vscode.CompletionItemKind.Variable,
@@ -988,12 +1007,12 @@ function collectSemanticTokens(document) {
   for (let line = 0; line < document.lineCount; line += 1) {
     const text = document.lineAt(line).text;
     const ignored = ignoredRanges(text);
-    const declaration = text.match(/\b(class|interface|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    const declaration = text.match(/\b(class|interface|enum|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
     if (declaration) {
       const kind = declaration[1];
       const name = declaration[2];
       const nameStart = text.indexOf(name, declaration.index + declaration[0].indexOf(name));
-      add(line, nameStart, name.length, (kind === "class" || kind === "interface") ? "class" : "function");
+      add(line, nameStart, name.length, (kind === "class" || kind === "interface" || kind === "enum") ? "class" : "function");
 
       const open = text.indexOf("(", nameStart + name.length);
       const close = open === -1 ? -1 : text.indexOf(")", open + 1);
@@ -1022,7 +1041,7 @@ function collectSemanticTokens(document) {
 
     for (const match of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()/g)) {
       const name = match[1];
-      if (["if", "elif", "while", "for", "catch", "class", "interface", "implements", "def", "fn", "bloom", "async", "await", "taskgroup"].includes(name)) continue;
+      if (["if", "elif", "while", "for", "catch", "case", "match", "class", "interface", "enum", "implements", "def", "fn", "bloom", "async", "await", "taskgroup"].includes(name)) continue;
       if (!rangeContains(ignored, match.index, match.index + name.length)) {
         add(line, match.index, name.length, /^[A-Z]/.test(name) ? "class" : "function");
       }

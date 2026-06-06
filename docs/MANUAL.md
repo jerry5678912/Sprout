@@ -1001,7 +1001,7 @@ say listdir("/tmp/sprout-save")
 
 ## 20. Built-In Functions
 
-Sprout currently exposes **175 callable global functions**. Use `functions()` to inspect them from Sprout itself, and `methods()` to inspect built-in method names.
+Sprout currently exposes **183 callable global functions**. Use `functions()` to inspect them from Sprout itself, and `methods()` to inspect built-in method names.
 
 ```sprout
 say len(functions())
@@ -2395,19 +2395,147 @@ python3 sprout.py typecheck . --json
 Supported forms include typed variables, parameters and returns, generic
 functions/classes, interface method signatures, and `implements` declarations.
 Built-in types are `Any`, `Nil`, `Bool`, `Int`, `Float`, `Number`, `String`,
-`List[T]`, `Array[T]`, `Dict[K, V]`, and `Task[T]`. User classes and interfaces
-are also valid types.
+`List[T]`, `Array[T]`, `Dict[K, V]`, `Task[T]`, and `Generator[T]`. User
+classes, interfaces, enums, and qualified imported types are also valid types.
 
 The checker reports unknown types, wrong generic arity, incompatible annotated
 assignments, argument and return mismatches, and missing or incompatible
 interface methods. VS Code/LSP diagnostics include these errors. Typed syntax is
 runtime-erased and works in both execution engines.
 
-This is a gradual, file-local foundation. Unannotated values are `Any`.
-Cross-module generic inference, unions, type aliases, narrowing, overloads, and
-exhaustiveness checking are not implemented yet.
+Union types use `|`, nullable shorthand uses `?`, and aliases may be generic:
 
-## 35. Current Limitations
+```sprout
+type Identifier = Int | String
+type Maybe[T] = T | Nil
+
+let id: Identifier = "user-4"
+let label: String? = nil
+```
+
+The checker follows Sprout imports, validates imported function calls and
+qualified types, narrows unions after `value is Type`, and checks typed enum
+matches for missing variants and duplicate cases. This remains gradual:
+unannotated or unresolved values become `Any`. Overloads, protocols beyond
+interfaces, and whole-program type inference are not implemented.
+
+## 35. Enums, Matching, Generators, and Comprehensions
+
+### Enums
+
+Enums define a closed family of variants. Variants may carry typed fields:
+
+```sprout
+enum Result[T]:
+  Ok(value: T)
+  Error(message: String)
+
+answer = Result.Ok(42)
+failure = Result.Error("offline")
+```
+
+Payload-free variants do not require parentheses:
+
+```sprout
+enum State:
+  Ready
+  Running
+  Stopped
+
+state = State.Ready
+```
+
+Enum values are immutable. Their fields are readable by name, and the enum and
+variant names appear in hover, completion, symbols, and navigation.
+
+### Match and Case
+
+`match` evaluates one value and selects the first matching case:
+
+```sprout
+match answer:
+  case Result.Ok(value) if value > 0:
+    say "positive", value
+  case Result.Ok(_):
+    say "zero or negative"
+  case Result.Error(message):
+    say "error", message
+```
+
+Patterns include:
+
+- Enum variants: `Result.Ok(value)` and `State.Ready`
+- Bindings: `case value:`
+- Wildcards: `case _:`
+- Literals: `case 0:` or `case "quit":`
+- Arrays: `case [first, second]:`
+- Array rest: `case [head, *tail]:`
+- Guards: `case pattern if condition:`
+
+When the checker knows the matched enum type, every variant must be covered
+unless a wildcard or general binding case is present.
+
+### Generators
+
+Any function containing `yield` is a lazy generator:
+
+```sprout
+def count_to(limit: Int) -> Generator[Int]:
+  for value in range(limit):
+    yield value
+
+numbers = count_to(3)
+say numbers.next()
+say numbers.collect()
+```
+
+`.next()` resumes until the next yielded value. `.collect()` consumes the
+remaining values into an array. Generators preserve local state across pauses
+and may yield inside conditions, loops, `try` / `catch`, and match cases.
+
+### Comprehensions
+
+List and dictionary comprehensions create collections from iterables:
+
+```sprout
+squares = [value * value for value in range(6)]
+even_squares = [value * value for value in range(8) if value % 2 == 0]
+lookup = {str(value): value + 1 for value in range(3)}
+```
+
+The loop variable belongs to the comprehension scope.
+
+### Async Streams and I/O
+
+`stream_open()` creates an asynchronous stream with `.send(value)` and
+`.close()`. Consume it with `async for`:
+
+```sprout
+async def publish(stream):
+  for value in ["seed", "leaf", "bloom"]:
+    await sleep_async(0.01)
+    stream.send(value)
+  stream.close()
+
+stream = stream_open()
+publisher = publish(stream)
+async for value in stream:
+  say value
+await publisher
+```
+
+Application helpers include:
+
+- `cancel_token()` with `.cancel()` and `.cancelled`
+- `sleep_async(seconds, token=nil)`
+- `http_request_async(...)`, `http_get_async(...)`, and `http_post_async(...)`
+- `readfile_async(path)` and `writefile_async(path, text)`
+- `queue.receive_async()` for message queues
+
+Cancellation is cooperative. It prevents or interrupts operations at supported
+checkpoints; it cannot forcibly stop an arbitrary Python call already executing.
+
+## 36. Current Limitations
 
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 
@@ -2416,21 +2544,22 @@ Known limitations:
 - Files support Python-style indentation blocks and garden-style `bloom` / `end` blocks. Brace blocks still work for older Sprout code.
 - Inheritance, `super`, and structural interfaces exist, but there are no access modifiers.
 - Uncaught runtime errors include Sprout function/method stack traces with source file, line, and column locations for call sites and function definitions.
-- There are no comprehensions.
 - Sprout-defined functions support `*rest` positional arguments, `**options` keyword-rest arguments, and call-site `*args` / `**opts` spreading.
 - Built-in Sprout functions generally reject keyword arguments unless documented.
 - Hosted registries and authenticated publishing exist, but package signatures and a public trust service do not yet exist.
-- The optional checker is gradual and file-local; it does not yet support unions,
-  aliases, narrowing, overloads, or cross-module generic inference.
+- The optional checker is gradual and project-aware, but it does not yet support
+  overloads, protocol composition, or complete whole-program inference.
 - The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.
-- The dedicated test runner and imported Sprout module bodies currently use stable interpreter infrastructure even when the calling program uses the VM.
-- Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.
+- The dedicated test runner controls test declarations independently of normal
+  program execution.
+- Async I/O uses a bounded host thread pool. It is useful for application I/O,
+  but it is not a CPU-parallel runtime.
 - The HTTP server is intentionally small and route-based. It is not yet a production web framework.
 - PixelGarden and StarBloom3D are terminal software engines.
 - Window2D and PandaWindow3D are thin wrappers and require external Python packages.
 - Python interop depends on the Python runtime executing `sprout.py`.
 
-## 36. Accuracy Notes
+## 37. Accuracy Notes
 
 This manual describes the current `sprout.py` implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 

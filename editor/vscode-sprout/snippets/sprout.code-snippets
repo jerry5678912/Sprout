@@ -20,6 +20,53 @@
     ],
     "description": "Run child tasks in a structured scope"
   },
+  "Async stream loop": {
+    "prefix": "asyncfor",
+    "body": [
+      "async for ${1:item} in ${2:stream}:",
+      "  ${3}"
+    ],
+    "description": "Consume values from an asynchronous stream"
+  },
+  "Tagged enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Result}[${2:T}]:",
+      "  ${3:Ok}(value: ${2:T})",
+      "  ${4:Error}(message: String)"
+    ],
+    "description": "Define an immutable tagged enum"
+  },
+  "Pattern match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value}:",
+      "  case ${2:Result.Ok}(${3:item}):",
+      "    ${4}",
+      "  case _:",
+      "    ${5}"
+    ],
+    "description": "Match and destructure tagged values"
+  },
+  "Generator": {
+    "prefix": "generator",
+    "body": [
+      "def ${1:items}(${2:values}) -> Generator[${3:Any}]:",
+      "  for ${4:item} in ${2:values}:",
+      "    yield ${4:item}"
+    ],
+    "description": "Define a lazy generator function"
+  },
+  "Type alias": {
+    "prefix": "typealias",
+    "body": "type ${1:Maybe}[${2:T}] = ${2:T} | Nil",
+    "description": "Define a generic type alias"
+  },
+  "List comprehension": {
+    "prefix": "listcomp",
+    "body": "[${1:transform} for ${2:item} in ${3:items} if ${4:condition}]",
+    "description": "Build a list with a comprehension"
+  },
   "Function": {
     "prefix": "def",
     "body": [

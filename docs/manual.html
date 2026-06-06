@@ -1064,7 +1064,7 @@ say listdir(&quot;/tmp/sprout-save&quot;)
 </p>
 <h2 id="20-built-in-functions">20. Built-In Functions</h2>
 <p>
-Sprout currently exposes <strong>175 callable global functions</strong>. Use <code>functions()</code> to inspect them from Sprout itself, and <code>methods()</code> to inspect built-in method names.
+Sprout currently exposes <strong>183 callable global functions</strong>. Use <code>functions()</code> to inspect them from Sprout itself, and <code>methods()</code> to inspect built-in method names.
 </p>
 <pre><code class="language-sprout">
 say len(functions())
@@ -2449,15 +2449,138 @@ python3 sprout.py typecheck file.sprout
 python3 sprout.py typecheck . --json
 </code></pre>
 <p>
-Supported forms include typed variables, parameters and returns, generic functions/classes, interface method signatures, and <code>implements</code> declarations. Built-in types are <code>Any</code>, <code>Nil</code>, <code>Bool</code>, <code>Int</code>, <code>Float</code>, <code>Number</code>, <code>String</code>, <code>List[T]</code>, <code>Array[T]</code>, <code>Dict[K, V]</code>, and <code>Task[T]</code>. User classes and interfaces are also valid types.
+Supported forms include typed variables, parameters and returns, generic functions/classes, interface method signatures, and <code>implements</code> declarations. Built-in types are <code>Any</code>, <code>Nil</code>, <code>Bool</code>, <code>Int</code>, <code>Float</code>, <code>Number</code>, <code>String</code>, <code>List[T]</code>, <code>Array[T]</code>, <code>Dict[K, V]</code>, <code>Task[T]</code>, and <code>Generator[T]</code>. User classes, interfaces, enums, and qualified imported types are also valid types.
 </p>
 <p>
 The checker reports unknown types, wrong generic arity, incompatible annotated assignments, argument and return mismatches, and missing or incompatible interface methods. VS Code/LSP diagnostics include these errors. Typed syntax is runtime-erased and works in both execution engines.
 </p>
 <p>
-This is a gradual, file-local foundation. Unannotated values are <code>Any</code>. Cross-module generic inference, unions, type aliases, narrowing, overloads, and exhaustiveness checking are not implemented yet.
+Union types use <code>|</code>, nullable shorthand uses <code>?</code>, and aliases may be generic:
 </p>
-<h2 id="35-current-limitations">35. Current Limitations</h2>
+<pre><code class="language-sprout">
+type Identifier = Int | String
+type Maybe[T] = T | Nil
+
+let id: Identifier = &quot;user-4&quot;
+let label: String? = nil
+</code></pre>
+<p>
+The checker follows Sprout imports, validates imported function calls and qualified types, narrows unions after <code>value is Type</code>, and checks typed enum matches for missing variants and duplicate cases. This remains gradual: unannotated or unresolved values become <code>Any</code>. Overloads, protocols beyond interfaces, and whole-program type inference are not implemented.
+</p>
+<h2 id="35-enums-matching-generators-and-comprehensions">35. Enums, Matching, Generators, and Comprehensions</h2>
+<h3 id="enums">Enums</h3>
+<p>
+Enums define a closed family of variants. Variants may carry typed fields:
+</p>
+<pre><code class="language-sprout">
+enum Result[T]:
+  Ok(value: T)
+  Error(message: String)
+
+answer = Result.Ok(42)
+failure = Result.Error(&quot;offline&quot;)
+</code></pre>
+<p>
+Payload-free variants do not require parentheses:
+</p>
+<pre><code class="language-sprout">
+enum State:
+  Ready
+  Running
+  Stopped
+
+state = State.Ready
+</code></pre>
+<p>
+Enum values are immutable. Their fields are readable by name, and the enum and variant names appear in hover, completion, symbols, and navigation.
+</p>
+<h3 id="match-and-case">Match and Case</h3>
+<p>
+<code>match</code> evaluates one value and selects the first matching case:
+</p>
+<pre><code class="language-sprout">
+match answer:
+  case Result.Ok(value) if value &gt; 0:
+    say &quot;positive&quot;, value
+  case Result.Ok(_):
+    say &quot;zero or negative&quot;
+  case Result.Error(message):
+    say &quot;error&quot;, message
+</code></pre>
+<p>
+Patterns include:
+</p>
+<ul>
+<li>Enum variants: <code>Result.Ok(value)</code> and <code>State.Ready</code></li>
+<li>Bindings: <code>case value:</code></li>
+<li>Wildcards: <code>case _:</code></li>
+<li>Literals: <code>case 0:</code> or <code>case &quot;quit&quot;:</code></li>
+<li>Arrays: <code>case [first, second]:</code></li>
+<li>Array rest: <code>case [head, *tail]:</code></li>
+<li>Guards: <code>case pattern if condition:</code></li>
+</ul>
+<p>
+When the checker knows the matched enum type, every variant must be covered unless a wildcard or general binding case is present.
+</p>
+<h3 id="generators">Generators</h3>
+<p>
+Any function containing <code>yield</code> is a lazy generator:
+</p>
+<pre><code class="language-sprout">
+def count_to(limit: Int) -&gt; Generator[Int]:
+  for value in range(limit):
+    yield value
+
+numbers = count_to(3)
+say numbers.next()
+say numbers.collect()
+</code></pre>
+<p>
+<code>.next()</code> resumes until the next yielded value. <code>.collect()</code> consumes the remaining values into an array. Generators preserve local state across pauses and may yield inside conditions, loops, <code>try</code> / <code>catch</code>, and match cases.
+</p>
+<h3 id="comprehensions">Comprehensions</h3>
+<p>
+List and dictionary comprehensions create collections from iterables:
+</p>
+<pre><code class="language-sprout">
+squares = [value * value for value in range(6)]
+even_squares = [value * value for value in range(8) if value % 2 == 0]
+lookup = {str(value): value + 1 for value in range(3)}
+</code></pre>
+<p>
+The loop variable belongs to the comprehension scope.
+</p>
+<h3 id="async-streams-and-i-o">Async Streams and I/O</h3>
+<p>
+<code>stream_open()</code> creates an asynchronous stream with <code>.send(value)</code> and <code>.close()</code>. Consume it with <code>async for</code>:
+</p>
+<pre><code class="language-sprout">
+async def publish(stream):
+  for value in [&quot;seed&quot;, &quot;leaf&quot;, &quot;bloom&quot;]:
+    await sleep_async(0.01)
+    stream.send(value)
+  stream.close()
+
+stream = stream_open()
+publisher = publish(stream)
+async for value in stream:
+  say value
+await publisher
+</code></pre>
+<p>
+Application helpers include:
+</p>
+<ul>
+<li><code>cancel_token()</code> with <code>.cancel()</code> and <code>.cancelled</code></li>
+<li><code>sleep_async(seconds, token=nil)</code></li>
+<li><code>http_request_async(...)</code>, <code>http_get_async(...)</code>, and <code>http_post_async(...)</code></li>
+<li><code>readfile_async(path)</code> and <code>writefile_async(path, text)</code></li>
+<li><code>queue.receive_async()</code> for message queues</li>
+</ul>
+<p>
+Cancellation is cooperative. It prevents or interrupts operations at supported checkpoints; it cannot forcibly stop an arbitrary Python call already executing.
+</p>
+<h2 id="36-current-limitations">36. Current Limitations</h2>
 <p>
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 </p>
@@ -2468,25 +2591,34 @@ Known limitations:
 <li>Files support Python-style indentation blocks and garden-style <code>bloom</code> / <code>end</code> blocks. Brace blocks still work for older Sprout code.</li>
 <li>Inheritance, <code>super</code>, and structural interfaces exist, but there are no access modifiers.</li>
 <li>Uncaught runtime errors include Sprout function/method stack traces with source file, line, and column locations for call sites and function definitions.</li>
-<li>There are no comprehensions.</li>
 <li>Sprout-defined functions support <code>*rest</code> positional arguments, <code>**options</code> keyword-rest arguments, and call-site <code>*args</code> / <code>**opts</code> spreading.</li>
 <li>Built-in Sprout functions generally reject keyword arguments unless documented.</li>
 <li>Hosted registries and authenticated publishing exist, but package signatures and a public trust service do not yet exist.</li>
-<li>The optional checker is gradual and file-local; it does not yet support unions,</li>
+<li>The optional checker is gradual and project-aware, but it does not yet support</li>
 </ul>
 <p>
-  aliases, narrowing, overloads, or cross-module generic inference.
+  overloads, protocol composition, or complete whole-program inference.
 </p>
 <ul>
 <li>The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.</li>
-<li>The dedicated test runner and imported Sprout module bodies currently use stable interpreter infrastructure even when the calling program uses the VM.</li>
-<li>Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.</li>
+<li>The dedicated test runner controls test declarations independently of normal</li>
+</ul>
+<p>
+  program execution.
+</p>
+<ul>
+<li>Async I/O uses a bounded host thread pool. It is useful for application I/O,</li>
+</ul>
+<p>
+  but it is not a CPU-parallel runtime.
+</p>
+<ul>
 <li>The HTTP server is intentionally small and route-based. It is not yet a production web framework.</li>
 <li>PixelGarden and StarBloom3D are terminal software engines.</li>
 <li>Window2D and PandaWindow3D are thin wrappers and require external Python packages.</li>
 <li>Python interop depends on the Python runtime executing <code>sprout.py</code>.</li>
 </ul>
-<h2 id="36-accuracy-notes">36. Accuracy Notes</h2>
+<h2 id="37-accuracy-notes">37. Accuracy Notes</h2>
 <p>
 This manual describes the current <code>sprout.py</code> implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 </p>

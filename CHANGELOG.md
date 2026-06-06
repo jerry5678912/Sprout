@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Added generic, data-carrying enums and guarded structural pattern matching
+  with wildcard, literal, binding, variant, and array-rest patterns.
+- Added exhaustiveness and duplicate-case diagnostics for typed enum matches.
+- Added lazy resumable generators with `yield`, `.next()`, and `.collect()`.
+- Added list and dictionary comprehensions with optional filters.
+- Added union types, nullable shorthand, generic type aliases, qualified
+  imported types, cross-module call checking, and `is`-based narrowing.
+- Added asynchronous streams, `async for`, cancellation tokens, async timers,
+  HTTP requests, file I/O, and queue receives.
+- Expanded the experimental VM with direct imported-module execution, async
+  functions, awaits, streams, enums, matches, comprehensions, type tests,
+  task groups, and resumable generators without interpreter fallback.
+- Expanded semantic indexing, completion, highlighting, snippets, diagnostics,
+  disassembly, conformance coverage, and interpreter/VM parity tests.
+
 ## 0.3.0
 
 - Added structured async functions, `await`, and lexical `taskgroup` scopes with

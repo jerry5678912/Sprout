@@ -17,13 +17,16 @@ DECL_RE = re.compile(r"^\s*(?:(?:let|sprout)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\s*:
 FN_RE = re.compile(r"^\s*(?:async\s+)?(?:def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(")
 CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+ENUM_RE = re.compile(r"^\s*enum\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+TYPE_ALIAS_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"\s+as\s+([A-Za-z_][A-Za-z0-9_]*)')
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
-FOR_RE = re.compile(r"^\s*(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
+FOR_RE = re.compile(r"^\s*(?:async\s+)?(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
 CATCH_RE = re.compile(r"^\s*catch\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 TASKGROUP_RE = re.compile(r"^\s*taskgroup\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+COMP_FOR_RE = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
 
 
 def normalize_path(path: str) -> str:
@@ -125,6 +128,7 @@ class FileAnalysis:
     variables: dict[str, SemanticSymbol] = field(default_factory=dict)
     functions: dict[str, SemanticSymbol] = field(default_factory=dict)
     classes: dict[str, SemanticSymbol] = field(default_factory=dict)
+    types: dict[str, SemanticSymbol] = field(default_factory=dict)
     scopes: dict[str, LexicalScope] = field(default_factory=dict)
     source_hash: str = ""
     parse_count: int = 1
@@ -152,7 +156,7 @@ class WorkspaceIndex:
                 keys.add(symbol.qualified_name)
             for key in keys:
                 self.symbols.setdefault(key, []).append(symbol)
-            if symbol.container is None and symbol.kind in {"function", "class", "variable", "module", "python-module"}:
+            if symbol.container is None and symbol.kind in {"function", "class", "interface", "enum", "type", "variable", "module", "python-module"}:
                 exports[symbol.name] = symbol
         self.module_exports[analysis.path] = exports
 
@@ -198,7 +202,7 @@ class WorkspaceIndex:
     def find_symbol(self, name: str, path: str | None = None) -> SemanticSymbol | None:
         if path and path in self.files:
             file = self.files[path]
-            for table in (file.variables, file.functions, file.classes, file.imports):
+            for table in (file.variables, file.functions, file.classes, file.types, file.imports):
                 if name in table:
                     return table[name]
         matches = self.symbols.get(name) or []
@@ -311,6 +315,8 @@ def line_docs(lines: list[str], line_index: int) -> str:
 def annotation_name(annotation: Any) -> str:
     if annotation is None:
         return ""
+    if annotation[0] == "union":
+        return " | ".join(annotation_name(item) for item in annotation[1])
     arguments = annotation[2]
     if arguments:
         return f"{annotation[1]}[{', '.join(annotation_name(item) for item in arguments)}]"
@@ -351,13 +357,28 @@ def walk_statements(program: list[Any]) -> list[Any]:
 
     def visit(stmt: Any) -> None:
         out.append(stmt)
-        if stmt[0] == "interface":
+        kind = stmt[0]
+        if kind in {"interface", "enum", "type_alias"}:
             return
-        for part in stmt[1:]:
-            if isinstance(part, list):
-                for item in part:
-                    if isinstance(item, tuple) and item:
-                        visit(item)
+        children: list[list[Any]] = []
+        if kind in {"fn", "async_fn", "test"}:
+            children = [stmt[3] if kind in {"fn", "async_fn"} else stmt[2]]
+        elif kind == "class":
+            children = [stmt[3]]
+        elif kind == "if":
+            children = [stmt[2], stmt[3]]
+        elif kind in {"while", "for", "async_for"}:
+            children = [stmt[-1]]
+        elif kind == "try":
+            children = [stmt[1], stmt[3]]
+        elif kind == "taskgroup":
+            children = [stmt[2]]
+        elif kind == "match":
+            children = [case[2] for case in stmt[2]]
+        for child_list in children:
+            for item in child_list:
+                if isinstance(item, tuple) and item:
+                    visit(item)
 
     for stmt in program:
         visit(stmt)
@@ -418,11 +439,11 @@ def build_lexical_scopes(lines: list[str], path: str) -> dict[str, LexicalScope]
             stack.pop()
 
         kind = None
-        if CLASS_RE.match(line) or INTERFACE_RE.match(line):
+        if CLASS_RE.match(line) or INTERFACE_RE.match(line) or ENUM_RE.match(line):
             kind = "class"
         elif FN_RE.match(line):
             kind = "function"
-        elif re.match(r"^\s*(?:if|elif|else|while|whirl|for|each|try|catch|test)\b", line):
+        elif re.match(r"^\s*(?:if|elif|else|while|whirl|async\s+for|for|each|try|catch|test|match|case|taskgroup)\b", line):
             kind = "block"
         if kind and (line.rstrip().endswith(":") or line.rstrip().endswith("{") or stripped.endswith("bloom")):
             serial += 1
@@ -453,7 +474,7 @@ def scope_chain(scopes: dict[str, LexicalScope], scope: LexicalScope) -> list[Le
 
 def declaration_token_locations(lines: list[str]) -> set[tuple[int, int]]:
     locations: set[tuple[int, int]] = set()
-    patterns = [CLASS_RE, INTERFACE_RE, FN_RE, IMPORT_RE, IMPORTPY_RE, DECL_RE, FOR_RE, CATCH_RE, TASKGROUP_RE]
+    patterns = [CLASS_RE, INTERFACE_RE, ENUM_RE, TYPE_ALIAS_RE, FN_RE, IMPORT_RE, IMPORTPY_RE, DECL_RE, FOR_RE, CATCH_RE, TASKGROUP_RE]
     for line_no, line in enumerate(lines, start=1):
         for pattern in patterns:
             match = pattern.match(line)
@@ -529,7 +550,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
     original_symbols = {symbol.symbol_id: symbol for symbol in analysis.symbols}
 
     for symbol in sorted(analysis.symbols, key=lambda item: (item.location.line, item.location.col)):
-        header = symbol.kind in {"function", "method", "class"}
+        header = symbol.kind in {"function", "method", "class", "interface", "enum", "type"}
         scope = scope_for_line(analysis.scopes, symbol.location.line, declaration_header=header)
         if symbol.kind == "variable":
             line = lines[symbol.location.line - 1] if symbol.location.line <= len(lines) else ""
@@ -564,10 +585,47 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             target_scope = scope_for_line(analysis.scopes, min(line_no + 1, max(1, len(lines))))
             target_scope.declare(symbol)
             analysis.symbols.append(symbol)
+        for match in COMP_FOR_RE.finditer(line):
+            if FOR_RE.match(line) and match.start() == len(line) - len(line.lstrip()):
+                continue
+            symbol = SemanticSymbol(match.group(1), "variable", Location(analysis.path, line_no, match.start(1) + 1))
+            scope = scope_for_line(analysis.scopes, line_no)
+            scope.declare(symbol)
+            analysis.symbols.append(symbol)
+            declarations.add((line_no, match.start(1) + 1))
+
+    def add_pattern_symbols(pattern: Any, case_line: int) -> None:
+        if pattern[0] == "binding_pattern":
+            name, line, col = pattern[1], pattern[2], pattern[3]
+            symbol = SemanticSymbol(name, "variable", Location(analysis.path, line, col))
+            target_scope = scope_for_line(analysis.scopes, min(case_line + 1, max(1, len(lines))))
+            target_scope.declare(symbol)
+            analysis.symbols.append(symbol)
+            declarations.add((line, col))
+        elif pattern[0] == "array_pattern":
+            for child in pattern[1]:
+                add_pattern_symbols(child, case_line)
+            if pattern[2]:
+                line_text = lines[case_line - 1] if 0 < case_line <= len(lines) else ""
+                start = line_text.find(pattern[2])
+                if start >= 0:
+                    symbol = SemanticSymbol(pattern[2], "variable", Location(analysis.path, case_line, start + 1))
+                    target_scope = scope_for_line(analysis.scopes, min(case_line + 1, max(1, len(lines))))
+                    target_scope.declare(symbol)
+                    analysis.symbols.append(symbol)
+                    declarations.add((case_line, start + 1))
+        elif pattern[0] == "variant_pattern":
+            for child in pattern[2]:
+                add_pattern_symbols(child, case_line)
+
+    for stmt in walk_statements(analysis.program):
+        if stmt[0] == "match":
+            for pattern, _guard, _body, case_line, _case_col in stmt[2]:
+                add_pattern_symbols(pattern, case_line)
 
     analysis.references = []
     analysis.diagnostics = [diag for diag in analysis.diagnostics if diag.code != "SPROUT_UNKNOWN_NAME"]
-    type_names = {"Any", "Nil", "Bool", "Int", "Float", "Number", "String", "List", "Array", "Dict", "Task"}
+    type_names = {"Any", "Nil", "Bool", "Int", "Float", "Number", "String", "List", "Array", "Dict", "Task", "Generator"}
     for stmt in walk_statements(analysis.program):
         if stmt[0] in {"fn", "async_fn"} and len(stmt) > 6:
             type_names.update(stmt[6].get("type_params", []))
@@ -577,6 +635,12 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             type_names.update(stmt[2])
             for method in stmt[3]:
                 type_names.update(method[2].get("type_params", []))
+        elif stmt[0] == "enum":
+            type_names.add(stmt[1])
+            type_names.update(stmt[2])
+        elif stmt[0] == "type_alias":
+            type_names.add(stmt[1])
+            type_names.update(stmt[2])
     special_names = {"self", "super", "argv"} | type_names
     exact_symbols = {
         (symbol.location.line, symbol.location.col, symbol.name): symbol
@@ -701,6 +765,63 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
             class_members.setdefault(name, {})
             class_stack.append((indent, name))
             current_class = name
+            continue
+
+        enum_match = ENUM_RE.match(line)
+        if enum_match:
+            name = enum_match.group(1)
+            symbol = SemanticSymbol(
+                name,
+                "enum",
+                Location(resolved, line_no, enum_match.start(1) + 1),
+                documentation=line_docs(lines, line_no - 1),
+            )
+            enum_stmt = next((stmt for stmt in program if stmt[0] == "enum" and stmt[1] == name), None)
+            members = {}
+            if enum_stmt:
+                for variant_name, fields, variant_line, variant_col in enum_stmt[3]:
+                    signature = (
+                        f"{variant_name}({', '.join(field for field, _annotation in fields)})"
+                        if fields else variant_name
+                    )
+                    members[variant_name] = SemanticSymbol(
+                        variant_name,
+                        "enum-member",
+                        Location(resolved, variant_line, variant_col),
+                        signature=signature,
+                        container=name,
+                    )
+                    analysis.symbols.append(members[variant_name])
+                    variant_text = lines[variant_line - 1] if 0 < variant_line <= len(lines) else ""
+                    search_from = 0
+                    for field_name, _annotation in fields:
+                        field_col = variant_text.find(field_name, search_from)
+                        if field_col >= 0:
+                            field_symbol = SemanticSymbol(
+                                field_name,
+                                "field",
+                                Location(resolved, variant_line, field_col + 1),
+                                container=f"{name}.{variant_name}",
+                            )
+                            analysis.symbols.append(field_symbol)
+                            search_from = field_col + len(field_name)
+            symbol.members = members
+            analysis.symbols.append(symbol)
+            analysis.classes[name] = symbol
+            analysis.types[name] = symbol
+            continue
+
+        alias_match = TYPE_ALIAS_RE.match(line)
+        if alias_match:
+            name = alias_match.group(1)
+            symbol = SemanticSymbol(
+                name,
+                "type",
+                Location(resolved, line_no, alias_match.start(1) + 1),
+                documentation=line_docs(lines, line_no - 1),
+            )
+            analysis.symbols.append(symbol)
+            analysis.types[name] = symbol
             continue
 
         fn_match = FN_RE.match(line)
@@ -864,7 +985,7 @@ def member_completions(index: WorkspaceIndex, path: str, base_name: str) -> list
     file = index.files.get(normalize_path(path))
     if not file:
         return []
-    symbol = file.imports.get(base_name) or file.variables.get(base_name) or file.classes.get(base_name)
+    symbol = file.imports.get(base_name) or file.variables.get(base_name) or file.classes.get(base_name) or file.types.get(base_name)
     if symbol and symbol.members:
         return sorted(symbol.members.values(), key=lambda item: item.name)
     if symbol and symbol.target_type and symbol.target_type in file.classes:
@@ -900,7 +1021,7 @@ def top_level_completions(index: WorkspaceIndex, path: str, line: int | None = N
         if line is not None:
             out.update({symbol.name: symbol for symbol in visible_symbols(index, path, line)})
         else:
-            for table in (file.variables, file.functions, file.classes, file.imports):
+            for table in (file.variables, file.functions, file.classes, file.types, file.imports):
                 out.update(table)
     for name, symbols in index.symbols.items():
         if "." not in name and symbols:
@@ -912,7 +1033,7 @@ def symbol_at(index: WorkspaceIndex, path: str, word: str) -> SemanticSymbol | N
     path = normalize_path(path)
     file = index.files.get(path)
     if file:
-        for table in (file.variables, file.functions, file.classes, file.imports):
+        for table in (file.variables, file.functions, file.classes, file.types, file.imports):
             if word in table:
                 return table[word]
     if word in BUILTINS:

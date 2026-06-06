@@ -39,6 +39,7 @@ jobs:
           python tests/ecosystem.py
           python tests/standalone.py
           python tests/async_language.py
+          python tests/advanced_language.py
           python tests/quality.py
           python tests/security.py
           python tests/typesystem.py

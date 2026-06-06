@@ -18,15 +18,19 @@ from typing import Any, Callable
 
 from .lexer import Lexer
 from .application import (
+    AsyncStream,
+    CancellationToken,
     Expectation,
     MessageQueue,
     NativeResource,
     RouteHttpServer,
     SQLiteDatabase,
     StructuredTaskGroup,
+    StreamEnd,
     TaskFuture,
     convert_unit,
     http_request,
+    http_request_async,
     mat_mul,
     submit_task,
     vec_add,
@@ -100,6 +104,7 @@ class Function:
     line: int | None = None
     col: int | None = None
     is_async: bool = False
+    is_generator: bool = False
 
     def frame_label(self, display_name: str | None = None) -> str:
         name = display_name or self.name
@@ -118,9 +123,23 @@ class Function:
         return name
 
     def call(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        if self.is_generator:
+            return self.invoke_generator(interpreter, args, kwargs or {})
         if self.is_async:
             return submit_task(lambda: self.invoke_async(interpreter, args, kwargs or {}))
         return self.invoke(interpreter, args, kwargs or {})
+
+    def invoke_generator(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> GeneratorValue:
+        env = Env(self.closure, is_scope_boundary=True)
+        bound = bind_arguments(self.name, self.params, args, kwargs, interpreter, self.closure)
+        for name, value in bound:
+            env.define(name, value)
+        return GeneratorValue(
+            self.name,
+            interpreter.generate_block(self.body, env, self.frame_label()),
+            interpreter,
+            env,
+        )
 
     def invoke_async(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> Any:
         with interpreter.task_lock:
@@ -147,6 +166,31 @@ class BoundMethod:
         self.instance = instance
 
     def call(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        if self.function.is_generator:
+            if not self.function.params:
+                raise SproutError(f"{self.function.name} needs a self parameter")
+            env = Env(self.function.closure, is_scope_boundary=True)
+            env.define(self.function.params[0][0], self.instance)
+            bound = bind_arguments(
+                self.function.name,
+                self.function.params[1:],
+                args,
+                kwargs or {},
+                interpreter,
+                self.function.closure,
+            )
+            for name, value in bound:
+                env.define(name, value)
+            return GeneratorValue(
+                f"{self.instance.klass.name}.{self.function.name}",
+                interpreter.generate_block(
+                    self.function.body,
+                    env,
+                    self.function.frame_label(f"{self.instance.klass.name}.{self.function.name}"),
+                ),
+                interpreter,
+                env,
+            )
         if self.function.is_async:
             return submit_task(lambda: self.invoke_async(interpreter, args, kwargs or {}))
         return self.invoke(interpreter, args, kwargs or {})
@@ -212,6 +256,122 @@ class SproutInterface:
 
     def __repr__(self) -> str:
         return f"<interface {self.name}>"
+
+
+class EnumConstructor:
+    def __init__(self, enum_name: str, variant: str, fields: list[str]):
+        self.enum_name = enum_name
+        self.variant = variant
+        self.fields = fields
+
+    def call(self, _interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        kwargs = kwargs or {}
+        if len(args) > len(self.fields):
+            raise SproutError(f"{self.enum_name}.{self.variant} expected {len(self.fields)} fields")
+        values = dict(zip(self.fields, args))
+        for key, value in kwargs.items():
+            if key not in self.fields:
+                raise SproutError(f"{self.enum_name}.{self.variant} has no field '{key}'")
+            if key in values:
+                raise SproutError(f"{self.enum_name}.{self.variant} got multiple values for '{key}'")
+            values[key] = value
+        missing = [field for field in self.fields if field not in values]
+        if missing:
+            raise SproutError(f"{self.enum_name}.{self.variant} missing field '{missing[0]}'")
+        return EnumValue(self.enum_name, self.variant, tuple((field, values[field]) for field in self.fields))
+
+    def __repr__(self) -> str:
+        return f"<enum constructor {self.enum_name}.{self.variant}>"
+
+
+@dataclass(frozen=True)
+class EnumValue:
+    enum_name: str
+    variant: str
+    fields: tuple[tuple[str, Any], ...] = ()
+
+    def get(self, name: str) -> Any:
+        if name == "tag":
+            return self.variant
+        if name == "type":
+            return self.enum_name
+        for field, value in self.fields:
+            if field == name:
+                return value
+        raise SproutError(f"{self.enum_name}.{self.variant} has no field '{name}'")
+
+    def __repr__(self) -> str:
+        if not self.fields:
+            return f"{self.enum_name}.{self.variant}"
+        values = ", ".join(format_value(value) for _name, value in self.fields)
+        return f"{self.enum_name}.{self.variant}({values})"
+
+
+class SproutEnum:
+    def __init__(self, name: str, variants: list[Any]):
+        self.name = name
+        self.variants = {
+            variant_name: [field for field, _annotation in fields]
+            for variant_name, fields, _line, _col in variants
+        }
+
+    def get(self, name: str) -> Any:
+        if name not in self.variants:
+            raise SproutError(f"Enum {self.name} has no variant '{name}'")
+        fields = self.variants[name]
+        if not fields:
+            return EnumValue(self.name, name)
+        return EnumConstructor(self.name, name, fields)
+
+    def __repr__(self) -> str:
+        return f"<enum {self.name}>"
+
+
+class GeneratorValue(NativeResource):
+    def __init__(self, name: str, iterator: Any, interpreter: "Interpreter | None" = None, env: Env | None = None):
+        self.name = name
+        self.iterator = iter(iterator)
+        self.interpreter = interpreter
+        self.env = env
+        self.finished = False
+
+    def __iter__(self) -> GeneratorValue:
+        return self
+
+    def __next__(self) -> Any:
+        if self.finished:
+            raise StopIteration
+        previous = self.interpreter.env if self.interpreter is not None else None
+        if self.interpreter is not None and self.env is not None:
+            self.interpreter.env = self.env
+        try:
+            return next(self.iterator)
+        except StopIteration:
+            self.finished = True
+            raise
+        finally:
+            if self.interpreter is not None and previous is not None:
+                self.interpreter.env = previous
+
+    def get(self, name: str) -> Any:
+        if name == "done":
+            return self.finished
+        methods = {
+            "next": NativeMethod("generator.next", 0, self.next_value),
+            "collect": NativeMethod("generator.collect", 0, lambda: list(self)),
+        }
+        if name in methods:
+            return methods[name]
+        return super().get(name)
+
+    def next_value(self) -> Any:
+        try:
+            return next(self)
+        except StopIteration:
+            return None
+
+    def __repr__(self) -> str:
+        return f"<generator {self.name}>"
 
 
 class SproutInstance:
@@ -451,10 +611,18 @@ class Interpreter:
         self.globals.define("task_after", Builtin("task_after", None, self.builtin_task_after))
         self.globals.define("task_wait_all", Builtin("task_wait_all", 1, self.builtin_task_wait_all))
         self.globals.define("queue_open", Builtin("queue_open", 0, MessageQueue))
+        self.globals.define("stream_open", Builtin("stream_open", 0, AsyncStream))
+        self.globals.define("cancel_token", Builtin("cancel_token", 0, CancellationToken))
+        self.globals.define("sleep_async", Builtin("sleep_async", None, self.builtin_sleep_async))
         self.globals.define("http_request", Builtin("http_request", None, http_request))
         self.globals.define("http_get", Builtin("http_get", None, self.builtin_http_get))
         self.globals.define("http_post", Builtin("http_post", None, self.builtin_http_post))
+        self.globals.define("http_request_async", Builtin("http_request_async", None, http_request_async))
+        self.globals.define("http_get_async", Builtin("http_get_async", None, self.builtin_http_get_async))
+        self.globals.define("http_post_async", Builtin("http_post_async", None, self.builtin_http_post_async))
         self.globals.define("http_server", Builtin("http_server", None, self.builtin_http_server))
+        self.globals.define("readfile_async", Builtin("readfile_async", None, self.builtin_readfile_async))
+        self.globals.define("writefile_async", Builtin("writefile_async", None, self.builtin_writefile_async))
         self.globals.define("sqlite_open", Builtin("sqlite_open", 1, self.builtin_sqlite_open))
         self.globals.define("sqlite_exec", Builtin("sqlite_exec", None, self.builtin_sqlite_exec))
         self.globals.define("sqlite_query", Builtin("sqlite_query", None, self.builtin_sqlite_query))
@@ -765,6 +933,41 @@ class Interpreter:
     def builtin_http_post(self, url: Any, data: Any = None, headers: Any = None, timeout: Any = 10) -> Any:
         return http_request("POST", url, data, headers, timeout)
 
+    def builtin_sleep_async(self, seconds: Any, token: Any = None) -> TaskFuture:
+        checked = token if isinstance(token, CancellationToken) else None
+        if token is not None and checked is None:
+            raise SproutError("sleep_async token must come from cancel_token()")
+        return submit_task(lambda: None, float(seconds), checked)
+
+    def builtin_http_get_async(
+        self,
+        url: Any,
+        headers: Any = None,
+        timeout: Any = 10,
+        token: Any = None,
+    ) -> TaskFuture:
+        checked = token if isinstance(token, CancellationToken) else None
+        return http_request_async("GET", url, None, headers, timeout, checked)
+
+    def builtin_http_post_async(
+        self,
+        url: Any,
+        data: Any = None,
+        headers: Any = None,
+        timeout: Any = 10,
+        token: Any = None,
+    ) -> TaskFuture:
+        checked = token if isinstance(token, CancellationToken) else None
+        return http_request_async("POST", url, data, headers, timeout, checked)
+
+    def builtin_readfile_async(self, path: Any, token: Any = None) -> TaskFuture:
+        checked = token if isinstance(token, CancellationToken) else None
+        return submit_task(lambda: self.builtin_readfile(path), token=checked)
+
+    def builtin_writefile_async(self, path: Any, value: Any, token: Any = None) -> TaskFuture:
+        checked = token if isinstance(token, CancellationToken) else None
+        return submit_task(lambda: self.builtin_writefile(path, value), token=checked)
+
     def builtin_http_server(self, routes: Any, host: Any = "127.0.0.1", port: Any = 0) -> RouteHttpServer:
         return RouteHttpServer(require_dict(routes), str(host), int(port))
 
@@ -852,6 +1055,7 @@ class Interpreter:
                     stmt[4],
                     stmt[5],
                     is_async=kind == "async_fn",
+                    is_generator=contains_yield(stmt[3]),
                 ),
             )
         elif kind == "test":
@@ -878,10 +1082,15 @@ class Interpreter:
                     method[4],
                     method[5],
                     is_async=method[0] == "async_fn",
+                    is_generator=contains_yield(method[3]),
                 )
             self.env.assign(stmt[1], SproutClass(stmt[1], methods, superclass))
+        elif kind == "enum":
+            self.env.define(stmt[1], SproutEnum(stmt[1], stmt[3]))
         elif kind == "interface":
             self.env.define(stmt[1], SproutInterface(stmt[1], stmt[3], stmt[2]))
+        elif kind == "type_alias":
+            return
         elif kind == "taskgroup":
             group = StructuredTaskGroup(
                 lambda callable_value, args: submit_task(lambda: self.call_value(callable_value, args))
@@ -898,6 +1107,24 @@ class Interpreter:
         elif kind == "if":
             body = stmt[2] if truthy(self.evaluate(stmt[1])) else stmt[3]
             self.execute_block(body, Env(self.env))
+        elif kind == "match":
+            subject = self.evaluate(stmt[1])
+            for pattern, guard, body, _line, _col in stmt[2]:
+                bindings = match_pattern(pattern, subject)
+                if bindings is None:
+                    continue
+                case_env = Env(self.env)
+                for name, value in bindings.items():
+                    case_env.define(name, value)
+                previous = self.env
+                self.env = case_env
+                try:
+                    if guard is not None and not truthy(self.evaluate(guard)):
+                        continue
+                    self.execute_block(body, case_env)
+                    break
+                finally:
+                    self.env = previous
         elif kind == "while":
             while truthy(self.evaluate(stmt[1])):
                 try:
@@ -909,6 +1136,20 @@ class Interpreter:
         elif kind == "for":
             loop_env = Env(self.env)
             for item in iterable_values(self.evaluate(stmt[2])):
+                loop_env.assign(stmt[1], item)
+                try:
+                    self.execute_block(stmt[3], loop_env)
+                except ContinueSignal:
+                    continue
+                except BreakSignal:
+                    break
+        elif kind == "async_for":
+            stream = self.evaluate(stmt[2])
+            loop_env = Env(self.env)
+            while True:
+                item = async_next(stream)
+                if item is StreamEnd:
+                    break
                 loop_env.assign(stmt[1], item)
                 try:
                     self.execute_block(stmt[3], loop_env)
@@ -935,6 +1176,8 @@ class Interpreter:
                 self.execute_block(stmt[3], catch_env)
         elif kind == "return":
             raise ReturnSignal(None if stmt[1] is None else self.evaluate(stmt[1]))
+        elif kind == "yield":
+            raise SproutError("yield may only be used inside a generator function")
         elif kind == "assign":
             self.assign(stmt[1], self.evaluate(stmt[2]))
         elif kind == "say":
@@ -943,6 +1186,122 @@ class Interpreter:
             self.evaluate(stmt[1])
         else:
             raise SproutError(f"Unknown statement {kind}")
+
+    def generate_block(self, statements: list[Any], env: Env, frame: str) -> Any:
+        previous = self.env
+        self.env = env
+        try:
+            try:
+                yield from self.generate_statements(statements)
+            except ReturnSignal:
+                return
+            except SproutError as exc:
+                exc.add_frame(frame)
+                raise
+        finally:
+            self.env = previous
+
+    def generate_statements(self, statements: list[Any]) -> Any:
+        for stmt in statements:
+            kind = stmt[0]
+            if kind == "yield":
+                yield None if stmt[1] is None else self.evaluate(stmt[1])
+            elif kind == "if":
+                body = stmt[2] if truthy(self.evaluate(stmt[1])) else stmt[3]
+                previous = self.env
+                self.env = Env(previous)
+                try:
+                    yield from self.generate_statements(body)
+                finally:
+                    self.env = previous
+            elif kind == "while":
+                while truthy(self.evaluate(stmt[1])):
+                    previous = self.env
+                    self.env = Env(previous)
+                    try:
+                        try:
+                            yield from self.generate_statements(stmt[2])
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            break
+                    finally:
+                        self.env = previous
+            elif kind == "for":
+                loop_env = Env(self.env)
+                for item in iterable_values(self.evaluate(stmt[2])):
+                    loop_env.assign(stmt[1], item)
+                    previous = self.env
+                    self.env = loop_env
+                    try:
+                        try:
+                            yield from self.generate_statements(stmt[3])
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            break
+                    finally:
+                        self.env = previous
+            elif kind == "async_for":
+                stream = self.evaluate(stmt[2])
+                loop_env = Env(self.env)
+                while True:
+                    item = async_next(stream)
+                    if item is StreamEnd:
+                        break
+                    loop_env.assign(stmt[1], item)
+                    previous = self.env
+                    self.env = loop_env
+                    try:
+                        try:
+                            yield from self.generate_statements(stmt[3])
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            break
+                    finally:
+                        self.env = previous
+            elif kind == "match":
+                subject = self.evaluate(stmt[1])
+                for pattern, guard, body, _line, _col in stmt[2]:
+                    bindings = match_pattern(pattern, subject)
+                    if bindings is None:
+                        continue
+                    case_env = Env(self.env)
+                    for name, value in bindings.items():
+                        case_env.define(name, value)
+                    previous = self.env
+                    self.env = case_env
+                    try:
+                        if guard is not None and not truthy(self.evaluate(guard)):
+                            continue
+                        yield from self.generate_statements(body)
+                        break
+                    finally:
+                        self.env = previous
+            elif kind == "try":
+                try:
+                    yield from self.generate_statements(stmt[1])
+                except SproutRaised as exc:
+                    catch_env = Env(self.env)
+                    catch_env.define(stmt[2], exc.value)
+                    previous = self.env
+                    self.env = catch_env
+                    try:
+                        yield from self.generate_statements(stmt[3])
+                    finally:
+                        self.env = previous
+                except SproutError as exc:
+                    catch_env = Env(self.env)
+                    catch_env.define(stmt[2], str(exc))
+                    previous = self.env
+                    self.env = catch_env
+                    try:
+                        yield from self.generate_statements(stmt[3])
+                    finally:
+                        self.env = previous
+            else:
+                self.execute(stmt)
 
     def assign(self, target: Any, value: Any) -> None:
         if target[0] == "var":
@@ -1060,6 +1419,34 @@ class Interpreter:
             return [self.evaluate(item) for item in expr[1]]
         if kind == "dict":
             return {self.evaluate(key): self.evaluate(value) for key, value in expr[1]}
+        if kind == "list_comp":
+            out = []
+            iterable = self.evaluate(expr[3])
+            for item in iterable_values(iterable):
+                local = Env(self.env)
+                local.define(expr[2], item)
+                previous = self.env
+                self.env = local
+                try:
+                    if expr[4] is None or truthy(self.evaluate(expr[4])):
+                        out.append(self.evaluate(expr[1]))
+                finally:
+                    self.env = previous
+            return out
+        if kind == "dict_comp":
+            out = {}
+            iterable = self.evaluate(expr[4])
+            for item in iterable_values(iterable):
+                local = Env(self.env)
+                local.define(expr[3], item)
+                previous = self.env
+                self.env = local
+                try:
+                    if expr[5] is None or truthy(self.evaluate(expr[5])):
+                        out[self.evaluate(expr[1])] = self.evaluate(expr[2])
+                finally:
+                    self.env = previous
+            return out
         if kind == "seedfn":
             return Function("<seedfn>", expr[1], expr[2], self.env, self.source_path, expr[3], expr[4])
         if kind == "await":
@@ -1114,6 +1501,8 @@ class Interpreter:
             return -right if op == "-" else not truthy(right)
         if kind == "binary":
             return self.evaluate_binary(expr[1], expr[2], expr[3])
+        if kind == "is_type":
+            return value_matches_type(self.evaluate(expr[1]), expr[2])
         if kind == "call":
             callee = self.evaluate(expr[1])
             args = self.evaluate_call_args(expr[2])
@@ -1169,6 +1558,8 @@ class Interpreter:
 
     def get_property(self, obj: Any, name: str) -> Any:
         if isinstance(obj, SproutInstance):
+            return obj.get(name)
+        if isinstance(obj, (SproutEnum, EnumValue)):
             return obj.get(name)
         if isinstance(obj, SproutModule):
             return obj.get(name)
@@ -1331,9 +1722,123 @@ def require_list(value: Any) -> list[Any]:
 def iterable_values(value: Any) -> Any:
     if isinstance(value, dict):
         return value.keys()
-    if isinstance(value, (list, str, range)):
+    if isinstance(value, (list, str, range, GeneratorValue)):
+        return value
+    if hasattr(value, "__iter__") and hasattr(value, "__next__"):
         return value
     raise SproutError(f"Cannot loop over {type_name(value)}")
+
+
+def async_next(value: Any) -> Any:
+    if isinstance(value, AsyncStream):
+        return value.next_task().result()
+    if isinstance(value, NativeResource):
+        try:
+            next_call = value.get("next")
+            task = next_call.call(None, [], {})
+            if isinstance(task, TaskFuture):
+                return task.result()
+        except SproutError:
+            pass
+    raise SproutError(f"Cannot async-loop over {type_name(value)}")
+
+
+def contains_yield(statements: list[Any]) -> bool:
+    for stmt in statements:
+        if stmt[0] == "yield":
+            return True
+        if stmt[0] == "if" and (contains_yield(stmt[2]) or contains_yield(stmt[3])):
+            return True
+        if stmt[0] in {"while", "for", "async_for", "taskgroup"} and contains_yield(stmt[-1] if stmt[0] != "taskgroup" else stmt[2]):
+            return True
+        if stmt[0] == "try" and (contains_yield(stmt[1]) or contains_yield(stmt[3])):
+            return True
+        if stmt[0] == "match" and any(contains_yield(case[2]) for case in stmt[2]):
+            return True
+    return False
+
+
+def match_pattern(pattern: Any, value: Any) -> dict[str, Any] | None:
+    kind = pattern[0]
+    if kind == "wildcard_pattern":
+        return {}
+    if kind == "binding_pattern":
+        return {pattern[1]: value}
+    if kind == "literal_pattern":
+        return {} if value == pattern[1] else None
+    if kind == "array_pattern":
+        if not isinstance(value, list):
+            return None
+        fixed, rest = pattern[1], pattern[2]
+        if (rest is None and len(value) != len(fixed)) or len(value) < len(fixed):
+            return None
+        bindings: dict[str, Any] = {}
+        for child, item in zip(fixed, value):
+            found = match_pattern(child, item)
+            if found is None or any(name in bindings for name in found):
+                return None
+            bindings.update(found)
+        if rest is not None:
+            bindings[rest] = value[len(fixed):]
+        return bindings
+    if kind == "variant_pattern":
+        if not isinstance(value, EnumValue):
+            return None
+        path, children = pattern[1], pattern[2]
+        if len(path) == 1:
+            matches = value.variant == path[0]
+        else:
+            matches = value.enum_name == path[-2] and value.variant == path[-1]
+        if not matches or len(children) != len(value.fields):
+            return None
+        bindings: dict[str, Any] = {}
+        for child, (_field, item) in zip(children, value.fields):
+            found = match_pattern(child, item)
+            if found is None or any(name in bindings for name in found):
+                return None
+            bindings.update(found)
+        return bindings
+    return None
+
+
+def annotation_names(annotation: Any) -> set[str]:
+    if annotation is None:
+        return {"Any"}
+    if annotation[0] == "union":
+        out: set[str] = set()
+        for member in annotation[1]:
+            out.update(annotation_names(member))
+        return out
+    return {str(annotation[1])}
+
+
+def value_matches_type(value: Any, annotation: Any) -> bool:
+    names = annotation_names(annotation)
+    if "Any" in names:
+        return True
+    actual = type_name(value)
+    aliases = {
+        "nil": "Nil",
+        "bool": "Bool",
+        "number": "Float" if isinstance(value, float) else "Int",
+        "string": "String",
+        "array": "List",
+        "dictionary": "Dict",
+    }
+    normalized = aliases.get(actual, actual)
+    if normalized in names:
+        return True
+    if "Number" in names and normalized in {"Int", "Float"}:
+        return True
+    if isinstance(value, EnumValue) and value.enum_name in names:
+        return True
+    if isinstance(value, SproutInstance) and value.klass.name in names:
+        return True
+    if isinstance(value, TaskFuture) and "Task" in names:
+        return True
+    if isinstance(value, GeneratorValue) and "Generator" in names:
+        return True
+    return False
 
 
 def append_list_value(items: list[Any], value: Any) -> list[Any]:
@@ -1521,6 +2026,10 @@ def type_name(value: Any) -> str:
         return "dictionary"
     if isinstance(value, SproutClass):
         return "class"
+    if isinstance(value, SproutEnum):
+        return "enum"
+    if isinstance(value, EnumValue):
+        return value.enum_name
     if isinstance(value, SproutInstance):
         return value.klass.name
     if isinstance(value, SproutModule):
@@ -1552,7 +2061,7 @@ def format_value(value: Any) -> str:
     if isinstance(value, dict):
         pairs = [f"{format_value(key)}: {format_value(val)}" for key, val in value.items()]
         return "{" + ", ".join(pairs) + "}"
-    if isinstance(value, SproutClass):
+    if isinstance(value, (SproutClass, SproutEnum, EnumValue)):
         return repr(value)
     if isinstance(value, SproutInstance):
         return repr(value)

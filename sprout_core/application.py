@@ -9,7 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from typing import Any, Callable
 
 from .model import SproutError, SproutRaised
@@ -86,9 +86,35 @@ class Expectation(NativeResource):
         return True
 
 
+class CancellationToken(NativeResource):
+    def __init__(self):
+        self.event = threading.Event()
+
+    def get(self, name: str) -> Any:
+        if name == "cancelled":
+            return self.event.is_set()
+        methods = {
+            "cancel": NativeCall("cancel_token.cancel", self.cancel, 0),
+            "check": NativeCall("cancel_token.check", self.check, 0),
+        }
+        if name in methods:
+            return methods[name]
+        return super().get(name)
+
+    def cancel(self) -> bool:
+        self.event.set()
+        return True
+
+    def check(self) -> bool:
+        if self.event.is_set():
+            raise SproutError("Task was cancelled", category="CancelledError")
+        return True
+
+
 class TaskFuture(NativeResource):
-    def __init__(self, future: Future[Any]):
+    def __init__(self, future: Future[Any], token: CancellationToken | None = None):
         self.future = future
+        self.token = token
 
     def get(self, name: str) -> Any:
         if name == "done":
@@ -109,10 +135,14 @@ class TaskFuture(NativeResource):
             value = self.future.result(timeout=seconds)
             return value.result(timeout) if isinstance(value, TaskFuture) else value
         except Exception as exc:
+            if isinstance(exc, CancelledError):
+                raise SproutError("Task was cancelled", category="CancelledError") from None
             raise SproutError(f"Task failed: {exc}") from exc
 
     def cancel(self) -> bool:
-        return self.future.cancel()
+        if self.token:
+            self.token.cancel()
+        return self.future.cancel() or bool(self.token)
 
 
 class StructuredTaskGroup(NativeResource):
@@ -173,6 +203,7 @@ class MessageQueue(NativeResource):
         methods = {
             "send": NativeCall("queue.send", self.send, 1),
             "receive": NativeCall("queue.receive", self.receive, None),
+            "receive_async": NativeCall("queue.receive_async", self.receive_async, None),
             "empty": NativeCall("queue.empty", self.queue.empty, 0),
         }
         if name in methods:
@@ -189,6 +220,54 @@ class MessageQueue(NativeResource):
             return self.queue.get(timeout=seconds)
         except queue.Empty as exc:
             raise SproutError("Queue receive timed out") from exc
+
+    def receive_async(self, timeout: Any = None) -> TaskFuture:
+        return submit_task(lambda: self.receive(timeout))
+
+
+class AsyncStream(NativeResource):
+    _CLOSED = object()
+
+    def __init__(self):
+        self.queue: queue.Queue[Any] = queue.Queue()
+        self.closed = False
+
+    def get(self, name: str) -> Any:
+        if name == "closed":
+            return self.closed
+        methods = {
+            "send": NativeCall("stream.send", self.send, 1),
+            "close": NativeCall("stream.close", self.close, 0),
+            "next": NativeCall("stream.next", self.next_task, 0),
+        }
+        if name in methods:
+            return methods[name]
+        return super().get(name)
+
+    def send(self, value: Any) -> Any:
+        if self.closed:
+            raise SproutError("Cannot send to a closed async stream")
+        self.queue.put(value)
+        return value
+
+    def close(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.queue.put(self._CLOSED)
+
+    def next_task(self) -> TaskFuture:
+        def receive() -> Any:
+            value = self.queue.get()
+            return StreamEnd if value is self._CLOSED else value
+
+        return submit_task(receive)
+
+
+class _StreamEnd:
+    pass
+
+
+StreamEnd = _StreamEnd()
 
 
 class HttpResponse(NativeResource):
@@ -337,13 +416,50 @@ class SQLiteDatabase(NativeResource):
 TASK_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="sprout-task")
 
 
-def submit_task(fn: Callable[[], Any], delay: float = 0.0) -> TaskFuture:
+def submit_task(
+    fn: Callable[[], Any],
+    delay: float = 0.0,
+    token: CancellationToken | None = None,
+) -> TaskFuture:
     def run() -> Any:
-        if delay > 0:
-            time.sleep(delay)
+        if token:
+            token.check()
+        remaining = delay
+        while remaining > 0:
+            chunk = min(remaining, 0.05)
+            time.sleep(chunk)
+            remaining -= chunk
+            if token:
+                token.check()
+        if token:
+            token.check()
         return fn()
 
-    return TaskFuture(TASK_POOL.submit(run))
+    return TaskFuture(TASK_POOL.submit(run), token)
+
+
+def async_sleep(seconds: Any, token: CancellationToken | None = None) -> None:
+    remaining = float(seconds)
+    while remaining > 0:
+        chunk = min(remaining, 0.05)
+        time.sleep(chunk)
+        remaining -= chunk
+        if token:
+            token.check()
+
+
+def http_request_async(
+    method: Any,
+    url: Any,
+    data: Any = None,
+    headers: Any = None,
+    timeout: Any = 10,
+    token: CancellationToken | None = None,
+) -> TaskFuture:
+    return submit_task(
+        lambda: http_request(method, url, data, headers, timeout),
+        token=token,
+    )
 
 
 def http_request(method: Any, url: Any, data: Any = None, headers: Any = None, timeout: Any = 10) -> HttpResponse:
@@ -423,8 +539,8 @@ STANDARD_LIBRARY_GROUPS = {
     "files": ["readfile", "writefile", "appendfile", "exists", "listdir"],
     "json": ["readjson", "writejson", "json_parse", "json_stringify"],
     "testing": ["expect", "ensure", "fail"],
-    "async": ["task_spawn", "task_after", "task_wait_all", "queue_open"],
-    "http": ["http_request", "http_get", "http_post", "http_server"],
+    "async": ["task_spawn", "task_after", "task_wait_all", "queue_open", "stream_open", "cancel_token", "sleep_async"],
+    "http": ["http_request", "http_get", "http_post", "http_request_async", "http_get_async", "http_post_async", "http_server"],
     "sqlite": ["sqlite_open", "sqlite_exec", "sqlite_query", "sqlite_begin", "sqlite_commit", "sqlite_rollback", "sqlite_close"],
     "engineering": ["vec_add", "vec_sub", "vec_dot", "vec_magnitude", "vec_normalize", "mat_mul", "unit_convert", "kinetic_energy", "force", "pressure"],
     "game": ["examples/modules/appgame.sprout", "PixelGarden", "StarBloom3D", "Window2D", "PandaWindow3D"],

@@ -223,6 +223,7 @@ def doctor() -> int:
         "tests/ecosystem.py",
         "tests/standalone.py",
         "tests/async_language.py",
+        "tests/advanced_language.py",
         "tests/quality.py",
         "tests/security.py",
         "tests/typesystem.py",
@@ -237,6 +238,7 @@ def doctor() -> int:
         "examples/modules/engineering.sprout",
         "examples/modules/appgame.sprout",
         "examples/typed_abstractions.sprout",
+        "examples/advanced_features.sprout",
     ]:
         full = os.path.join(root, path)
         checks.append((path, os.path.exists(full), full))

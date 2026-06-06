@@ -6,6 +6,7 @@ import io
 import os
 import re
 import sys
+import threading
 import time
 from typing import Any
 
@@ -13,15 +14,26 @@ from .model import SproutError, SproutRaised
 from .runtime import (
     Builtin,
     Env,
+    Function,
     Interpreter,
     NativeMethod,
+    NativeResource,
+    SproutEnum,
+    SproutModule,
+    StructuredTaskGroup,
+    TaskFuture,
     attach_error_source,
     bind_arguments,
     format_value,
     iterable_values,
     native_runtime_error,
     truthy,
+    contains_yield,
+    async_next,
+    match_pattern,
+    value_matches_type,
 )
+from .application import submit_task
 from .tooling import module_search_paths_for, parse_source, read_source_file, run_file
 
 
@@ -45,6 +57,9 @@ class CodeObject:
     instructions: list[Instruction] = field(default_factory=list)
     params: list[tuple[str, Any, bool, bool]] = field(default_factory=list)
     source_path: str | None = None
+    ast_body: list[Any] | None = None
+    is_async: bool = False
+    is_generator: bool = False
 
 
 @dataclass
@@ -56,20 +71,92 @@ class DebugFrame:
 
 
 @dataclass
+class GeneratorFrameState:
+    stack: list[Any] = field(default_factory=list)
+    ip: int = 0
+    handlers: list[tuple[int, str, Env, int]] = field(default_factory=list)
+    env: Env | None = None
+    done: bool = False
+
+
+@dataclass
+class Yielded:
+    value: Any
+
+
+class VMGenerator(NativeResource):
+    def __init__(self, name: str, vm: "BytecodeVM", code: CodeObject, env: Env):
+        self.name = name
+        self.vm = vm
+        self.code = code
+        self.env = env
+        self.state = GeneratorFrameState()
+
+    def __iter__(self) -> "VMGenerator":
+        return self
+
+    def __next__(self) -> Any:
+        if self.state.done:
+            raise StopIteration
+        yielded = self.vm.resume_generator(self.code, self.env, self.state)
+        if yielded is None:
+            self.state.done = True
+            raise StopIteration
+        return yielded.value
+
+    def get(self, name: str) -> Any:
+        if name == "done":
+            return self.state.done
+        methods = {
+            "next": NativeMethod("generator.next", 0, self.next_value),
+            "collect": NativeMethod("generator.collect", 0, lambda: list(self)),
+        }
+        if name in methods:
+            return methods[name]
+        return super().get(name)
+
+    def next_value(self) -> Any:
+        try:
+            return next(self)
+        except StopIteration:
+            return None
+
+    def __repr__(self) -> str:
+        return f"<vm-generator {self.name}>"
+
+
+@dataclass
 class VMFunction:
     name: str
     code: CodeObject
     closure: Env
 
     def call(self, vm: "BytecodeVM", args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        if isinstance(vm, Interpreter):
+            bridged = getattr(vm, "_bytecode_vm", None)
+            if bridged is None:
+                raise SproutError("VM function is not attached to an active bytecode runtime")
+            vm = bridged
+        if self.code.is_generator:
+            env = Env(self.closure, is_scope_boundary=True)
+            bound = bind_arguments(self.name, self.code.params, args, kwargs or {}, vm.interpreter, self.closure)
+            for name, value in bound:
+                env.define(name, value)
+            return VMGenerator(self.name, vm, self.code, env)
+        if self.code.is_async:
+            return submit_task(lambda: self.invoke(vm.fork(self.code.source_path), args, kwargs or {}))
+        return self.invoke(vm, args, kwargs or {})
+
+    def invoke(self, vm: "BytecodeVM", args: list[Any], kwargs: dict[str, Any]) -> Any:
         env = Env(self.closure, is_scope_boundary=True)
-        bound = bind_arguments(self.name, self.code.params, args, kwargs or {}, vm.interpreter, self.closure)
+        bound = bind_arguments(self.name, self.code.params, args, kwargs, vm.interpreter, self.closure)
         for name, value in bound:
             env.define(name, value)
         started = time.perf_counter()
         vm.call_counts[self.name] = vm.call_counts.get(self.name, 0) + 1
         try:
-            return vm.run_code(self.code, env)
+            with vm.execution_lock:
+                return vm.run_code(self.code, env)
         finally:
             vm.call_times[self.name] = vm.call_times.get(self.name, 0.0) + (time.perf_counter() - started)
 
@@ -144,6 +231,7 @@ class Compiler:
         self.scan_line = 0
         self.current_line: int | None = None
         self.current_col: int | None = None
+        self.temp_serial = 0
 
     def compile(self, program: list[Any]) -> CodeObject:
         for stmt in program:
@@ -170,6 +258,17 @@ class Compiler:
     def patch(self, index: int, target: int) -> None:
         self.code.instructions[index].arg = target
 
+    def expression_code(self, expr: Any, name: str) -> CodeObject:
+        child = Compiler(self.source_path)
+        child.code = CodeObject(name, source_path=self.source_path)
+        child.source_lines = self.source_lines
+        child.scan_line = self.scan_line
+        child.current_line = self.current_line
+        child.current_col = self.current_col
+        child.expression(expr)
+        child.emit("RETURN")
+        return child.code
+
     def locate_statement(self, stmt: Any) -> tuple[int | None, int | None]:
         kind = stmt[0]
         if kind in {"fn", "async_fn"}:
@@ -187,12 +286,17 @@ class Compiler:
             "importpython": r"^\s*importpython\b",
             "class": rf"^\s*class\s+{re.escape(str(stmt[1]))}\b",
             "interface": rf"^\s*interface\s+{re.escape(str(stmt[1]))}\b",
+            "enum": rf"^\s*enum\s+{re.escape(str(stmt[1]))}\b",
+            "type_alias": rf"^\s*type\s+{re.escape(str(stmt[1]))}\b",
+            "match": r"^\s*match\b",
             "if": r"^\s*(?:if|elif|else\s+if)\b",
             "while": r"^\s*(?:while|whirl)\b",
             "for": r"^\s*(?:for|each)\b",
+            "async_for": r"^\s*async\s+for\b",
             "try": r"^\s*try\b",
             "raise": r"^\s*raise\b",
             "return": r"^\s*(?:return|pluck)\b",
+            "yield": r"^\s*yield\b",
             "break": r"^\s*break\b",
             "continue": r"^\s*continue\b",
             "say": r"^\s*say\b",
@@ -215,10 +319,6 @@ class Compiler:
         previous_location = self.current_line, self.current_col
         self.current_line, self.current_col = self.locate_statement(stmt)
         kind = stmt[0]
-        if kind in {"async_fn", "taskgroup"}:
-            raise BytecodeUnsupported(
-                "Structured async execution is supported by the stable interpreter, not the experimental VM yet"
-            )
         if kind == "let":
             self.expression(stmt[2])
             self.emit("STORE_NAME", stmt[1])
@@ -248,6 +348,42 @@ class Compiler:
             self.emit("STORE_NAME", stmt[2])
         elif kind == "test":
             pass
+        elif kind == "type_alias":
+            pass
+        elif kind == "enum":
+            self.emit("MAKE_ENUM", (stmt[1], stmt[3]))
+            self.emit("STORE_NAME", stmt[1])
+        elif kind == "taskgroup":
+            self.emit("ENTER_TASKGROUP", stmt[1])
+            for child in stmt[2]:
+                self.statement(child)
+            self.emit("EXIT_TASKGROUP", stmt[1])
+        elif kind == "async_for":
+            self.expression(stmt[2])
+            self.emit("ASYNC_ITER_START")
+            loop_start = len(self.code.instructions)
+            breaks: list[int] = []
+            continues: list[int] = []
+            self.loop_stack.append((breaks, continues))
+            jump_done = self.emit("ASYNC_ITER_NEXT", None)
+            self.emit("STORE_NAME", stmt[1])
+            for child in stmt[3]:
+                self.statement(child)
+            for index in continues:
+                self.patch(index, loop_start)
+            self.emit("JUMP", loop_start)
+            loop_end = len(self.code.instructions)
+            self.patch(jump_done, loop_end)
+            self.emit("POP")
+            for index in breaks:
+                self.patch(index, loop_end)
+            self.loop_stack.pop()
+        elif kind == "yield":
+            if stmt[1] is None:
+                self.emit("LOAD_CONST", None)
+            else:
+                self.expression(stmt[1])
+            self.emit("YIELD")
         elif kind == "say":
             for expr in stmt[1]:
                 self.expression(expr)
@@ -269,6 +405,31 @@ class Compiler:
             for child in stmt[3]:
                 self.statement(child)
             self.patch(jump_end, len(self.code.instructions))
+        elif kind == "match":
+            self.temp_serial += 1
+            subject_name = f"__match_{self.temp_serial}"
+            self.expression(stmt[1])
+            self.emit("STORE_NAME", subject_name)
+            end_jumps = []
+            for pattern, guard, body, _line, _col in stmt[2]:
+                self.emit("LOAD_NAME", subject_name)
+                self.emit("MATCH_PATTERN", pattern)
+                failed = self.emit("JUMP_IF_NONE", None)
+                self.emit("APPLY_BINDINGS")
+                guard_failed = None
+                if guard is not None:
+                    self.expression(guard)
+                    guard_failed = self.emit("JUMP_IF_FALSE_POP", None)
+                for child in body:
+                    self.statement(child)
+                end_jumps.append(self.emit("JUMP", None))
+                next_case = len(self.code.instructions)
+                self.patch(failed, next_case)
+                if guard_failed is not None:
+                    self.patch(guard_failed, next_case)
+            end = len(self.code.instructions)
+            for jump in end_jumps:
+                self.patch(jump, end)
         elif kind == "while":
             loop_start = len(self.code.instructions)
             breaks: list[int] = []
@@ -316,10 +477,17 @@ class Compiler:
             if not self.loop_stack:
                 raise BytecodeUnsupported("continue outside a loop")
             self.loop_stack[-1][1].append(self.emit("JUMP", None))
-        elif kind == "fn":
+        elif kind in {"fn", "async_fn"}:
             params = stmt[2]
             child = Compiler(self.source_path)
-            child.code = CodeObject(stmt[1], params=params, source_path=self.source_path)
+            child.code = CodeObject(
+                stmt[1],
+                params=params,
+                source_path=self.source_path,
+                ast_body=stmt[3],
+                is_async=kind == "async_fn",
+                is_generator=contains_yield(stmt[3]),
+            )
             child.source_lines = self.source_lines
             child.scan_line = self.scan_line
             for body_stmt in stmt[3]:
@@ -338,7 +506,14 @@ class Compiler:
             method_codes = []
             for method in stmt[3]:
                 child = Compiler(self.source_path)
-                child.code = CodeObject(f"{stmt[1]}.{method[1]}", params=method[2], source_path=self.source_path)
+                child.code = CodeObject(
+                    f"{stmt[1]}.{method[1]}",
+                    params=method[2],
+                    source_path=self.source_path,
+                    ast_body=method[3],
+                    is_async=method[0] == "async_fn",
+                    is_generator=contains_yield(method[3]),
+                )
                 child.source_lines = self.source_lines
                 child.scan_line = max(self.scan_line, method[4])
                 for body_stmt in method[3]:
@@ -378,10 +553,6 @@ class Compiler:
 
     def expression(self, expr: Any) -> None:
         kind = expr[0]
-        if kind == "await":
-            raise BytecodeUnsupported(
-                "await is supported by the stable interpreter, not the experimental VM yet"
-            )
         if kind == "literal":
             self.emit("LOAD_CONST", expr[1])
         elif kind == "var":
@@ -446,6 +617,33 @@ class Compiler:
             self.emit("CALL_EX", None, expr[4], expr[5])
         elif kind == "super":
             self.emit("LOAD_SUPER_METHOD", expr[1])
+        elif kind == "await":
+            self.expression(expr[1])
+            self.emit("AWAIT")
+        elif kind == "is_type":
+            self.expression(expr[1])
+            self.emit("TYPE_IS", expr[2])
+        elif kind == "list_comp":
+            self.expression(expr[3])
+            self.emit(
+                "LIST_COMP",
+                (
+                    expr[2],
+                    self.expression_code(expr[1], "<list-comp-value>"),
+                    self.expression_code(expr[4], "<list-comp-if>") if expr[4] is not None else None,
+                ),
+            )
+        elif kind == "dict_comp":
+            self.expression(expr[4])
+            self.emit(
+                "DICT_COMP",
+                (
+                    expr[3],
+                    self.expression_code(expr[1], "<dict-comp-key>"),
+                    self.expression_code(expr[2], "<dict-comp-value>"),
+                    self.expression_code(expr[5], "<dict-comp-if>") if expr[5] is not None else None,
+                ),
+            )
         else:
             raise BytecodeUnsupported(f"Expression '{kind}' is not supported by the experimental VM yet")
 
@@ -460,6 +658,7 @@ class BytecodeVM:
         debug_controller: Any = None,
     ):
         self.interpreter = Interpreter(source_path=source_path, argv=argv or [], module_search_paths=module_search_paths_for(source_path))
+        self.interpreter._bytecode_vm = self
         self.globals = self.interpreter.globals
         self.stack: list[Any] = []
         self.ip = 0
@@ -473,6 +672,18 @@ class BytecodeVM:
         self.source_cache: dict[str, list[str]] = {}
         self.debug_controller = debug_controller
         self.debug_frames: list[DebugFrame] = []
+        self.execution_lock = threading.RLock()
+        self.module_cache: dict[str, SproutModule] = {}
+
+    def fork(self, source_path: str | None = None) -> "BytecodeVM":
+        child = BytecodeVM(source_path or self.interpreter.source_path)
+        child.interpreter.globals = self.globals
+        child.interpreter.env = self.globals
+        child.interpreter.module_search_paths = list(self.interpreter.module_search_paths)
+        child.interpreter._bytecode_vm = child
+        child.globals = self.globals
+        child.module_cache = self.module_cache
+        return child
 
     def run(self, code: CodeObject) -> Any:
         env = Env(self.globals, is_scope_boundary=True)
@@ -538,6 +749,75 @@ class BytecodeVM:
             self.ip = previous_ip
             self.current_code = previous_code
             self.handlers = previous_handlers
+
+    def resume_generator(
+        self,
+        code: CodeObject,
+        env: Env,
+        state: GeneratorFrameState,
+    ) -> Yielded | None:
+        if state.done:
+            return None
+        with self.execution_lock:
+            previous_stack = self.stack
+            previous_ip = self.ip
+            previous_code = self.current_code
+            previous_handlers = self.handlers
+            self.stack = state.stack
+            self.ip = state.ip
+            self.current_code = code
+            self.handlers = state.handlers
+            current_env = state.env or env
+            frame = DebugFrame(code, current_env)
+            self.debug_frames.append(frame)
+            try:
+                instructions = code.instructions
+                while self.ip < len(instructions):
+                    instr = instructions[self.ip]
+                    self.ip += 1
+                    frame.instruction = instr
+                    frame.ip = self.ip - 1
+                    self.instruction_count += 1
+                    if self.debug_controller is not None:
+                        self.debug_controller.before_instruction(self, instr, env)
+                    try:
+                        result = self.execute(instr, current_env)
+                    except (SproutRaised, SproutError) as exc:
+                        if not self.handlers:
+                            raise
+                        handler_ip, name, handler_env, stack_len = self.handlers.pop()
+                        del self.stack[stack_len:]
+                        handler_env.define(name, exc.value if isinstance(exc, SproutRaised) else str(exc))
+                        self.ip = handler_ip
+                        current_env = handler_env
+                        frame.env = current_env
+                        continue
+                    if isinstance(result, Yielded):
+                        state.stack = self.stack
+                        state.ip = self.ip
+                        state.handlers = self.handlers
+                        state.env = current_env
+                        return result
+                    if instr.op in {"RETURN", "HALT"}:
+                        state.done = True
+                        return None
+                state.done = True
+                return None
+            except SproutError as exc:
+                instr = code.instructions[self.ip - 1] if code.instructions and self.ip else None
+                if instr and instr.source and instr.line:
+                    exc.path = exc.path or instr.source
+                    exc.line = exc.line or instr.line
+                    exc.col = exc.col or instr.col
+                    exc.add_frame(f"at {code.name} ({self.location_label(instr)})")
+                state.done = True
+                raise
+            finally:
+                self.debug_frames.pop()
+                self.stack = previous_stack
+                self.ip = previous_ip
+                self.current_code = previous_code
+                self.handlers = previous_handlers
 
     def location_label(self, instr: Instruction) -> str:
         path = instr.source or "<unknown>"
@@ -611,6 +891,9 @@ class BytecodeVM:
             for i in range(0, len(values), 2):
                 out[values[i]] = values[i + 1]
             self.stack.append(out)
+        elif op == "MAKE_ENUM":
+            name, variants = instr.arg
+            self.stack.append(SproutEnum(name, variants))
         elif op == "GET_INDEX":
             index = self.pop()
             obj = self.pop()
@@ -676,6 +959,22 @@ class BytecodeVM:
         elif op == "JUMP_IF_TRUE":
             if truthy(self.stack[-1]):
                 self.ip = instr.arg
+        elif op == "JUMP_IF_FALSE_POP":
+            value = self.pop()
+            if not truthy(value):
+                self.ip = instr.arg
+        elif op == "JUMP_IF_NONE":
+            if self.stack[-1] is None:
+                self.pop()
+                self.ip = instr.arg
+        elif op == "MATCH_PATTERN":
+            self.stack.append(match_pattern(instr.arg, self.pop()))
+        elif op == "APPLY_BINDINGS":
+            bindings = self.pop()
+            if not isinstance(bindings, dict):
+                raise SproutError("Internal pattern binding failure")
+            for name, value in bindings.items():
+                env.assign(name, value)
         elif op == "ITER_START":
             self.stack.append(iter(iterable_values(self.pop())))
         elif op == "ITER_NEXT":
@@ -684,6 +983,16 @@ class BytecodeVM:
                 self.stack.append(next(iterator))
             except StopIteration:
                 self.ip = instr.arg
+        elif op == "ASYNC_ITER_START":
+            stream = self.pop()
+            self.stack.append(stream)
+        elif op == "ASYNC_ITER_NEXT":
+            item = async_next(self.stack[-1])
+            from .application import StreamEnd
+            if item is StreamEnd:
+                self.ip = instr.arg
+            else:
+                self.stack.append(item)
         elif op == "MAKE_FUNCTION":
             name, code = instr.arg
             self.stack.append(VMFunction(name, code, env))
@@ -714,7 +1023,7 @@ class BytecodeVM:
             self.stack.append(VMBoundMethod(method, instance))
         elif op == "IMPORT_SPROUT":
             path, alias = instr.arg
-            self.stack.append(self.interpreter.import_sprout(path, alias))
+            self.stack.append(self.import_sprout(path, alias))
         elif op == "IMPORT_PYTHON":
             self.stack.append(self.interpreter.import_python(instr.arg))
         elif op == "BUILD_ARGS":
@@ -765,8 +1074,47 @@ class BytecodeVM:
                 del self.stack[-argc:]
             callee = self.globals.get(name)
             self.stack.append(call_value(self, callee, list(args), {}))
+        elif op == "AWAIT":
+            task = self.pop()
+            if not isinstance(task, TaskFuture):
+                raise SproutError("await expects an async task")
+            self.stack.append(task.result())
+        elif op == "TYPE_IS":
+            self.stack.append(value_matches_type(self.pop(), instr.arg))
+        elif op == "LIST_COMP":
+            name, value_code, condition_code = instr.arg
+            iterable = iterable_values(self.pop())
+            output = []
+            for item in iterable:
+                local = Env(env)
+                local.define(name, item)
+                if condition_code is None or truthy(self.run_code(condition_code, local)):
+                    output.append(self.run_code(value_code, local))
+            self.stack.append(output)
+        elif op == "DICT_COMP":
+            name, key_code, value_code, condition_code = instr.arg
+            iterable = iterable_values(self.pop())
+            output = {}
+            for item in iterable:
+                local = Env(env)
+                local.define(name, item)
+                if condition_code is None or truthy(self.run_code(condition_code, local)):
+                    output[self.run_code(key_code, local)] = self.run_code(value_code, local)
+            self.stack.append(output)
+        elif op == "ENTER_TASKGROUP":
+            group = StructuredTaskGroup(
+                lambda callable_value, args: submit_task(lambda: call_value(self, callable_value, args, {}))
+            )
+            env.assign(instr.arg, group)
+        elif op == "EXIT_TASKGROUP":
+            group = env.get(instr.arg)
+            if not isinstance(group, StructuredTaskGroup):
+                raise SproutError("Invalid VM task group")
+            group.wait()
         elif op == "RETURN":
             return self.pop()
+        elif op == "YIELD":
+            return Yielded(self.pop())
         elif op == "TRY_START":
             handler_ip, name = instr.arg
             self.handlers.append((handler_ip, name, Env(env), len(self.stack)))
@@ -775,11 +1123,49 @@ class BytecodeVM:
                 self.handlers.pop()
         elif op == "RAISE":
             raise SproutRaised(self.pop())
+        elif op == "EXEC_AST":
+            previous = self.interpreter.env
+            self.interpreter.env = env
+            try:
+                self.interpreter.execute(instr.arg)
+            finally:
+                self.interpreter.env = previous
+        elif op == "EVAL_AST":
+            previous = self.interpreter.env
+            self.interpreter.env = env
+            try:
+                self.stack.append(self.interpreter.evaluate(instr.arg))
+            finally:
+                self.interpreter.env = previous
         elif op == "HALT":
             return None
         else:
             raise SproutError(f"Unknown VM instruction {op}")
         return None
+
+    def import_sprout(self, path: str, alias: str) -> SproutModule:
+        base = os.path.dirname(self.current_code.source_path) if self.current_code and self.current_code.source_path else self.interpreter.current_dir
+        candidates = [path if os.path.isabs(path) else os.path.join(base, path)]
+        if not os.path.isabs(path):
+            candidates.extend(os.path.join(search, path) for search in self.interpreter.module_search_paths)
+        resolved = next((candidate for candidate in candidates if os.path.exists(candidate)), candidates[0])
+        if not resolved.endswith(".sprout"):
+            resolved += ".sprout"
+        resolved = os.path.abspath(resolved)
+        if resolved in self.module_cache:
+            return self.module_cache[resolved]
+        try:
+            with open(resolved, "r", encoding="utf-8") as handle:
+                source = handle.read()
+        except OSError as exc:
+            raise SproutError(f"Could not import Sprout module '{path}': {exc}") from None
+        env = Env(self.globals, is_scope_boundary=True)
+        module = SproutModule(alias, resolved, env)
+        self.module_cache[resolved] = module
+        code = compile_source(source, resolved)
+        with self.execution_lock:
+            self.run_code(code, env)
+        return module
 
 
 def call_value(vm: BytecodeVM, callee: Any, args: list[Any], kwargs: dict[str, Any]) -> Any:
@@ -857,17 +1243,36 @@ def disassemble(code: CodeObject) -> str:
             _class_name, methods = instr.arg
             for _method_name, child in methods:
                 lines.append(indent(disassemble(child)))
+        elif instr.op == "LIST_COMP":
+            _name, value_code, condition_code = instr.arg
+            lines.append(indent(disassemble(value_code)))
+            if condition_code is not None:
+                lines.append(indent(disassemble(condition_code)))
+        elif instr.op == "DICT_COMP":
+            _name, key_code, value_code, condition_code = instr.arg
+            lines.append(indent(disassemble(key_code)))
+            lines.append(indent(disassemble(value_code)))
+            if condition_code is not None:
+                lines.append(indent(disassemble(condition_code)))
     return "\n".join(lines)
 
 
 def format_arg(arg: Any) -> str:
     if isinstance(arg, CodeObject):
         return f"<code {arg.name}>"
+    if isinstance(arg, tuple) and len(arg) == 3 and all(item is None or isinstance(item, CodeObject) for item in arg[1:]):
+        return f"{arg[0]} value=<code {arg[1].name}>" + (f" if=<code {arg[2].name}>" if arg[2] else "")
+    if isinstance(arg, tuple) and len(arg) == 4 and all(item is None or isinstance(item, CodeObject) for item in arg[1:]):
+        text = f"{arg[0]} key=<code {arg[1].name}> value=<code {arg[2].name}>"
+        return text + (f" if=<code {arg[3].name}>" if arg[3] else "")
     if isinstance(arg, tuple) and len(arg) == 2 and isinstance(arg[1], CodeObject):
         return f"{arg[0]} <code {arg[1].name}>"
     if isinstance(arg, tuple) and len(arg) == 2 and isinstance(arg[1], list):
-        names = ",".join(name for name, _code in arg[1])
-        return f"{arg[0]} methods={names}"
+        if all(isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], CodeObject) for item in arg[1]):
+            names = ",".join(name for name, _code in arg[1])
+            return f"{arg[0]} methods={names}"
+        names = ",".join(str(item[0]) for item in arg[1] if isinstance(item, tuple) and item)
+        return f"{arg[0]} variants={names}"
     if isinstance(arg, tuple) and len(arg) == 2 and isinstance(arg[0], str):
         return f"{arg[0]} {arg[1]}"
     if isinstance(arg, str):

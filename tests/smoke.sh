@@ -90,6 +90,7 @@ python3 tests/application.py >/tmp/sprout_application_tests.out
 python3 tests/ecosystem.py >/tmp/sprout_ecosystem_tests.out
 python3 tests/standalone.py >/tmp/sprout_standalone_tests.out
 python3 tests/async_language.py >/tmp/sprout_async_language_tests.out
+python3 tests/advanced_language.py >/tmp/sprout_advanced_language_tests.out
 python3 tests/quality.py >/tmp/sprout_quality_tests.out
 python3 tests/security.py >/tmp/sprout_security_tests.out
 python3 tests/typesystem.py >/tmp/sprout_typesystem_tests.out
@@ -210,7 +211,7 @@ grep -q "super status: Mina @(3,2) hp=13" /tmp/sprout_super.out
 grep -q "super error: Superclass Base has no method 'nope'" /tmp/sprout_super_errors.out
 grep -q "Tic-Tac-Toe" /tmp/sprout_tictactoe.out
 grep -q "Player X wins!" /tmp/sprout_tictactoe.out
-grep -q "function count: 175" /tmp/sprout_stdlib100.out
+grep -q "function count: 183" /tmp/sprout_stdlib100.out
 grep -q "stdlib ok" /tmp/sprout_stdlib100.out
 grep -q "step: 3 3" /tmp/sprout_geom2d.out
 grep -q "distance: 7" /tmp/sprout_geom2d.out
@@ -246,7 +247,7 @@ grep -q "ok .*examples/window2d_demo.sprout" /tmp/sprout_window2d_check.out
 grep -q "ok .*examples/panda3d_window_demo.sprout" /tmp/sprout_panda3d_check.out
 grep -q "ok .*examples/modules/window2d.sprout" /tmp/sprout_window2d_module_check.out
 grep -q "ok .*examples/modules/panda3d_window.sprout" /tmp/sprout_panda3d_module_check.out
-grep -q "175 functions" /tmp/sprout_stdlib_cmd.out
+grep -q "183 functions" /tmp/sprout_stdlib_cmd.out
 grep -q "^json_parse$" /tmp/sprout_stdlib_cmd.out
 grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out

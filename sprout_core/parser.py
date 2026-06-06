@@ -27,6 +27,18 @@ class Parser:
             expr = self.expression()
             self.terminator("Expected a line ending after variable declaration")
             return ("let", name.value, expr, annotation, name.line, name.col)
+        if (
+            self.check("IDENT")
+            and self.peek().value == "type"
+            and self.peek_next().kind == "IDENT"
+        ):
+            self.i += 1
+            name = self.consume("IDENT", "Expected type alias name")
+            type_params = self.type_parameters()
+            self.consume("=", "Expected '=' after type alias name")
+            annotation = self.type_annotation()
+            self.terminator("Expected a line ending after type alias")
+            return ("type_alias", name.value, type_params, annotation, name.line, name.col)
         if self.match("IMPORTPYTHON"):
             if self.match("STRING"):
                 module_name = self.previous().value
@@ -53,6 +65,8 @@ class Parser:
             name = self.consume("STRING", "Expected test name string after test")
             return ("test", name.value, self.block(), token.line, token.col)
         if self.match("ASYNC"):
+            if self.match("FOR"):
+                return self.async_for_stmt()
             self.consume_any(("FN", "DEF", "BLOOM"), "Expected def, fn, or bloom after async")
             return self.function_decl(async_function=True)
         if self.match("FN", "DEF", "BLOOM"):
@@ -63,8 +77,12 @@ class Parser:
             return ("taskgroup", name.value, self.block(), token.line, token.col)
         if self.match("CLASS"):
             return self.class_decl()
+        if self.match("ENUM"):
+            return self.enum_decl()
         if self.match("INTERFACE"):
             return self.interface_decl()
+        if self.match("MATCH"):
+            return self.match_stmt()
         if self.match("IF"):
             return self.if_stmt()
         if self.match("WHILE", "WHIRL"):
@@ -87,6 +105,11 @@ class Parser:
             expr = None if self.at_statement_end() else self.expression()
             self.terminator("Expected a line ending after return")
             return ("return", expr)
+        if self.match("YIELD"):
+            token = self.previous()
+            expr = None if self.at_statement_end() else self.expression()
+            self.terminator("Expected a line ending after yield")
+            return ("yield", expr, token.line, token.col)
         if self.match("SAY"):
             args = []
             if not self.at_statement_end():
@@ -174,14 +197,32 @@ class Parser:
         return names
 
     def type_annotation(self) -> Any:
+        return self.union_type_annotation()
+
+    def union_type_annotation(self) -> Any:
+        first = self.named_type_annotation()
+        members = [first]
+        while self.match("|"):
+            members.append(self.named_type_annotation())
+        if len(members) == 1:
+            if self.match("?"):
+                nil = ("type", "Nil", [], first[3], first[4])
+                return ("union", [first, nil], first[3], first[4])
+            return first
+        return ("union", members, first[3], first[4])
+
+    def named_type_annotation(self) -> Any:
         token = self.consume("IDENT", "Expected type name")
+        parts = [token.value]
+        while self.match("."):
+            parts.append(self.consume("IDENT", "Expected type name after '.'").value)
         arguments = []
         if self.match("["):
             arguments.append(self.type_annotation())
             while self.match(","):
                 arguments.append(self.type_annotation())
             self.consume("]", "Expected ']' after type arguments")
-        return ("type", token.value, arguments, token.line, token.col)
+        return ("type", ".".join(parts), arguments, token.line, token.col)
 
     def seedfn_expr(self) -> Any:
         token = self.previous()
@@ -250,6 +291,89 @@ class Parser:
         self.block_end(style, "Expected end of interface body")
         return ("interface", name.value, type_params, methods, name.line, name.col)
 
+    def enum_decl(self) -> Any:
+        name = self.consume("IDENT", "Expected enum name")
+        type_params = self.type_parameters()
+        style = self.block_start("Expected enum body")
+        self.skip_newlines()
+        variants = []
+        while not self.block_done(style) and not self.check("EOF"):
+            variant = self.consume("IDENT", "Expected enum variant name")
+            fields = []
+            if self.match("("):
+                if not self.check(")"):
+                    while True:
+                        field = self.consume("IDENT", "Expected enum field name")
+                        annotation = self.type_annotation() if self.match(":") else None
+                        fields.append((field.value, annotation))
+                        if not self.match(","):
+                            break
+                self.consume(")", "Expected ')' after enum fields")
+            self.terminator("Expected a line ending after enum variant")
+            variants.append((variant.value, fields, variant.line, variant.col))
+            self.skip_newlines()
+        self.block_end(style, "Expected end of enum body")
+        if not variants:
+            raise SproutError(f"Enum '{name.value}' needs at least one variant at {name.line}:{name.col}")
+        return ("enum", name.value, type_params, variants, name.line, name.col)
+
+    def match_stmt(self) -> Any:
+        token = self.previous()
+        subject = self.expression()
+        style = self.block_start("Expected match body")
+        self.skip_newlines()
+        cases = []
+        while not self.block_done(style) and not self.check("EOF"):
+            case_token = self.consume("CASE", "Expected case in match block")
+            pattern = self.pattern()
+            guard = self.expression() if self.match("IF") else None
+            body = self.block()
+            cases.append((pattern, guard, body, case_token.line, case_token.col))
+            self.skip_newlines()
+        self.block_end(style, "Expected end of match body")
+        if not cases:
+            raise SproutError(f"match needs at least one case at {token.line}:{token.col}")
+        return ("match", subject, cases, token.line, token.col)
+
+    def pattern(self) -> Any:
+        if self.match("NUMBER", "STRING"):
+            token = self.previous()
+            return ("literal_pattern", token.value, token.line, token.col)
+        if self.match("TRUE", "FALSE", "NIL", "NONE"):
+            token = self.previous()
+            value = True if token.kind == "TRUE" else False if token.kind == "FALSE" else None
+            return ("literal_pattern", value, token.line, token.col)
+        if self.match("["):
+            items = []
+            rest = None
+            if not self.check("]"):
+                while True:
+                    if self.match("*"):
+                        rest = self.consume("IDENT", "Expected rest binding name").value
+                        break
+                    items.append(self.pattern())
+                    if not self.match(","):
+                        break
+            self.consume("]", "Expected ']' after array pattern")
+            return ("array_pattern", items, rest)
+        name = self.consume("IDENT", "Expected pattern")
+        if name.value == "_":
+            return ("wildcard_pattern", name.line, name.col)
+        path = [name.value]
+        while self.match("."):
+            path.append(self.consume("IDENT", "Expected variant name after '.'").value)
+        if len(path) > 1 or self.check("("):
+            args = []
+            if self.match("("):
+                if not self.check(")"):
+                    while True:
+                        args.append(self.pattern())
+                        if not self.match(","):
+                            break
+                self.consume(")", "Expected ')' after variant pattern")
+            return ("variant_pattern", path, args, name.line, name.col)
+        return ("binding_pattern", name.value, name.line, name.col)
+
     def if_stmt(self) -> Any:
         condition = self.expression()
         then_body = self.block()
@@ -275,6 +399,12 @@ class Parser:
         self.consume("IN", "Expected 'in' after loop variable")
         iterable = self.expression()
         return ("for", name.value, iterable, self.block())
+
+    def async_for_stmt(self) -> Any:
+        name = self.consume("IDENT", "Expected async loop variable name")
+        self.consume("IN", "Expected 'in' after async loop variable")
+        iterable = self.expression()
+        return ("async_for", name.value, iterable, self.block())
 
     def try_stmt(self) -> Any:
         try_body = self.block()
@@ -357,10 +487,14 @@ class Parser:
 
     def comparison(self) -> Any:
         expr = self.term()
-        while self.match("<", "<=", ">", ">=", "IN"):
+        while self.match("<", "<=", ">", ">=", "IN", "IS"):
             op = self.previous().kind
             if op == "IN":
                 op = "in"
+            elif op == "IS":
+                annotation = self.type_annotation()
+                expr = ("is_type", expr, annotation)
+                continue
             expr = ("binary", op, expr, self.term())
         return expr
 
@@ -474,12 +608,23 @@ class Parser:
             items = []
             self.skip_newlines()
             if not self.check("]"):
+                first = self.expression()
+                if self.match("FOR"):
+                    name = self.consume("IDENT", "Expected comprehension variable name")
+                    self.consume("IN", "Expected 'in' in comprehension")
+                    iterable = self.expression()
+                    condition = self.expression() if self.match("IF") else None
+                    self.consume("]", "Expected ']' after comprehension")
+                    return ("list_comp", first, name.value, iterable, condition, name.line, name.col)
+                items.append(first)
                 while True:
-                    items.append(self.expression())
                     self.skip_newlines()
                     if not self.match(","):
                         break
                     self.skip_newlines()
+                    if self.check("]"):
+                        break
+                    items.append(self.expression())
             self.consume("]", "Expected ']' after array literal")
             return ("array", items)
         if self.match("{"):
@@ -492,6 +637,13 @@ class Parser:
                     self.consume(":", "Expected ':' between dictionary key and value")
                     self.skip_newlines()
                     value = self.expression()
+                    if not pairs and self.match("FOR"):
+                        name = self.consume("IDENT", "Expected comprehension variable name")
+                        self.consume("IN", "Expected 'in' in comprehension")
+                        iterable = self.expression()
+                        condition = self.expression() if self.match("IF") else None
+                        self.consume("}", "Expected '}' after dictionary comprehension")
+                        return ("dict_comp", key, value, name.value, iterable, condition, name.line, name.col)
                     pairs.append((key, value))
                     self.skip_newlines()
                     if not self.match(","):

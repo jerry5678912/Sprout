@@ -20,6 +20,7 @@ KEYWORDS = {
     "await",
     "break",
     "bloom",
+    "case",
     "catch",
     "class",
     "continue",
@@ -28,6 +29,7 @@ KEYWORDS = {
     "elif",
     "else",
     "end",
+    "enum",
     "extends",
     "false",
     "fn",
@@ -38,7 +40,9 @@ KEYWORDS = {
     "importpython",
     "in",
     "interface",
+    "is",
     "let",
+    "match",
     "nil",
     "none",
     "not",
@@ -56,6 +60,7 @@ KEYWORDS = {
     "try",
     "whirl",
     "while",
+    "yield",
 }
 
 

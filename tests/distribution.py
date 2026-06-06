@@ -45,7 +45,11 @@ def test_install_and_uninstall() -> None:
             capture_output=True,
             check=True,
         )
-        assert conformance.stdout.strip().endswith("7/7 conformance cases passed")
+        installed_manifest = json.loads(
+            (Path(data["runtime"]) / "sprout_core" / "conformance" / "manifest.json").read_text(encoding="utf-8")
+        )
+        count = len(installed_manifest["cases"])
+        assert conformance.stdout.strip().endswith(f"{count}/{count} conformance cases passed")
         assert uninstall_language(prefix=prefix) == 0
         assert not launcher.exists()
         assert not manifest.exists()

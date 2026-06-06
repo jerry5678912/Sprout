@@ -13,9 +13,12 @@ incremental semantic tooling, a persistent LSP, VS Code debugging, hosted packag
 infrastructure, standalone application bundles, structured async syntax,
 conformance/security gates, and optional gradual types.
 
-The ten milestones from this audit are complete. Remaining work is narrower:
-direct VM async execution, richer cross-module typing, additional language
-constructs, package signing/trust governance, and production hardening.
+The ten milestones from this audit are complete. A subsequent advanced-language
+milestone added enums, pattern matching, generators, comprehensions,
+cross-module union typing, asynchronous streams, and direct VM execution for
+those constructs. Remaining work is narrower: package signing/trust governance,
+deeper inference and protocols, native runtime performance, and production
+hardening.
 
 ## Capability Matrix
 
@@ -35,17 +38,21 @@ constructs, package signing/trust governance, and production hardening.
 | Builds, bundles, dependency resolution, and lockfiles | Exists |
 | Local and authenticated hosted package registries | Exists |
 | HTTP, SQLite, task, engineering, test, and game APIs | Exists |
-| Optional types, structural interfaces, and generics | Exists as gradual file-local checker |
-| Native `async` / `await` and structured task groups | Exists in stable interpreter; VM fallback |
-| Pattern matching, generators, and comprehensions | Missing |
+| Optional types, structural interfaces, unions, aliases, and generics | Exists as gradual project-aware checker |
+| Native `async` / `await`, async streams, and structured task groups | Exists in interpreter and VM |
+| Pattern matching, generators, and comprehensions | Exists |
 | Hosted authenticated package registry | Exists |
 | Automated CI, tagged releases, and language installer | Exists |
 
 ## Existing Capabilities
 
-The runtime exposes 175 callable global functions and 15 built-in dot methods. Major groups cover core values and I/O, collections, strings, dictionaries, files and JSON, math and statistics, random and time, testing, tasks, HTTP, SQLite, engineering, games, and graphics.
+The runtime exposes 183 callable global functions and 15 built-in dot methods. Major groups cover core values and I/O, collections, strings, dictionaries, files and JSON, math and statistics, random and time, testing, tasks, HTTP, SQLite, engineering, games, and graphics.
 
-The VM supports common expressions, variables, assignments, collections, calls, functions, loops, classes, methods, imports, Python interop, exceptions, `seedfn`, slices, slice assignment, inheritance, and `super`. Test declarations are accepted as ordinary-execution no-ops. Imported Sprout module bodies and the dedicated test runner still use stable interpreter infrastructure.
+The VM supports common expressions, variables, assignments, collections,
+calls, functions, loops, classes, methods, imports, Python interop, exceptions,
+`seedfn`, slices, inheritance, enums, pattern matching, generators,
+comprehensions, asynchronous functions/streams, and structured task groups.
+Test declarations are accepted as ordinary-execution no-ops.
 
 Tooling includes JSON diagnostics, safe formatting, practical lint warnings,
 incremental semantic completions, hover, definition, references, rename,
@@ -59,11 +66,10 @@ authenticated immutable publishing, local and hosted registries, and standalone
 
 ## Major Missing Capabilities
 
-- Direct VM execution for structured async functions and imported module bodies
 - Package signatures, publisher identity governance, and public trust policy
 - Additional debugger workflows such as logpoints, data breakpoints, and test coverage
-- Cross-module type inference, unions, aliases, narrowing, and overloads
-- Pattern matching, generators, and comprehensions
+- Deeper generic inference, overloads, protocols, and control-flow analysis
+- Native-code or lower-level VM performance beyond the Python-hosted runtime
 - Production-grade networking and third-party security auditing
 
 ## Top 10 Highest-Impact Future Milestones

@@ -1,0 +1,16 @@
+enum Result:
+  Ok(value: Int)
+  Error(message: String)
+
+def values(limit):
+  for value in range(limit):
+    yield value
+
+result = Result.Ok(4)
+match result:
+  case Result.Ok(value):
+    say value
+  case Result.Error(message):
+    say message
+
+say [value * 2 for value in values(4) if value > 1]

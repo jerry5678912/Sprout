@@ -15,9 +15,9 @@ ANY = ("type", "Any", [], 0, 0)
 NIL = ("type", "Nil", [], 0, 0)
 BUILTIN_TYPES = {
     "Any", "Nil", "Bool", "Int", "Float", "Number", "String",
-    "List", "Array", "Dict", "Task",
+    "List", "Array", "Dict", "Task", "Generator",
 }
-GENERIC_ARITY = {"List": 1, "Array": 1, "Dict": 2, "Task": 1}
+GENERIC_ARITY = {"List": 1, "Array": 1, "Dict": 2, "Task": 1, "Generator": 1}
 
 
 @dataclass
@@ -49,9 +49,37 @@ class InterfaceType:
     col: int
 
 
+@dataclass
+class EnumType:
+    name: str
+    variants: dict[str, list[tuple[str, Any]]]
+    type_params: list[str]
+    line: int
+    col: int
+
+
+@dataclass
+class AliasType:
+    name: str
+    type_params: list[str]
+    target: Any
+    line: int
+    col: int
+
+
+@dataclass
+class ModuleType:
+    path: str
+    checker: "TypeChecker"
+
+
 def type_name(annotation: Any) -> str:
     if annotation is None:
         return "Any"
+    if isinstance(annotation, ModuleType):
+        return f"module[{annotation.path}]"
+    if annotation[0] == "union":
+        return " | ".join(type_name(member) for member in annotation[1])
     name = str(annotation[1])
     arguments = annotation[2]
     if not arguments:
@@ -66,6 +94,14 @@ def same_type(left: Any, right: Any) -> bool:
 def compatible(actual: Any, expected: Any, type_vars: dict[str, Any] | None = None) -> bool:
     if expected is None or actual is None:
         return True
+    if isinstance(actual, ModuleType) or isinstance(expected, ModuleType):
+        return isinstance(actual, ModuleType) and isinstance(expected, ModuleType) and actual.path == expected.path
+    if actual[0] == "union" and expected[0] == "union":
+        return all(any(compatible(member, option, type_vars) for option in expected[1]) for member in actual[1])
+    if expected[0] == "union":
+        return any(compatible(actual, member, type_vars) for member in expected[1])
+    if actual[0] == "union":
+        return all(compatible(member, expected, type_vars) for member in actual[1])
     actual_name = type_name(actual)
     expected_name = type_name(expected)
     if actual_name == "Any" or expected_name == "Any":
@@ -76,7 +112,7 @@ def compatible(actual: Any, expected: Any, type_vars: dict[str, Any] | None = No
             variables[expected[1]] = actual
             return True
         return compatible(actual, variables[expected[1]], variables)
-    if actual_name == expected_name:
+    if actual_name == expected_name or actual_name.split(".")[-1] == expected_name.split(".")[-1]:
         return True
     if expected_name == "Number" and actual_name in {"Int", "Float"}:
         return True
@@ -97,19 +133,57 @@ def common_type(values: list[Any]) -> Any:
         return first
     if all(type_name(item) in {"Int", "Float", "Number"} for item in values):
         return ("type", "Number", [], 0, 0)
-    return ANY
+    members = []
+    seen = set()
+    for value in values:
+        key = type_name(value)
+        if key not in seen:
+            seen.add(key)
+            members.append(value)
+    return ("union", members, 0, 0) if len(members) > 1 else ANY
+
+
+def statements_contain_yield(statements: list[Any]) -> bool:
+    for stmt in statements:
+        kind = stmt[0]
+        if kind == "yield":
+            return True
+        if kind == "if" and (statements_contain_yield(stmt[2]) or statements_contain_yield(stmt[3])):
+            return True
+        if kind in {"while", "for", "async_for"} and statements_contain_yield(stmt[-1]):
+            return True
+        if kind == "try" and (statements_contain_yield(stmt[1]) or statements_contain_yield(stmt[3])):
+            return True
+        if kind == "taskgroup" and statements_contain_yield(stmt[2]):
+            return True
+        if kind == "match" and any(statements_contain_yield(case[2]) for case in stmt[2]):
+            return True
+    return False
 
 
 class TypeChecker:
-    def __init__(self, path: str):
+    def __init__(self, path: str, module_cache: dict[str, "TypeChecker"] | None = None):
         self.path = path
         self.diagnostics: list[Diagnostic] = []
         self.functions: dict[str, FunctionType] = {}
         self.classes: dict[str, ClassType] = {}
         self.interfaces: dict[str, InterfaceType] = {}
+        self.enums: dict[str, EnumType] = {}
+        self.aliases: dict[str, AliasType] = {}
+        self.modules: dict[str, ModuleType] = {}
+        self.global_env: dict[str, Any] = {}
+        self.yield_types: list[Any] = []
+        self.module_cache = module_cache if module_cache is not None else {}
+        self.module_cache[os.path.abspath(path)] = self
 
     def error(self, message: str, line: int = 1, col: int = 1, code: str = "SPROUT_TYPE") -> None:
         self.diagnostics.append(Diagnostic("error", message, self.path, line, col, code))
+
+    def warning(self, message: str, line: int = 1, col: int = 1, code: str = "SPROUT_TYPE_WARNING") -> None:
+        self.diagnostics.append(Diagnostic("warning", message, self.path, line, col, code))
+
+    def is_compatible(self, actual: Any, expected: Any, type_vars: dict[str, Any] | None = None) -> bool:
+        return compatible(self.expand_alias(actual), self.expand_alias(expected), type_vars)
 
     def collect(self, program: list[Any]) -> None:
         for stmt in program:
@@ -139,12 +213,99 @@ class TypeChecker:
                     for method in stmt[3]
                 }
                 self.interfaces[stmt[1]] = InterfaceType(stmt[1], methods, stmt[2], stmt[4], stmt[5])
+            elif kind == "enum":
+                self.enums[stmt[1]] = EnumType(
+                    stmt[1],
+                    {variant[0]: variant[1] for variant in stmt[3]},
+                    stmt[2],
+                    stmt[4],
+                    stmt[5],
+                )
+            elif kind == "type_alias":
+                self.aliases[stmt[1]] = AliasType(stmt[1], stmt[2], stmt[3], stmt[4], stmt[5])
+            elif kind == "import":
+                self.collect_import(stmt[1], stmt[2])
+
+    def collect_import(self, import_path: str, alias: str) -> None:
+        requested = import_path if import_path.endswith(".sprout") else import_path + ".sprout"
+        candidates = [
+            requested if os.path.isabs(requested)
+            else os.path.join(os.path.dirname(os.path.abspath(self.path)), requested)
+        ]
+        if not os.path.isabs(requested):
+            try:
+                from .tooling import module_search_paths_for
+                candidates.extend(os.path.join(root, requested) for root in module_search_paths_for(self.path))
+            except Exception:
+                pass
+        resolved = os.path.abspath(next((item for item in candidates if os.path.isfile(item)), candidates[0]))
+        if not os.path.isfile(resolved):
+            self.error(f"Could not resolve imported module '{import_path}'", code="SPROUT_IMPORT")
+            return
+        checker = self.module_cache.get(resolved)
+        if checker is None:
+            try:
+                source = Path(resolved).read_text(encoding="utf-8")
+                program = Parser(Lexer(source).tokenize()).parse()
+            except (OSError, SproutError) as exc:
+                self.error(f"Could not analyze imported module '{import_path}': {exc}", code="SPROUT_IMPORT")
+                return
+            checker = TypeChecker(resolved, self.module_cache)
+            checker.collect(program)
+            checker.prepare_global_env(program)
+        self.modules[alias] = ModuleType(resolved, checker)
+
+    def substitute(self, annotation: Any, values: dict[str, Any]) -> Any:
+        if annotation is None or isinstance(annotation, ModuleType):
+            return annotation
+        if annotation[0] == "union":
+            return ("union", [self.substitute(item, values) for item in annotation[1]], annotation[2], annotation[3])
+        if annotation[1] in values:
+            return values[annotation[1]]
+        return (
+            "type",
+            annotation[1],
+            [self.substitute(item, values) for item in annotation[2]],
+            annotation[3],
+            annotation[4],
+        )
+
+    def expand_alias(self, annotation: Any) -> Any:
+        if annotation is None or isinstance(annotation, ModuleType):
+            return annotation
+        if annotation[0] == "union":
+            return ("union", [self.expand_alias(item) for item in annotation[1]], annotation[2], annotation[3])
+        alias = self.aliases.get(annotation[1])
+        if alias is None:
+            return (
+                "type",
+                annotation[1],
+                [self.expand_alias(item) for item in annotation[2]],
+                annotation[3],
+                annotation[4],
+            )
+        substitutions = dict(zip(alias.type_params, annotation[2]))
+        return self.expand_alias(self.substitute(alias.target, substitutions))
 
     def validate_annotation(self, annotation: Any, type_params: set[str]) -> None:
         if annotation is None:
             return
+        if annotation[0] == "union":
+            for member in annotation[1]:
+                self.validate_annotation(member, type_params)
+            return
         name, arguments, line, col = annotation[1], annotation[2], annotation[3], annotation[4]
-        known = BUILTIN_TYPES | set(self.classes) | set(self.interfaces) | type_params
+        if "." in name:
+            module_name, export_name = name.rsplit(".", 1)
+            module = self.modules.get(module_name)
+            if module is None:
+                self.error(f"Unknown module type prefix '{module_name}'", line, col, "SPROUT_UNKNOWN_TYPE")
+            elif export_name not in module.checker.classes and export_name not in module.checker.interfaces and export_name not in module.checker.enums and export_name not in module.checker.aliases:
+                self.error(f"Module '{module_name}' exports no type '{export_name}'", line, col, "SPROUT_UNKNOWN_TYPE")
+            for argument in arguments:
+                self.validate_annotation(argument, type_params)
+            return
+        known = BUILTIN_TYPES | set(self.classes) | set(self.interfaces) | set(self.enums) | set(self.aliases) | type_params
         if name not in known:
             self.error(f"Unknown type '{name}'", line, col, "SPROUT_UNKNOWN_TYPE")
         expected_arity = GENERIC_ARITY.get(name)
@@ -152,6 +313,10 @@ class TypeChecker:
             expected_arity = len(self.classes[name].type_params)
         elif name in self.interfaces:
             expected_arity = len(self.interfaces[name].type_params)
+        elif name in self.enums:
+            expected_arity = len(self.enums[name].type_params)
+        elif name in self.aliases:
+            expected_arity = len(self.aliases[name].type_params)
         if expected_arity is not None and len(arguments) != expected_arity:
             self.error(
                 f"Type '{name}' expects {expected_arity} type argument(s), got {len(arguments)}",
@@ -183,6 +348,16 @@ class TypeChecker:
             keys = common_type([self.infer(key, env) for key, _value in expr[1]])
             values = common_type([self.infer(value, env) for _key, value in expr[1]])
             return ("type", "Dict", [keys, values], 0, 0)
+        if kind == "list_comp":
+            local = dict(env)
+            iterable = self.infer(expr[3], env)
+            local[expr[2]] = self.iterable_item_type(iterable)
+            return ("type", "List", [self.infer(expr[1], local)], 0, 0)
+        if kind == "dict_comp":
+            local = dict(env)
+            iterable = self.infer(expr[4], env)
+            local[expr[3]] = self.iterable_item_type(iterable)
+            return ("type", "Dict", [self.infer(expr[1], local), self.infer(expr[2], local)], 0, 0)
         if kind == "unary":
             return ("type", "Bool", [], 0, 0) if expr[1] == "!" else self.infer(expr[2], env)
         if kind == "binary":
@@ -203,6 +378,9 @@ class TypeChecker:
         if kind == "await":
             task = self.infer(expr[1], env)
             return task[2][0] if task[1] == "Task" and task[2] else ANY
+        if kind == "is_type":
+            self.validate_annotation(expr[2], set())
+            return ("type", "Bool", [], 0, 0)
         if kind == "call":
             callee = expr[1]
             args = [self.infer(part[1], env) for part in expr[2] if part[0] == "value"]
@@ -239,8 +417,38 @@ class TypeChecker:
                         0,
                         0,
                     )
+            if callee[0] == "get" and callee[1][0] == "var":
+                owner_name = callee[1][1]
+                member_name = callee[2]
+                if owner_name in self.enums:
+                    enum = self.enums[owner_name]
+                    fields = enum.variants.get(member_name)
+                    if fields is not None:
+                        synthetic = FunctionType(
+                            f"{owner_name}.{member_name}",
+                            [(field, None, False, False) for field, _annotation in fields],
+                            {
+                                "parameter_types": dict(fields),
+                                "return_type": (
+                                    "type",
+                                    owner_name,
+                                    [("type", parameter, [], 0, 0) for parameter in enum.type_params],
+                                    0,
+                                    0,
+                                ),
+                                "type_params": enum.type_params,
+                            },
+                            expr[4],
+                            expr[5],
+                        )
+                        return self.check_call(synthetic, args, expr[4], expr[5])
+                module = self.modules.get(owner_name)
+                if module:
+                    return self.infer_module_call(module, member_name, args, expr[4], expr[5])
             if callee[0] == "get":
                 owner = self.infer(callee[1], env)
+                if isinstance(owner, ModuleType):
+                    return self.infer_module_call(owner, callee[2], args, expr[4], expr[5])
                 klass = self.classes.get(owner[1])
                 method = klass.methods.get(callee[2]) if klass else None
                 if method:
@@ -260,7 +468,90 @@ class TypeChecker:
                     )
                     return self.check_call(bound, args, expr[4], expr[5])
             return ANY
+        if kind == "get":
+            if expr[1][0] == "var" and expr[1][1] in self.enums:
+                enum = self.enums[expr[1][1]]
+                if expr[2] in enum.variants:
+                    return (
+                        "type",
+                        enum.name,
+                        [ANY for _parameter in enum.type_params],
+                        0,
+                        0,
+                    )
+            owner = self.infer(expr[1], env)
+            if isinstance(owner, ModuleType):
+                return owner.checker.export_type(expr[2])
+            return ANY
         return ANY
+
+    def iterable_item_type(self, annotation: Any) -> Any:
+        annotation = self.expand_alias(annotation)
+        if isinstance(annotation, ModuleType):
+            return ANY
+        if annotation[0] == "union":
+            return common_type([self.iterable_item_type(item) for item in annotation[1]])
+        if annotation[1] in {"List", "Array", "Generator"} and annotation[2]:
+            return annotation[2][0]
+        if annotation[1] == "Dict" and annotation[2]:
+            return annotation[2][0]
+        if annotation[1] == "String":
+            return ("type", "String", [], 0, 0)
+        return ANY
+
+    def export_type(self, name: str) -> Any:
+        if name in self.global_env:
+            return self.global_env[name]
+        if name in self.classes:
+            return ("type", name, [], 0, 0)
+        if name in self.enums:
+            return ("type", name, [], 0, 0)
+        return ANY
+
+    def infer_export_call(self, name: str, args: list[Any], line: int, col: int) -> Any:
+        if name in self.functions:
+            return self.check_call(self.functions[name], args, line, col)
+        if name in self.classes:
+            return ("type", name, [], 0, 0)
+        return ANY
+
+    def infer_module_call(
+        self,
+        module: ModuleType,
+        name: str,
+        args: list[Any],
+        line: int,
+        col: int,
+    ) -> Any:
+        before = len(module.checker.diagnostics)
+        result = module.checker.infer_export_call(name, args, line, col)
+        for diagnostic in module.checker.diagnostics[before:]:
+            self.diagnostics.append(
+                Diagnostic(
+                    diagnostic.severity,
+                    diagnostic.message,
+                    self.path,
+                    line,
+                    col,
+                    diagnostic.code,
+                )
+            )
+        del module.checker.diagnostics[before:]
+        return result
+
+    def prepare_global_env(self, program: list[Any]) -> dict[str, Any]:
+        env: dict[str, Any] = {
+            **{name: ("type", name, [], 0, 0) for name in self.classes},
+            **{name: ("type", name, [], 0, 0) for name in self.enums},
+            **self.modules,
+        }
+        for stmt in program:
+            if stmt[0] == "let":
+                env[stmt[1]] = stmt[3] or self.infer(stmt[2], env)
+            elif stmt[0] == "assign" and stmt[1][0] == "var":
+                env.setdefault(stmt[1][1], self.infer(stmt[2], env))
+        self.global_env = env
+        return env
 
     def check_call(self, function: FunctionType, args: list[Any], line: int, col: int) -> Any:
         metadata = function.metadata or {}
@@ -278,14 +569,16 @@ class TypeChecker:
         }
         for actual, param in zip(args, fixed):
             expected = annotations.get(param[0])
-            if expected is not None and not compatible(actual, expected, substitutions):
+            if expected is not None and not self.is_compatible(actual, expected, substitutions):
                 self.error(
                     f"Argument '{param[0]}' expects {type_name(expected)}, got {type_name(actual)}",
                     line, col, "SPROUT_ARGUMENT_TYPE",
                 )
         result = metadata.get("return_type") or ANY
-        if result[1] in substitutions and substitutions[result[1]] is not None:
-            result = substitutions[result[1]]
+        result = self.substitute(
+            result,
+            {name: value or ANY for name, value in substitutions.items()},
+        )
         if function.async_function:
             return ("type", "Task", [result], 0, 0)
         return result
@@ -304,10 +597,39 @@ class TypeChecker:
             self.validate_annotation(annotation, type_params)
         expected_return = metadata.get("return_type")
         self.validate_annotation(expected_return, type_params)
+        is_generator = statements_contain_yield(body)
+        expected_yield = ANY
+        if is_generator and function.async_function:
+            self.error(
+                "Async generators are not supported yet; use stream_open() with async for",
+                function.line,
+                function.col,
+                "SPROUT_ASYNC_GENERATOR_UNSUPPORTED",
+            )
+        if is_generator and expected_return is not None:
+            expanded_return = self.expand_alias(expected_return)
+            if (
+                isinstance(expanded_return, ModuleType)
+                or expanded_return[0] != "type"
+                or expanded_return[1] != "Generator"
+                or len(expanded_return[2]) != 1
+            ):
+                self.error(
+                    f"Generator function '{function.name}' must return Generator[T]",
+                    function.line,
+                    function.col,
+                    "SPROUT_GENERATOR_RETURN_TYPE",
+                )
+            else:
+                expected_yield = expanded_return[2][0]
         env = dict(outer)
         for name, _default, _variadic, _kw_variadic in function.params:
             env[name] = parameter_types.get(name, ANY)
-        self.check_statements(body, env, expected_return)
+        self.yield_types.append(expected_yield if is_generator else None)
+        try:
+            self.check_statements(body, env, None if is_generator else expected_return)
+        finally:
+            self.yield_types.pop()
 
     def check_statements(self, statements: list[Any], env: dict[str, Any], expected_return: Any = None) -> None:
         for stmt in statements:
@@ -316,7 +638,7 @@ class TypeChecker:
                 actual = self.infer(stmt[2], env)
                 annotation = stmt[3] if len(stmt) > 3 else None
                 self.validate_annotation(annotation, set())
-                if annotation is not None and not compatible(actual, annotation):
+                if annotation is not None and not self.is_compatible(actual, annotation):
                     self.error(
                         f"Variable '{stmt[1]}' expects {type_name(annotation)}, got {type_name(actual)}",
                         stmt[4], stmt[5], "SPROUT_ASSIGNMENT_TYPE",
@@ -325,7 +647,7 @@ class TypeChecker:
             elif kind == "assign" and stmt[1][0] == "var":
                 actual = self.infer(stmt[2], env)
                 expected = env.get(stmt[1][1])
-                if expected is not None and not compatible(actual, expected):
+                if expected is not None and not self.is_compatible(actual, expected):
                     self.error(
                         f"Assignment to '{stmt[1][1]}' expects {type_name(expected)}, got {type_name(actual)}",
                         code="SPROUT_ASSIGNMENT_TYPE",
@@ -334,7 +656,7 @@ class TypeChecker:
                     env[stmt[1][1]] = actual
             elif kind == "return":
                 actual = NIL if stmt[1] is None else self.infer(stmt[1], env)
-                if expected_return is not None and not compatible(actual, expected_return):
+                if expected_return is not None and not self.is_compatible(actual, expected_return):
                     self.error(
                         f"Return expects {type_name(expected_return)}, got {type_name(actual)}",
                         code="SPROUT_RETURN_TYPE",
@@ -346,12 +668,19 @@ class TypeChecker:
                     self.infer(expr, env)
             elif kind == "if":
                 self.infer(stmt[1], env)
-                self.check_statements(stmt[2], dict(env), expected_return)
-                self.check_statements(stmt[3], dict(env), expected_return)
+                then_env = dict(env)
+                else_env = dict(env)
+                self.apply_narrowing(stmt[1], then_env, else_env)
+                self.check_statements(stmt[2], then_env, expected_return)
+                self.check_statements(stmt[3], else_env, expected_return)
             elif kind == "while":
                 self.infer(stmt[1], env)
                 self.check_statements(stmt[2], dict(env), expected_return)
             elif kind == "for":
+                loop_env = dict(env)
+                loop_env[stmt[1]] = ANY
+                self.check_statements(stmt[3], loop_env, expected_return)
+            elif kind == "async_for":
                 loop_env = dict(env)
                 loop_env[stmt[1]] = ANY
                 self.check_statements(stmt[3], loop_env, expected_return)
@@ -364,6 +693,120 @@ class TypeChecker:
                 group_env = dict(env)
                 group_env[stmt[1]] = ANY
                 self.check_statements(stmt[2], group_env, expected_return)
+            elif kind == "match":
+                subject_type = self.infer(stmt[1], env)
+                covered: set[str] = set()
+                wildcard = False
+                for pattern, guard, body, line, col in stmt[2]:
+                    case_env = dict(env)
+                    bindings, variant, catches_all = self.pattern_bindings(pattern, subject_type)
+                    case_env.update(bindings)
+                    if guard is not None:
+                        self.infer(guard, case_env)
+                    elif catches_all:
+                        wildcard = True
+                    elif variant:
+                        if variant in covered:
+                            self.warning(
+                                f"Duplicate match case for variant '{variant}'",
+                                line,
+                                col,
+                                "SPROUT_DUPLICATE_CASE",
+                            )
+                        covered.add(variant)
+                    self.check_statements(body, case_env, expected_return)
+                expanded = self.expand_alias(subject_type)
+                if not isinstance(expanded, ModuleType) and expanded[0] == "type" and expanded[1] in self.enums:
+                    missing = sorted(set(self.enums[expanded[1]].variants) - covered)
+                    if missing and not wildcard:
+                        self.error(
+                            f"Non-exhaustive match for {expanded[1]}; missing: {', '.join(missing)}",
+                            stmt[3],
+                            stmt[4],
+                            "SPROUT_NON_EXHAUSTIVE_MATCH",
+                        )
+            elif kind == "yield":
+                if not self.yield_types or self.yield_types[-1] is None:
+                    self.error(
+                        "yield may only be used inside a generator function",
+                        stmt[2],
+                        stmt[3],
+                        "SPROUT_YIELD_OUTSIDE_GENERATOR",
+                    )
+                    continue
+                actual = NIL if stmt[1] is None else self.infer(stmt[1], env)
+                expected = self.yield_types[-1]
+                if not self.is_compatible(actual, expected):
+                    self.error(
+                        f"Generator yield expects {type_name(expected)}, got {type_name(actual)}",
+                        stmt[2],
+                        stmt[3],
+                        "SPROUT_YIELD_TYPE",
+                    )
+
+    def apply_narrowing(self, condition: Any, then_env: dict[str, Any], else_env: dict[str, Any]) -> None:
+        if not isinstance(condition, tuple) or condition[0] != "is_type":
+            return
+        target, narrowed = condition[1], condition[2]
+        if target[0] != "var":
+            return
+        name = target[1]
+        then_env[name] = narrowed
+        current = self.expand_alias(else_env.get(name, ANY))
+        if not isinstance(current, ModuleType) and current[0] == "union":
+            remaining = [member for member in current[1] if not same_type(member, narrowed)]
+            if remaining:
+                else_env[name] = remaining[0] if len(remaining) == 1 else ("union", remaining, 0, 0)
+
+    def pattern_bindings(self, pattern: Any, subject: Any) -> tuple[dict[str, Any], str | None, bool]:
+        kind = pattern[0]
+        if kind == "wildcard_pattern":
+            return {}, None, True
+        if kind == "binding_pattern":
+            return {pattern[1]: subject}, None, True
+        if kind == "literal_pattern":
+            return {}, None, False
+        if kind == "array_pattern":
+            item_type = self.iterable_item_type(subject)
+            bindings: dict[str, Any] = {}
+            for child in pattern[1]:
+                child_bindings, _variant, _all = self.pattern_bindings(child, item_type)
+                bindings.update(child_bindings)
+            if pattern[2]:
+                bindings[pattern[2]] = ("type", "List", [item_type], 0, 0)
+            return bindings, None, False
+        if kind == "variant_pattern":
+            expanded = self.expand_alias(subject)
+            enum_name = pattern[1][-2] if len(pattern[1]) > 1 else (
+                expanded[1] if not isinstance(expanded, ModuleType) and expanded[0] == "type" else ""
+            )
+            variant_name = pattern[1][-1]
+            enum = self.enums.get(enum_name)
+            fields = enum.variants.get(variant_name, []) if enum else []
+            if enum is None:
+                self.error(
+                    f"Unknown enum in pattern '{'.'.join(pattern[1])}'",
+                    pattern[-2],
+                    pattern[-1],
+                    "SPROUT_PATTERN_TYPE",
+                )
+            elif len(fields) != len(pattern[2]):
+                self.error(
+                    f"Pattern {enum_name}.{variant_name} expects {len(fields)} field(s), got {len(pattern[2])}",
+                    pattern[-2],
+                    pattern[-1],
+                    "SPROUT_PATTERN_ARITY",
+                )
+            bindings = {}
+            substitutions = {}
+            if enum and not isinstance(expanded, ModuleType) and expanded[0] == "type":
+                substitutions = dict(zip(enum.type_params, expanded[2]))
+            for child, (_field, annotation) in zip(pattern[2], fields):
+                field_type = self.substitute(annotation or ANY, substitutions)
+                child_bindings, _variant, _all = self.pattern_bindings(child, field_type)
+                bindings.update(child_bindings)
+            return bindings, variant_name, False
+        return {}, None, False
 
     def check_interfaces(self) -> None:
         for klass in self.classes.values():
@@ -418,6 +861,12 @@ class TypeChecker:
 
     def check(self, program: list[Any]) -> list[Diagnostic]:
         self.collect(program)
+        for alias in self.aliases.values():
+            self.validate_annotation(alias.target, set(alias.type_params))
+        for enum in self.enums.values():
+            for fields in enum.variants.values():
+                for _field, annotation in fields:
+                    self.validate_annotation(annotation, set(enum.type_params))
         for interface in self.interfaces.values():
             local_types = set(interface.type_params)
             for method in interface.methods.values():
@@ -426,9 +875,7 @@ class TypeChecker:
                     self.validate_annotation(annotation, method_types)
                 self.validate_annotation(method.metadata.get("return_type"), method_types)
         self.check_interfaces()
-        global_env: dict[str, Any] = {
-            **{name: ("type", name, [], 0, 0) for name in self.classes},
-        }
+        global_env = self.prepare_global_env(program)
         for stmt in program:
             if stmt[0] in {"fn", "async_fn"}:
                 function = self.functions[stmt[1]]
@@ -443,7 +890,7 @@ class TypeChecker:
                         set(klass.type_params),
                     )
         self.check_statements(
-            [stmt for stmt in program if stmt[0] not in {"fn", "async_fn", "class", "interface"}],
+            [stmt for stmt in program if stmt[0] not in {"fn", "async_fn", "class", "interface", "enum", "type_alias"}],
             global_env,
         )
         return self.diagnostics

@@ -458,10 +458,49 @@ Annotations and interfaces are erased for execution, so the stable interpreter
 and experimental VM run the same program without runtime type overhead.
 
 Built-in types are `Any`, `Nil`, `Bool`, `Int`, `Float`, `Number`, `String`,
-`List[T]`/`Array[T]`, `Dict[K, V]`, and `Task[T]`. User classes and interfaces
-may also be used as annotation types. This first checker is intentionally
-gradual and file-local; it does not yet provide unions, aliases, narrowing, or
-cross-module generic inference.
+`List[T]`/`Array[T]`, `Dict[K, V]`, `Task[T]`, and `Generator[T]`. User classes,
+interfaces, enums, qualified imported types, union types such as `Int | String`,
+nullable shorthand such as `String?`, and generic aliases are supported. The
+checker follows Sprout imports, validates imported calls, narrows unions after
+`is` checks, and checks enum match exhaustiveness where the matched type is
+known. It remains gradual: unannotated or unresolved values become `Any`.
+
+## Advanced Language Features
+
+Sprout includes data-carrying enums, structural pattern matching, lazy
+generators, comprehensions, and asynchronous streams:
+
+```sprout
+type Maybe[T] = T | Nil
+
+enum Result[T]:
+  Ok(value: T)
+  Error(message: String)
+
+def numbers(limit: Int) -> Generator[Int]:
+  for value in range(limit):
+    yield value
+
+def describe(result: Result[Int]) -> String:
+  match result:
+    case Result.Ok(value) if value > 0:
+      return "ok " + str(value)
+    case Result.Ok(_):
+      return "zero"
+    case Result.Error(message):
+      return "error " + message
+
+squares = [value * value for value in numbers(8) if value % 2 == 0]
+```
+
+Patterns support enum variants, literals, bindings, `_`, guards, and array
+destructuring with a final `*rest`. Generator functions are lazy and expose
+`.next()` and `.collect()`. Dictionary comprehensions use
+`{key: value for item in iterable if condition}`.
+
+Async application helpers include `sleep_async`, async HTTP requests, async
+file reads/writes, cancellation tokens, message-queue receives, `stream_open`,
+and `async for`. These run in both the stable interpreter and experimental VM.
 
 ## Language Tour
 
@@ -523,7 +562,12 @@ end
 - `if` / `elif` / `else`
 - `while` / `whirl`
 - `for` / `each` loops over arrays, strings, ranges, and dictionary keys
+- `async for` loops over asynchronous streams
 - `break` and `continue`
+- Generic enums and guarded structural `match` / `case` patterns
+- Lazy generator functions with `yield`, `.next()`, and `.collect()`
+- List and dictionary comprehensions with optional filters
+- Gradual unions, nullable types, generic type aliases, imported types, and `is` narrowing
 - Recoverable errors with `try` / `catch`, `raise`, `ensure`, and `fail`
 - Uncaught runtime errors with Sprout call stacks
 - Native Sprout imports with `import "modules/gamekit.sprout" as game`
@@ -535,7 +579,7 @@ end
 - Built-ins: `say`, `print`, `len`, `push`, `range`, `str`, `int`, `num`, `type`, `keys`, `values`, `items`, `has`, `get`, `argv`, `ask`, `clear`, `ensure`, `fail`
 - Special Sprout helpers: `sparkle`, `whisper`, `shout`, `mirror`, `chant`, `weave`, `grow`, `plant`, `harvest`, `prune`, `sprinkle`, `bundle`, `first`, `last`, `rest`, `unique`, `countby`, `zipbud`, `dice`
 - Game helpers: `choose`, `clamp`, `wrap`, `dist`, `sleep`, `now`
-- Expanded standard library with `functions()` reporting 175 callable global functions
+- Expanded standard library with `functions()` reporting 183 callable global functions
 - PixelGarden terminal engine for fun ASCII 2D drawing, sprites, text, simple cameras, vectors, bounds, and collision checks
 - StarBloom3D terminal engine for fun ASCII 3D wireframe/solid software rendering
 - Window2D optional Pygame-backed module for real 2D windows
@@ -925,7 +969,7 @@ Sprout now covers a meaningful middle slice of Python:
 
 - Similar: dynamic typing, numbers, strings, lists, dictionaries, classes, inheritance, `super`, instances, methods, functions, default, keyword, variadic, keyword-rest, and spread-call arguments, returns, conditions, `elif`, loops, `break`, `continue`, recoverable errors, truthiness, indexing, slicing, calls, dot-style methods, command-line args, file I/O helpers, and multi-file programs.
 - Similar via bridge: Python standard-library modules can be imported with `importpython`.
-- Different: Sprout has its own garden-style `bloom` / `end` blocks, old-compatible brace blocks, and no comprehensions yet.
+- Different: Sprout has its own garden-style `bloom` / `end` blocks, old-compatible brace blocks, data-carrying enums, and explicit `match` blocks.
 
 Good next work includes conformance and fuzz testing, optional typed
 abstractions, signed packages, stronger sandboxing, and native single-file

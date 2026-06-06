@@ -150,7 +150,7 @@ class Lexer:
     def symbol(self) -> Token:
         line, col = self.line, self.col
         two = self.peek() + self.peek(1)
-        if two in {"==", "!=", "<=", ">=", "//", "**", "->"}:
+        if two in {"==", "!=", "<=", ">=", "//", "**", "->", "=>"}:
             self.advance()
             self.advance()
             return Token(two, two, line, col)
@@ -159,6 +159,6 @@ class Lexer:
             self.nesting += 1
         elif ch in ")}]":
             self.nesting = max(0, self.nesting - 1)
-        if ch in "+-*/%(){}[],:;.=<>!":
+        if ch in "+-*/%(){}[],:;.=<>!|?":
             return Token(ch, ch, line, col)
         raise SproutError(f"Unexpected character {ch!r} at {line}:{col}")

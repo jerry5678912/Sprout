@@ -47,7 +47,7 @@
       "patterns": [
         {
           "name": "meta.class.sprout",
-          "match": "\\b(class|interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(class|interface|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.control.class.sprout" },
             "2": { "name": "entity.name.type.class.sprout" }
@@ -90,7 +90,7 @@
       "patterns": [
         {
           "name": "keyword.control.sprout",
-          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|break|continue|return|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|interface|implements|extends|super|async|await|taskgroup)\\b"
+          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|is|break|continue|return|yield|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|interface|enum|match|case|implements|extends|super|async|await|taskgroup)\\b"
         },
         {
           "name": "storage.type.function.sprout",
@@ -114,7 +114,7 @@
         },
         {
           "name": "support.function.builtin.sprout",
-          "match": "\\b(print|len|push|range|str|int|num|type|keys|values|items|has|get|readfile|writefile|appendfile|exists|isfile|isdir|listdir|mkdir|readjson|writejson|py_available|py_import|lines|argv|ask|clear|ensure|fail|expect|functions|methods|task_spawn|task_after|task_wait_all|queue_open|http_get|http_post|http_request|http_server|sqlite_open|sqlite_exec|sqlite_query|sqlite_begin|sqlite_commit|sqlite_rollback|sqlite_close|vec_add|vec_sub|vec_dot|vec_magnitude|vec_normalize|mat_mul|unit_convert|interpolate|kinetic_energy|force|pressure|abs|acos|array|asin|atan|atan2|avg|basename|ceil|chars|chunks|compact|concat|contains|copy|cos|cwd|degrees|delkey|dict|dirname|drop|endswith|enumerate|exp|extname|fill|flatten|floor|frompairs|hypot|indexof|insert|is_array|is_bool|is_class|is_dict|is_empty|is_even|is_function|is_instance|is_nil|is_number|is_odd|is_string|join|joinpath|json_parse|json_stringify|log|log10|lower|ltrim|max|median|merge|min|omit|padleft|padright|pick|pow|radians|remove|repeat|replace|reverse|round|rtrim|sign|sin|slice|sort|sqrt|startswith|substr|sum|take|tan|title|trim|upper|words)\\b"
+          "match": "\\b(print|len|push|range|str|int|num|type|keys|values|items|has|get|readfile|writefile|readfile_async|writefile_async|appendfile|exists|isfile|isdir|listdir|mkdir|readjson|writejson|py_available|py_import|lines|argv|ask|clear|ensure|fail|expect|functions|methods|task_spawn|task_after|task_wait_all|queue_open|stream_open|cancel_token|sleep_async|http_get|http_post|http_request|http_get_async|http_post_async|http_request_async|http_server|sqlite_open|sqlite_exec|sqlite_query|sqlite_begin|sqlite_commit|sqlite_rollback|sqlite_close|vec_add|vec_sub|vec_dot|vec_magnitude|vec_normalize|mat_mul|unit_convert|interpolate|kinetic_energy|force|pressure|abs|acos|array|asin|atan|atan2|avg|basename|ceil|chars|chunks|compact|concat|contains|copy|cos|cwd|degrees|delkey|dict|dirname|drop|endswith|enumerate|exp|extname|fill|flatten|floor|frompairs|hypot|indexof|insert|is_array|is_bool|is_class|is_dict|is_empty|is_even|is_function|is_instance|is_nil|is_number|is_odd|is_string|join|joinpath|json_parse|json_stringify|log|log10|lower|ltrim|max|median|merge|min|omit|padleft|padright|pick|pow|radians|remove|repeat|replace|reverse|round|rtrim|sign|sin|slice|sort|sqrt|startswith|substr|sum|take|tan|title|trim|upper|words)\\b"
         }
       ]
     },
@@ -134,7 +134,7 @@
       "patterns": [
         {
           "name": "keyword.operator.sprout",
-          "match": "->|==|!=|<=|>=|//|\\*\\*|[+\\-*/%=<>!]"
+          "match": "->|=>|==|!=|<=|>=|//|\\*\\*|[+\\-*/%=<>!|?]"
         }
       ]
     }

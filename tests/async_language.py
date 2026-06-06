@@ -65,27 +65,26 @@ def test_taskgroup_waits_and_propagates_failure() -> None:
     assert failed.stdout.strip() == "true"
 
 
-def test_await_validation_and_vm_fallback() -> None:
+def test_await_validation_and_vm_execution() -> None:
     invalid = run_source("say await 3\n")
     assert invalid.returncode == 1
     assert "await expects an async task" in invalid.stderr
 
-    fallback = run_source(
+    vm = run_source(
         "async def value():\n"
         "  return 9\n"
         "say await value()\n",
         vm=True,
     )
-    assert fallback.returncode == 0
-    assert fallback.stdout.strip() == "9"
-    assert "VM fallback to stable interpreter" in fallback.stderr
-    assert "Structured async execution" in fallback.stderr
+    assert vm.returncode == 0
+    assert vm.stdout.strip() == "9"
+    assert "fallback" not in vm.stderr.lower()
 
 
 def main() -> int:
     test_async_await_and_methods()
     test_taskgroup_waits_and_propagates_failure()
-    test_await_validation_and_vm_fallback()
+    test_await_validation_and_vm_execution()
     print("sprout async language tests passed")
     return 0
 
