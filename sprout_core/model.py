@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 
-SPROUT_VERSION = "0.3.2"
+SPROUT_VERSION = "0.3.3"
 
 
 def standard_library_paths() -> list[str]:
