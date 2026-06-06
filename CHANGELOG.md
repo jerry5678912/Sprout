@@ -2,6 +2,11 @@
 
 ## 0.3.0
 
+- Added lexical-scope-aware semantic binding with stable symbol identities.
+- Made references and rename distinguish same-named locals and parameters in different functions.
+- Connected imported module member references to their exported definitions.
+- Added incremental in-memory workspace analysis with content and filesystem change detection.
+- Added language-server and adversarial semantic regression tests.
 - Added a cross-platform language installer, installation manifest, global launcher, and uninstall command.
 - Added deterministic Sprout language ZIP and self-contained VS Code VSIX artifacts.
 - Added Linux, macOS, and Windows CI plus tag-driven GitHub release automation.

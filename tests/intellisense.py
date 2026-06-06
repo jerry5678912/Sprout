@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -14,8 +15,10 @@ sys.path.insert(0, str(ROOT))
 from sprout_core.analysis import (
     build_workspace_index,
     member_completions,
+    references_at,
     signature_for,
     symbol_at,
+    symbol_at_position,
     top_level_completions,
 )
 
@@ -37,6 +40,13 @@ def test_project_module_exports() -> None:
     main = str(ROOT / "examples" / "project" / "src" / "main.sprout")
     assert {"make", "move"}.issubset(names(member_completions(index, main, "player")))
     assert {"vec2"}.issubset(names(member_completions(index, main, "vec")))
+    make = symbol_at_position(index, main, 4, 16, "make")
+    assert make is not None
+    refs = references_at(index, main, 4, 16, "make")
+    assert {(Path(ref.location.path).name, ref.location.line) for ref in refs} == {
+        ("player.sprout", 1),
+        ("main.sprout", 4),
+    }
 
 
 def test_hover_and_signature_data() -> None:
@@ -63,6 +73,87 @@ def test_python_module_members() -> None:
     source = ROOT / "examples" / "pythonlibs.sprout"
     index = build_workspace_index(str(source))
     assert "sqrt" in names(member_completions(index, str(source), "math"))
+
+
+def test_scope_aware_references_and_rename() -> None:
+    source = """def first(value):
+  local = value + 1
+  return local
+
+def second(value):
+  local = value + 2
+  return local
+
+say first(1), second(2)
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "scopes.sprout"
+        path.write_text(source, encoding="utf-8")
+        index = build_workspace_index(str(path))
+        first_value = symbol_at_position(index, str(path), 2, 12, "value")
+        second_value = symbol_at_position(index, str(path), 6, 12, "value")
+        assert first_value is not None and second_value is not None
+        assert first_value.symbol_id != second_value.symbol_id
+        first_refs = references_at(index, str(path), 2, 12, "value")
+        second_refs = references_at(index, str(path), 6, 12, "value")
+        assert {(ref.location.line, ref.location.col) for ref in first_refs} == {(1, 11), (2, 11)}
+        assert {(ref.location.line, ref.location.col) for ref in second_refs} == {(5, 12), (6, 11)}
+        edits = index.rename_edits("value", "amount", first_value.symbol_id)
+        assert len(edits[str(path.resolve())]) == 2
+
+
+def test_scope_aware_completions() -> None:
+    source = """outside = 1
+def calculate(input):
+  inside = input + outside
+  say inside
+
+say outside
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "complete.sprout"
+        path.write_text(source, encoding="utf-8")
+        index = build_workspace_index(str(path))
+        inside_names = names(top_level_completions(index, str(path), 4))
+        outside_names = names(top_level_completions(index, str(path), 6))
+        assert {"input", "inside", "outside", "calculate"}.issubset(inside_names)
+        assert "inside" not in outside_names
+        assert "input" not in outside_names
+
+
+def test_incremental_workspace_updates() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first = root / "first.sprout"
+        second = root / "second.sprout"
+        first.write_text('value = 1\nsay value\n', encoding="utf-8")
+        second.write_text('other = 2\nsay other\n', encoding="utf-8")
+        index = build_workspace_index(str(root))
+        initial_count = index.analysis_count
+        same_index = build_workspace_index(str(root), previous=index)
+        assert same_index is index
+        assert index.analysis_count == initial_count
+        changed = 'value = 3\nsay value\n'
+        build_workspace_index(str(root), {str(first.resolve()): changed}, previous=index)
+        assert index.analysis_count == initial_count + 1
+        assert index.files[str(first.resolve())].source == changed
+
+
+def test_reassignment_keeps_binding() -> None:
+    source = "score = 1\nscore = score + 1\nsay score\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "assignment.sprout"
+        path.write_text(source, encoding="utf-8")
+        index = build_workspace_index(str(path))
+        symbol = symbol_at_position(index, str(path), 3, 6, "score")
+        assert symbol is not None
+        refs = references_at(index, str(path), 3, 6, "score")
+        assert {(ref.location.line, ref.role) for ref in refs} == {
+            (1, "declaration"),
+            (2, "write"),
+            (2, "read"),
+            (3, "read"),
+        }
 
 
 def intel(kind: str, line: int, col: int) -> dict:
@@ -101,6 +192,10 @@ def main() -> int:
     test_hover_and_signature_data()
     test_references_and_rename_edits()
     test_python_module_members()
+    test_scope_aware_references_and_rename()
+    test_scope_aware_completions()
+    test_incremental_workspace_updates()
+    test_reassignment_keeps_binding()
     test_cli_intelligence_queries()
     print("sprout intellisense tests passed")
     return 0

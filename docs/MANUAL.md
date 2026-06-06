@@ -1779,6 +1779,10 @@ python3 tools/sprout_lsp.py
 ```
 
 The LSP foundation currently supports document parsing, diagnostics, semantic completions, hover information, go-to definition, find references, rename symbol, signature help, and document symbols.
+
+Semantic names are bound through lexical scopes rather than text matching alone. A parameter named `value` in one function is distinct from a parameter named `value` in another function. Definitions, references, and rename operations use stable symbol identities, including imported Sprout module members.
+
+The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. The cache is currently in memory and is rebuilt when the language-server process restarts.
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 
 Editor-style JSON queries are available through `intel`:

@@ -191,6 +191,10 @@ python3 sprout.py intel file.sprout --kind completions --line 20 --col 8
 
 There is also a stdio LSP foundation at `tools/sprout_lsp.py` with workspace diagnostics, semantic completions, hover, definition, references, rename, signature help, and document symbols.
 
+The semantic engine now uses lexical scopes and stable symbol identities. Parameters and local variables with the same spelling in different functions remain separate symbols, repeated assignments stay attached to their original binding, and imported module member references connect to their exported definitions. The language server keeps an in-memory workspace index and reanalyzes only files whose contents or filesystem signatures changed.
+
+This cache lasts for the language-server process. A persistent on-disk index is not implemented yet.
+
 ## Builds, Packages, And Templates
 
 Sprout 0.3 adds deterministic builds, portable `.sproutpkg` bundles, semantic-version constraints, lockfiles, and a local/JSON registry foundation.

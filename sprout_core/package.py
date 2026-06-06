@@ -222,6 +222,7 @@ def doctor() -> int:
         "tests/application.py",
         "tests/ecosystem.py",
         "tests/distribution.py",
+        "tests/lsp.py",
         "tools/package_vscode.py",
         "docs/ECOSYSTEM.md",
         "docs/CAPABILITY_AUDIT.md",

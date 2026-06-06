@@ -5,4 +5,5 @@
 - Improve dependency graph output and lockfile migration guarantees.
 - Expand VM compatibility and application packaging.
 - Add signed release artifacts and native application bundles.
-- Improve incremental semantic analysis and complete the editor/debugging workflow.
+- Add persistent workspace indexes, richer type inference, and control-flow analysis.
+- Complete the editor debugging, code-action, and testing workflow.

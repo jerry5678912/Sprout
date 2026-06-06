@@ -493,7 +493,14 @@ def call_before(source: str, line: int, col: int) -> str | None:
 
 
 def intelligence_file(path: str, kind: str, line: int, col: int, source_path: str | None = None) -> int:
-    from .analysis import build_workspace_index, member_completions, signature_for, symbol_at, top_level_completions
+    from .analysis import (
+        build_workspace_index,
+        member_completions,
+        references_at,
+        signature_for,
+        symbol_at_position,
+        top_level_completions,
+    )
 
     resolved = os.path.abspath(path)
     if source_path:
@@ -506,23 +513,25 @@ def intelligence_file(path: str, kind: str, line: int, col: int, source_path: st
 
     if kind == "completions":
         base = dotted_base_before(source, line, col)
-        symbols = member_completions(index, resolved, base) if base else top_level_completions(index, resolved)
+        symbols = member_completions(index, resolved, base) if base else top_level_completions(index, resolved, line)
         payload["base"] = base
         payload["items"] = [symbol.to_json() for symbol in symbols]
     elif kind == "hover":
         word = word_at_position(source, line, col)
-        symbol = symbol_at(index, resolved, word)
+        symbol = symbol_at_position(index, resolved, line, col, word)
         payload["word"] = word
         payload["symbol"] = symbol.to_json() if symbol else None
     elif kind == "definition":
         word = word_at_position(source, line, col)
-        symbol = symbol_at(index, resolved, word)
+        symbol = symbol_at_position(index, resolved, line, col, word)
         payload["word"] = word
         payload["definition"] = symbol.location.to_json() if symbol else None
     elif kind == "references":
         word = word_at_position(source, line, col)
         payload["word"] = word
-        payload["references"] = [ref.to_json() for ref in index.references_to(word)]
+        symbol = symbol_at_position(index, resolved, line, col, word)
+        payload["symbolId"] = symbol.symbol_id if symbol else None
+        payload["references"] = [ref.to_json() for ref in references_at(index, resolved, line, col, word)]
     elif kind == "signature":
         call_name = call_before(source, line, col)
         symbol = signature_for(index, resolved, call_name) if call_name else None

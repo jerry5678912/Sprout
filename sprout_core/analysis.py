@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import importlib
 import os
 import re
@@ -19,6 +20,12 @@ IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"\s+as\s+([A-Za-z_][A-Za-z0-9_]*)'
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
+FOR_RE = re.compile(r"^\s*(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
+CATCH_RE = re.compile(r"^\s*catch\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+
+
+def normalize_path(path: str) -> str:
+    return os.path.realpath(os.path.abspath(path))
 
 
 @dataclass
@@ -42,6 +49,13 @@ class SemanticSymbol:
     members: dict[str, "SemanticSymbol"] = field(default_factory=dict)
     module_path: str | None = None
     target_type: str | None = None
+    symbol_id: str = ""
+    scope_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.symbol_id:
+            raw = f"{self.location.path}:{self.location.line}:{self.location.col}:{self.kind}:{self.qualified_name}"
+            self.symbol_id = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
     @property
     def qualified_name(self) -> str:
@@ -58,6 +72,7 @@ class SemanticSymbol:
             "container": self.container,
             "modulePath": self.module_path,
             "targetType": self.target_type,
+            "symbolId": self.symbol_id,
         }
 
 
@@ -66,9 +81,34 @@ class Reference:
     name: str
     location: Location
     role: str = "read"
+    symbol_id: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"name": self.name, "role": self.role, "location": self.location.to_json()}
+        return {
+            "name": self.name,
+            "role": self.role,
+            "location": self.location.to_json(),
+            "symbolId": self.symbol_id,
+        }
+
+
+@dataclass
+class LexicalScope:
+    scope_id: str
+    kind: str
+    path: str
+    start_line: int
+    end_line: int
+    indent: int
+    parent_id: str | None = None
+    declarations: dict[str, list[SemanticSymbol]] = field(default_factory=dict)
+
+    def contains(self, line: int) -> bool:
+        return self.start_line <= line <= self.end_line
+
+    def declare(self, symbol: SemanticSymbol) -> None:
+        symbol.scope_id = self.scope_id
+        self.declarations.setdefault(symbol.name, []).append(symbol)
 
 
 @dataclass
@@ -83,6 +123,9 @@ class FileAnalysis:
     variables: dict[str, SemanticSymbol] = field(default_factory=dict)
     functions: dict[str, SemanticSymbol] = field(default_factory=dict)
     classes: dict[str, SemanticSymbol] = field(default_factory=dict)
+    scopes: dict[str, LexicalScope] = field(default_factory=dict)
+    source_hash: str = ""
+    parse_count: int = 1
 
 
 @dataclass
@@ -91,16 +134,64 @@ class WorkspaceIndex:
     files: dict[str, FileAnalysis] = field(default_factory=dict)
     symbols: dict[str, list[SemanticSymbol]] = field(default_factory=dict)
     module_exports: dict[str, dict[str, SemanticSymbol]] = field(default_factory=dict)
+    file_signatures: dict[str, tuple[int, int]] = field(default_factory=dict)
+    analysis_count: int = 0
 
     def add_file(self, analysis: FileAnalysis) -> None:
+        self.remove_file(analysis.path)
         self.files[analysis.path] = analysis
+        self.analysis_count += 1
         exports: dict[str, SemanticSymbol] = {}
         for symbol in analysis.symbols:
-            self.symbols.setdefault(symbol.name, []).append(symbol)
-            self.symbols.setdefault(symbol.qualified_name, []).append(symbol)
+            keys: set[str] = set()
+            if symbol.scope_id == "file":
+                keys.add(symbol.name)
+            if symbol.container:
+                keys.add(symbol.qualified_name)
+            for key in keys:
+                self.symbols.setdefault(key, []).append(symbol)
             if symbol.container is None and symbol.kind in {"function", "class", "variable", "module", "python-module"}:
                 exports[symbol.name] = symbol
         self.module_exports[analysis.path] = exports
+
+    def remove_file(self, path: str) -> None:
+        previous = self.files.pop(path, None)
+        if previous is None:
+            return
+        self.module_exports.pop(path, None)
+        for symbol in previous.symbols:
+            keys: set[str] = set()
+            if symbol.scope_id == "file":
+                keys.add(symbol.name)
+            if symbol.container:
+                keys.add(symbol.qualified_name)
+            for key in keys:
+                matches = self.symbols.get(key, [])
+                self.symbols[key] = [item for item in matches if item.symbol_id != symbol.symbol_id]
+                if not self.symbols[key]:
+                    self.symbols.pop(key, None)
+
+    def refresh_imports(self) -> None:
+        for file in self.files.values():
+            for symbol in file.imports.values():
+                if symbol.kind == "module":
+                    symbol.members = self.module_exports.get(symbol.module_path or "", {})
+                elif symbol.kind == "python-module" and symbol.module_path:
+                    symbol.members = python_module_members(symbol.module_path, symbol)
+            for ref in file.references:
+                if "." not in ref.name:
+                    continue
+                base, member = ref.name.split(".", 1)
+                base_symbol = file.imports.get(base) or file.variables.get(base) or file.classes.get(base)
+                member_symbol = None
+                if base_symbol and base_symbol.members:
+                    member_symbol = base_symbol.members.get(member)
+                elif base_symbol and base_symbol.target_type:
+                    target = file.classes.get(base_symbol.target_type) or self.find_symbol(base_symbol.target_type, file.path)
+                    if target:
+                        member_symbol = target.members.get(member)
+                if member_symbol:
+                    ref.symbol_id = member_symbol.symbol_id
 
     def find_symbol(self, name: str, path: str | None = None) -> SemanticSymbol | None:
         if path and path in self.files:
@@ -111,15 +202,27 @@ class WorkspaceIndex:
         matches = self.symbols.get(name) or []
         return matches[0] if matches else None
 
-    def references_to(self, name: str) -> list[Reference]:
+    def find_symbol_id(self, symbol_id: str | None) -> SemanticSymbol | None:
+        if not symbol_id:
+            return None
+        for file in self.files.values():
+            for symbol in file.symbols:
+                if symbol.symbol_id == symbol_id:
+                    return symbol
+        return None
+
+    def references_to(self, name: str, symbol_id: str | None = None) -> list[Reference]:
         refs: list[Reference] = []
         for file in self.files.values():
-            refs.extend(ref for ref in file.references if ref.name == name or ref.name.endswith(f".{name}"))
+            if symbol_id:
+                refs.extend(ref for ref in file.references if ref.symbol_id == symbol_id)
+            else:
+                refs.extend(ref for ref in file.references if ref.name == name or ref.name.endswith(f".{name}"))
         return refs
 
-    def rename_edits(self, name: str, new_name: str) -> dict[str, list[dict[str, Any]]]:
+    def rename_edits(self, name: str, new_name: str, symbol_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
         edits: dict[str, list[dict[str, Any]]] = {}
-        for ref in self.references_to(name):
+        for ref in self.references_to(name, symbol_id):
             edits.setdefault(ref.location.path, []).append(
                 {
                     "range": {
@@ -130,6 +233,34 @@ class WorkspaceIndex:
                 }
             )
         return edits
+
+    def update_document(self, path: str, source: str) -> FileAnalysis:
+        resolved = normalize_path(path)
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        previous = self.files.get(resolved)
+        if previous and previous.source_hash == digest:
+            return previous
+        analysis = analyze_source(source, resolved)
+        self.add_file(analysis)
+        self.refresh_imports()
+        return analysis
+
+    def update_file(self, path: str) -> FileAnalysis | None:
+        resolved = normalize_path(path)
+        try:
+            stat_result = os.stat(resolved)
+        except OSError:
+            self.remove_file(resolved)
+            self.file_signatures.pop(resolved, None)
+            return None
+        signature = (stat_result.st_mtime_ns, stat_result.st_size)
+        if self.file_signatures.get(resolved) == signature and resolved in self.files:
+            return self.files[resolved]
+        analysis = analyze_file(resolved)
+        self.file_signatures[resolved] = signature
+        self.add_file(analysis)
+        self.refresh_imports()
+        return analysis
 
 
 def builtin_docs() -> dict[str, SemanticSymbol]:
@@ -239,8 +370,241 @@ def resolve_module_path(import_path: str, source_path: str) -> str | None:
     return None
 
 
+def leading_indent(line: str) -> int:
+    expanded = line.expandtabs(2)
+    return len(expanded) - len(expanded.lstrip(" "))
+
+
+def build_lexical_scopes(lines: list[str], path: str) -> dict[str, LexicalScope]:
+    root = LexicalScope("file", "file", path, 1, max(1, len(lines)), -1)
+    scopes = {root.scope_id: root}
+    stack = [root]
+    serial = 0
+
+    for line_no, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = leading_indent(line)
+        while len(stack) > 1 and indent <= stack[-1].indent:
+            stack[-1].end_line = line_no - 1
+            stack.pop()
+
+        kind = None
+        if CLASS_RE.match(line):
+            kind = "class"
+        elif FN_RE.match(line):
+            kind = "function"
+        elif re.match(r"^\s*(?:if|elif|else|while|whirl|for|each|try|catch|test)\b", line):
+            kind = "block"
+        if kind and (line.rstrip().endswith(":") or line.rstrip().endswith("{") or stripped.endswith("bloom")):
+            serial += 1
+            scope_id = f"{kind}:{line_no}:{serial}"
+            scope = LexicalScope(scope_id, kind, path, line_no + 1, max(1, len(lines)), indent, stack[-1].scope_id)
+            scopes[scope_id] = scope
+            stack.append(scope)
+
+    while len(stack) > 1:
+        stack[-1].end_line = max(1, len(lines))
+        stack.pop()
+    return scopes
+
+
+def scope_for_line(scopes: dict[str, LexicalScope], line: int, declaration_header: bool = False) -> LexicalScope:
+    candidates = [scope for scope in scopes.values() if scope.contains(line)]
+    if declaration_header:
+        candidates = [scope for scope in candidates if scope.start_line != line + 1]
+    return max(candidates, key=lambda scope: (scope.start_line, scope.indent))
+
+
+def scope_chain(scopes: dict[str, LexicalScope], scope: LexicalScope) -> list[LexicalScope]:
+    chain = [scope]
+    while chain[-1].parent_id:
+        chain.append(scopes[chain[-1].parent_id])
+    return chain
+
+
+def declaration_token_locations(lines: list[str]) -> set[tuple[int, int]]:
+    locations: set[tuple[int, int]] = set()
+    patterns = [CLASS_RE, FN_RE, IMPORT_RE, IMPORTPY_RE, DECL_RE, FOR_RE, CATCH_RE]
+    for line_no, line in enumerate(lines, start=1):
+        for pattern in patterns:
+            match = pattern.match(line)
+            if not match:
+                continue
+            group = match.lastindex or 1
+            if pattern is IMPORT_RE:
+                group = 2
+            elif pattern is IMPORTPY_RE:
+                group = 3 if match.group(3) else (1 if match.group(1) else 2)
+            locations.add((line_no, match.start(group) + 1))
+            break
+    return locations
+
+
+def parameter_symbols(lines: list[str], path: str, scopes: dict[str, LexicalScope]) -> list[SemanticSymbol]:
+    symbols: list[SemanticSymbol] = []
+    for line_no, line in enumerate(lines, start=1):
+        match = FN_RE.match(line)
+        if not match:
+            continue
+        open_paren = line.find("(", match.end(1))
+        close_paren = line.find(")", open_paren + 1)
+        if open_paren < 0 or close_paren < 0:
+            continue
+        function_scopes = [
+            scope for scope in scopes.values()
+            if scope.kind == "function" and scope.start_line == line_no + 1
+        ]
+        if not function_scopes:
+            continue
+        scope = function_scopes[0]
+        params_text = line[open_paren + 1:close_paren]
+        offset = open_paren + 1
+        for item in params_text.split(","):
+            raw = item.strip()
+            name_match = re.match(r"(?:\*\*|\*)?([A-Za-z_][A-Za-z0-9_]*)", raw)
+            if not name_match:
+                offset += len(item) + 1
+                continue
+            name = name_match.group(1)
+            local_start = item.find(name)
+            col = offset + local_start + 1
+            symbol = SemanticSymbol(name, "parameter", Location(path, line_no, col))
+            scope.declare(symbol)
+            symbols.append(symbol)
+            offset += len(item) + 1
+    return symbols
+
+
+def resolve_in_scope(
+    analysis: FileAnalysis,
+    name: str,
+    line: int,
+    scope: LexicalScope,
+) -> SemanticSymbol | None:
+    for candidate_scope in scope_chain(analysis.scopes, scope):
+        declarations = candidate_scope.declarations.get(name, [])
+        visible = [
+            symbol for symbol in declarations
+            if symbol.location.line <= line or symbol.kind in {"function", "class", "method", "module", "python-module"}
+        ]
+        if visible:
+            return visible[-1]
+    return None
+
+
+def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
+    analysis.scopes = build_lexical_scopes(lines, analysis.path)
+    declarations = declaration_token_locations(lines)
+    canonical_symbols: dict[str, SemanticSymbol] = {}
+    retained_symbols: list[SemanticSymbol] = []
+    original_symbols = {symbol.symbol_id: symbol for symbol in analysis.symbols}
+
+    for symbol in sorted(analysis.symbols, key=lambda item: (item.location.line, item.location.col)):
+        header = symbol.kind in {"function", "method", "class"}
+        scope = scope_for_line(analysis.scopes, symbol.location.line, declaration_header=header)
+        if symbol.kind == "variable":
+            line = lines[symbol.location.line - 1] if symbol.location.line <= len(lines) else ""
+            explicit = bool(re.match(r"^\s*(?:let|sprout)\s+", line))
+            existing = None
+            if not explicit:
+                for candidate_scope in scope_chain(analysis.scopes, scope):
+                    matches = candidate_scope.declarations.get(symbol.name, [])
+                    if matches:
+                        existing = matches[-1]
+                        break
+            if existing:
+                canonical_symbols[symbol.symbol_id] = existing
+                continue
+        scope.declare(symbol)
+        canonical_symbols[symbol.symbol_id] = symbol
+        retained_symbols.append(symbol)
+    analysis.symbols = retained_symbols
+    analysis.variables = {
+        name: canonical_symbols.get(symbol.symbol_id, symbol)
+        for name, symbol in analysis.variables.items()
+    }
+    params = parameter_symbols(lines, analysis.path, analysis.scopes)
+    analysis.symbols.extend(params)
+
+    for line_no, line in enumerate(lines, start=1):
+        for pattern, kind in ((FOR_RE, "variable"), (CATCH_RE, "variable")):
+            match = pattern.match(line)
+            if not match:
+                continue
+            symbol = SemanticSymbol(match.group(1), kind, Location(analysis.path, line_no, match.start(1) + 1))
+            target_scope = scope_for_line(analysis.scopes, min(line_no + 1, max(1, len(lines))))
+            target_scope.declare(symbol)
+            analysis.symbols.append(symbol)
+
+    analysis.references = []
+    analysis.diagnostics = [diag for diag in analysis.diagnostics if diag.code != "SPROUT_UNKNOWN_NAME"]
+    special_names = {"self", "super", "argv"}
+    exact_symbols = {
+        (symbol.location.line, symbol.location.col, symbol.name): symbol
+        for symbol in analysis.symbols
+    }
+    for original_id, canonical in canonical_symbols.items():
+        original = original_symbols.get(original_id)
+        if original:
+            exact_symbols[(original.location.line, original.location.col, original.name)] = canonical
+    for line_no, line in enumerate(lines, start=1):
+        code = STRING_RE.sub('""', line.split("#", 1)[0])
+        current_scope = scope_for_line(analysis.scopes, line_no)
+        dotted_members = {
+            match.start(2): (match.group(1), match.group(2))
+            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b", code)
+        }
+        for match in IDENT_RE.finditer(code):
+            name = match.group(0)
+            col = match.start() + 1
+            if name in KEYWORDS or (match.start() > 0 and code[match.start() - 1] == "."):
+                continue
+            declaration_symbol = exact_symbols.get((line_no, col, name))
+            if declaration_symbol is None and (line_no, col) in declarations:
+                declaration_symbol = resolve_in_scope(analysis, name, line_no, current_scope)
+                if declaration_symbol is None:
+                    declaration_symbol = next(
+                        (symbol for symbol in analysis.symbols if symbol.name == name and symbol.location.line == line_no and symbol.location.col == col),
+                        None,
+                    )
+            symbol = declaration_symbol or resolve_in_scope(analysis, name, line_no, current_scope)
+            if declaration_symbol and (
+                declaration_symbol.location.line != line_no or declaration_symbol.location.col != col
+            ):
+                role = "write"
+            else:
+                role = "declaration" if declaration_symbol else "read"
+            analysis.references.append(
+                Reference(name, Location(analysis.path, line_no, col), role, symbol.symbol_id if symbol else None)
+            )
+            if symbol is None and name not in BUILTINS and name not in special_names:
+                analysis.diagnostics.append(
+                    Diagnostic("warning", f"Unknown name '{name}'", analysis.path, line_no, col, "SPROUT_UNKNOWN_NAME")
+                )
+        for start, (base, member) in dotted_members.items():
+            base_symbol = resolve_in_scope(analysis, base, line_no, current_scope)
+            member_symbol = None
+            if base_symbol:
+                if base_symbol.members:
+                    member_symbol = base_symbol.members.get(member)
+                elif base_symbol.target_type:
+                    target = analysis.classes.get(base_symbol.target_type)
+                    if target:
+                        member_symbol = target.members.get(member)
+            analysis.references.append(
+                Reference(
+                    f"{base}.{member}",
+                    Location(analysis.path, line_no, start + len(base) + 2),
+                    "read",
+                    member_symbol.symbol_id if member_symbol else None,
+                )
+            )
+
+
 def analyze_source(source: str, path: str) -> FileAnalysis:
-    resolved = os.path.abspath(path)
+    resolved = normalize_path(path)
     try:
         program = parse_source(source)
     except Exception as exc:
@@ -346,32 +710,8 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
                     parts = parts[1:]
                 analysis.classes[class_name].signature = f"{class_name}({', '.join(parts)})"
 
-    for line_no, line in enumerate(lines, start=1):
-        code = line.split("#", 1)[0]
-        code = STRING_RE.sub('""', code)
-        for match in IDENT_RE.finditer(code):
-            name = match.group(0)
-            if name in KEYWORDS:
-                continue
-            if match.start() > 0 and code[match.start() - 1] == ".":
-                continue
-            role = "write" if DECL_RE.match(code) and DECL_RE.match(code).group(1) == name else "read"
-            analysis.references.append(Reference(name, Location(resolved, line_no, match.start() + 1), role))
-        for dotted in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b", code):
-            analysis.references.append(Reference(f"{dotted.group(1)}.{dotted.group(2)}", Location(resolved, line_no, dotted.start(2) + 1), "read"))
-
-    known = set(BUILTINS) | set(KEYWORDS) | {"self", "super", "argv"}
-    known.update(parameter_names)
-    known.update(analysis.variables)
-    known.update(analysis.functions)
-    known.update(analysis.classes)
-    known.update(analysis.imports)
-    for members in class_members.values():
-        known.update(members)
-    for ref in analysis.references:
-        if "." in ref.name or ref.role == "write" or ref.name in known:
-            continue
-        analysis.diagnostics.append(Diagnostic("warning", f"Unknown name '{ref.name}'", resolved, ref.location.line, ref.location.col, "SPROUT_UNKNOWN_NAME"))
+    analysis.source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    bind_references(analysis, lines)
     return analysis
 
 
@@ -390,35 +730,41 @@ def workspace_files(root: str) -> list[str]:
     return sorted(paths)
 
 
-def build_workspace_index(root_or_file: str, open_documents: dict[str, str] | None = None) -> WorkspaceIndex:
-    root = os.path.abspath(root_or_file if os.path.isdir(root_or_file) else os.path.dirname(root_or_file))
+def build_workspace_index(
+    root_or_file: str,
+    open_documents: dict[str, str] | None = None,
+    previous: WorkspaceIndex | None = None,
+) -> WorkspaceIndex:
+    root = normalize_path(root_or_file if os.path.isdir(root_or_file) else os.path.dirname(root_or_file))
     project = project_for_path(root_or_file)
     if project:
         root = project.root
-    index = WorkspaceIndex(root)
+    index = previous if previous and normalize_path(previous.root) == root else WorkspaceIndex(root)
     files = workspace_files(root)
+    normalized_documents = {
+        normalize_path(path): source for path, source in (open_documents or {}).items()
+    }
+    current = {normalize_path(path) for path in files}
+    current.update(normalized_documents)
+    for stale in set(index.files) - current:
+        index.remove_file(stale)
+        index.file_signatures.pop(stale, None)
     for path in files:
-        if open_documents and path in open_documents:
-            analysis = analyze_source(open_documents[path], path)
+        resolved = normalize_path(path)
+        if resolved in normalized_documents:
+            index.update_document(resolved, normalized_documents[resolved])
         else:
             try:
-                analysis = analyze_file(path)
+                index.update_file(resolved)
             except OSError:
                 continue
-        index.add_file(analysis)
-    if open_documents:
-        for path, source in open_documents.items():
-            resolved = os.path.abspath(path)
+    if normalized_documents:
+        for path, source in normalized_documents.items():
+            resolved = normalize_path(path)
             if resolved not in index.files and resolved.endswith(".sprout"):
-                index.add_file(analyze_source(source, resolved))
+                index.update_document(resolved, source)
 
-    # Attach imported module exports now that all files have been analyzed.
-    for file in index.files.values():
-        for symbol in file.imports.values():
-            if symbol.kind == "module" and symbol.module_path in index.module_exports:
-                symbol.members = index.module_exports[symbol.module_path]
-            elif symbol.kind == "python-module" and symbol.module_path:
-                symbol.members = python_module_members(symbol.module_path, symbol)
+    index.refresh_imports()
     return index
 
 
@@ -439,7 +785,7 @@ def python_module_members(module_name: str, parent: SemanticSymbol) -> dict[str,
 
 
 def member_completions(index: WorkspaceIndex, path: str, base_name: str) -> list[SemanticSymbol]:
-    file = index.files.get(os.path.abspath(path))
+    file = index.files.get(normalize_path(path))
     if not file:
         return []
     symbol = file.imports.get(base_name) or file.variables.get(base_name) or file.classes.get(base_name)
@@ -454,12 +800,32 @@ def member_completions(index: WorkspaceIndex, path: str, base_name: str) -> list
     return []
 
 
-def top_level_completions(index: WorkspaceIndex, path: str) -> list[SemanticSymbol]:
-    file = index.files.get(os.path.abspath(path))
+def visible_symbols(index: WorkspaceIndex, path: str, line: int) -> list[SemanticSymbol]:
+    file = index.files.get(normalize_path(path))
+    if not file or not file.scopes:
+        return []
+    scope = scope_for_line(file.scopes, line)
+    visible: dict[str, SemanticSymbol] = {}
+    for candidate_scope in scope_chain(file.scopes, scope):
+        for name, declarations in candidate_scope.declarations.items():
+            candidates = [
+                symbol for symbol in declarations
+                if symbol.location.line <= line or symbol.kind in {"function", "class", "method", "module", "python-module"}
+            ]
+            if candidates:
+                visible.setdefault(name, candidates[-1])
+    return list(visible.values())
+
+
+def top_level_completions(index: WorkspaceIndex, path: str, line: int | None = None) -> list[SemanticSymbol]:
+    file = index.files.get(normalize_path(path))
     out: dict[str, SemanticSymbol] = dict(BUILTINS)
     if file:
-        for table in (file.variables, file.functions, file.classes, file.imports):
-            out.update(table)
+        if line is not None:
+            out.update({symbol.name: symbol for symbol in visible_symbols(index, path, line)})
+        else:
+            for table in (file.variables, file.functions, file.classes, file.imports):
+                out.update(table)
     for name, symbols in index.symbols.items():
         if "." not in name and symbols:
             out.setdefault(name, symbols[0])
@@ -467,7 +833,7 @@ def top_level_completions(index: WorkspaceIndex, path: str) -> list[SemanticSymb
 
 
 def symbol_at(index: WorkspaceIndex, path: str, word: str) -> SemanticSymbol | None:
-    path = os.path.abspath(path)
+    path = normalize_path(path)
     file = index.files.get(path)
     if file:
         for table in (file.variables, file.functions, file.classes, file.imports):
@@ -476,6 +842,49 @@ def symbol_at(index: WorkspaceIndex, path: str, word: str) -> SemanticSymbol | N
     if word in BUILTINS:
         return BUILTINS[word]
     return index.find_symbol(word, path)
+
+
+def symbol_at_position(
+    index: WorkspaceIndex,
+    path: str,
+    line: int,
+    col: int,
+    word: str | None = None,
+) -> SemanticSymbol | None:
+    resolved = normalize_path(path)
+    file = index.files.get(resolved)
+    if not file:
+        return None
+    candidates = [
+        ref for ref in file.references
+        if ref.location.line == line
+        and ref.location.col <= col <= ref.location.col + len(ref.name.split(".")[-1])
+    ]
+    if word:
+        exact = [ref for ref in candidates if ref.name == word or ref.name.endswith(f".{word}")]
+        if exact:
+            candidates = exact
+    if candidates:
+        ref = min(candidates, key=lambda item: len(item.name))
+        symbol = index.find_symbol_id(ref.symbol_id)
+        if symbol:
+            return symbol
+        if "." in ref.name:
+            base, member = ref.name.split(".", 1)
+            return next((item for item in member_completions(index, resolved, base) if item.name == member), None)
+    if word in BUILTINS:
+        return BUILTINS[word]
+    scope = scope_for_line(file.scopes, line) if file.scopes else None
+    if scope and word:
+        symbol = resolve_in_scope(file, word, line, scope)
+        if symbol:
+            return symbol
+    return symbol_at(index, resolved, word or "")
+
+
+def references_at(index: WorkspaceIndex, path: str, line: int, col: int, word: str) -> list[Reference]:
+    symbol = symbol_at_position(index, path, line, col, word)
+    return index.references_to(word, symbol.symbol_id if symbol else None)
 
 
 def signature_for(index: WorkspaceIndex, path: str, name: str) -> SemanticSymbol | None:

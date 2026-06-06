@@ -72,7 +72,7 @@ def rebuild_index(changed_uri: str | None = None) -> sprout.WorkspaceIndex:
     if changed_uri:
         changed_path = path_from_uri(changed_uri)
         root = sprout.find_project_root(changed_path) or root
-    workspace_index = sprout.build_workspace_index(root, open_documents)
+    workspace_index = sprout.build_workspace_index(root, open_documents, previous=workspace_index)
     return workspace_index
 
 
@@ -136,7 +136,7 @@ def completion_items(uri: str, position: dict[str, int]) -> list[dict[str, Any]]
     for word in sorted(sprout.KEYWORDS):
         items.append({"label": word, "kind": 14, "detail": "Sprout keyword"})
     existing = {item["label"] for item in items}
-    for symbol in sprout.top_level_completions(index, path):
+    for symbol in sprout.top_level_completions(index, path, position.get("line", 0) + 1):
         if symbol.name not in existing:
             items.append(completion_item(symbol))
     return items
@@ -169,7 +169,7 @@ def hover(uri: str, position: dict[str, int]) -> dict[str, Any] | None:
     path = path_from_uri(uri)
     source = documents.get(uri, "")
     word = word_at(source, position.get("line", 0), position.get("character", 0))
-    symbol = sprout.symbol_at(index, path, word)
+    symbol = sprout.symbol_at_position(index, path, position.get("line", 0) + 1, position.get("character", 0) + 1, word)
     if symbol:
         title = symbol.signature or symbol.qualified_name
         docs = symbol.documentation or f"Sprout {symbol.kind}."
@@ -187,10 +187,17 @@ def definition(uri: str, position: dict[str, int]) -> list[dict[str, Any]]:
     path = path_from_uri(uri)
     source = documents.get(uri, "")
     word = word_at(source, position.get("line", 0), position.get("character", 0))
-    symbol = sprout.symbol_at(index, path, word)
+    symbol = sprout.symbol_at_position(index, path, position.get("line", 0) + 1, position.get("character", 0) + 1, word)
     if not symbol:
         return []
     matches = [symbol]
+    found = sprout.references_at(
+        index,
+        path_from_uri(uri),
+        position.get("line", 0) + 1,
+        position.get("character", 0) + 1,
+        word,
+    )
     return [
         {
             "uri": uri_from_path(sym.location.path) or uri,
@@ -215,7 +222,7 @@ def references(uri: str, position: dict[str, int]) -> list[dict[str, Any]]:
                 "end": {"line": ref.location.line - 1, "character": ref.location.col - 1 + len(word)},
             },
         }
-        for ref in index.references_to(word)
+        for ref in found
     ]
 
 
@@ -223,7 +230,18 @@ def rename(uri: str, position: dict[str, int], new_name: str) -> dict[str, Any]:
     index = workspace_index or rebuild_index(uri)
     source = documents.get(uri, "")
     word = word_at(source, position.get("line", 0), position.get("character", 0))
-    changes = {uri_from_path(path): edits for path, edits in index.rename_edits(word, new_name).items()}
+    path = path_from_uri(uri)
+    symbol = sprout.symbol_at_position(
+        index,
+        path,
+        position.get("line", 0) + 1,
+        position.get("character", 0) + 1,
+        word,
+    )
+    changes = {
+        uri_from_path(edit_path): edits
+        for edit_path, edits in index.rename_edits(word, new_name, symbol.symbol_id if symbol else None).items()
+    }
     return {"changes": changes}
 
 
@@ -312,6 +330,11 @@ def main() -> int:
             text = params.get("contentChanges", [{}])[-1].get("text", documents.get(uri, ""))
             documents[uri] = text
             analyze(uri, text)
+        elif method == "textDocument/didClose":
+            uri = params["textDocument"]["uri"]
+            documents.pop(uri, None)
+            rebuild_index(uri)
+            notify("textDocument/publishDiagnostics", {"uri": uri, "diagnostics": []})
         elif method == "textDocument/completion":
             response(message, {"isIncomplete": False, "items": completion_items(params["textDocument"]["uri"], params["position"])})
         elif method == "textDocument/hover":
