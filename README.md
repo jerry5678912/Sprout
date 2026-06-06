@@ -1,6 +1,7 @@
 # Sprout
 
 [![CI](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml/badge.svg)](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/sprout-language.svg)](https://pypi.org/project/sprout-language/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](ROADMAP.md)
 
@@ -37,7 +38,21 @@ explicit `importpython` bridge.
 
 ## Quick Start
 
-Clone and run without installing:
+Install the public package from [PyPI](https://pypi.org/project/sprout-language/):
+
+```sh
+python3 -m pip install sprout-language
+sprout version
+```
+
+For an isolated command-line installation:
+
+```sh
+pipx install sprout-language
+sprout version
+```
+
+Clone the repository to run bundled examples or contribute:
 
 ```sh
 git clone https://github.com/jerry5678912/Sprout.git
@@ -45,25 +60,10 @@ cd Sprout
 python3 sprout.py examples/advanced_features.sprout
 ```
 
-Install the `sprout` command from a checkout:
+Development and source-release installation remain available:
 
 ```sh
-python3 -m pip install .
-sprout version
-sprout examples/fibonacci.sprout
-```
-
-For an isolated command-line installation, use `pipx install .`. Once the
-`sprout-language` package is published to PyPI, the corresponding public
-command will be:
-
-```sh
-pipx install sprout-language
-```
-
-The source-release installer remains available:
-
-```sh
+python3 -m pip install -e .
 python3 install.py
 ~/.local/bin/sprout version
 ```

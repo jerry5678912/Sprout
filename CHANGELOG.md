@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Published `sprout-language` 0.3.0 on PyPI and updated installation
+  documentation for `pip` and `pipx`.
 - Added standard Python packaging with a `sprout` console entry point, wheel and
   source-distribution CI, and a trusted-publishing PyPI workflow.
 - Adopted Apache License 2.0 consistently across source releases, Python
