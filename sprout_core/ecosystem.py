@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import os
 import posixpath
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -28,6 +30,9 @@ VERSION_RE = re.compile(
     r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
 )
 REGISTRY_SCHEMA = 1
+MAX_PACKAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024
+MAX_PACKAGE_EXPANDED_BYTES = 256 * 1024 * 1024
+MAX_PACKAGE_FILES = 10_000
 
 
 @dataclass(frozen=True)
@@ -155,6 +160,10 @@ def validate_metadata(root: str, publishing: bool = False) -> tuple[dict[str, An
 
 def registry_location(value: str | None = None) -> str:
     return value or os.environ.get("SPROUT_REGISTRY") or os.path.expanduser("~/.sprout/registry")
+
+
+def registry_token(value: str | None = None) -> str | None:
+    return value or os.environ.get("SPROUT_REGISTRY_TOKEN")
 
 
 def empty_registry() -> dict[str, Any]:
@@ -388,7 +397,12 @@ def copy_tree_file(source: str, destination_root: str, relative: str) -> None:
 def extract_bundle(bundle: str, destination: str) -> None:
     with zipfile.ZipFile(bundle) as archive:
         base = os.path.realpath(destination)
-        for member in archive.infolist():
+        members = archive.infolist()
+        if len(members) > MAX_PACKAGE_FILES:
+            raise SproutError("Package archive contains too many files")
+        if sum(member.file_size for member in members) > MAX_PACKAGE_EXPANDED_BYTES:
+            raise SproutError("Package archive expands beyond the extraction limit")
+        for member in members:
             target = os.path.realpath(os.path.join(destination, member.filename))
             if target != base and not target.startswith(base + os.sep):
                 raise SproutError(f"Unsafe package archive path: {member.filename}")
@@ -412,7 +426,22 @@ def materialize_registry_bundle(entry: dict[str, Any], destination: str) -> None
         url = bundle if bundle.startswith(("http://", "https://")) else urllib.parse.urljoin(registry.rstrip("/") + "/", bundle)
         with tempfile.NamedTemporaryFile(suffix=".sproutpkg") as fh:
             try:
-                urllib.request.urlretrieve(url, fh.name)
+                with urllib.request.urlopen(url, timeout=60) as response:
+                    declared = int(response.headers.get("Content-Length", "0") or "0")
+                    if declared > MAX_PACKAGE_DOWNLOAD_BYTES:
+                        raise SproutError(f"Package {entry['name']} exceeds the download size limit")
+                    total = 0
+                    while True:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_PACKAGE_DOWNLOAD_BYTES:
+                            raise SproutError(f"Package {entry['name']} exceeds the download size limit")
+                        fh.write(chunk)
+                fh.flush()
+            except SproutError:
+                raise
             except Exception as exc:
                 raise SproutError(f"Could not download {entry['name']}: {exc}") from exc
             verify_bundle(fh.name, entry.get("sha256"), str(entry["name"]))
@@ -522,12 +551,45 @@ def package_record(
     }
 
 
-def pkg_publish(path: str = ".", registry: str | None = None) -> int:
+def publish_http_registry(
+    registry_root: str,
+    record: dict[str, Any],
+    bundle: str,
+    token: str | None,
+) -> None:
+    if not token:
+        raise SproutError("Hosted registry publishing requires --token or SPROUT_REGISTRY_TOKEN")
+    with open(bundle, "rb") as fh:
+        encoded_bundle = base64.b64encode(fh.read()).decode("ascii")
+    payload = json.dumps({"package": record, "bundle": encoded_bundle}).encode("utf-8")
+    request = urllib.request.Request(
+        registry_root.rstrip("/") + "/api/v1/publish",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": f"Sprout/{SPROUT_VERSION}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            if response.status != 201:
+                raise SproutError(f"Registry publish failed with HTTP {response.status}")
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", exc.reason)
+        except Exception:
+            detail = exc.reason
+        raise SproutError(f"Registry publish failed: {detail}") from None
+    except OSError as exc:
+        raise SproutError(f"Could not publish to registry: {exc}") from None
+
+
+def pkg_publish(path: str = ".", registry: str | None = None, token: str | None = None) -> int:
     root = project_root(path)
     metadata, lock = validate_project(root, publishing=True, run_quality=True, registry=registry)
     index, registry_root = read_registry(registry)
-    if registry_root.startswith(("http://", "https://")):
-        raise SproutError("Publishing requires a writable local registry path")
     package = index.setdefault("packages", {}).setdefault(metadata["name"], {"versions": {}})
     if metadata["version"] in package.setdefault("versions", {}):
         raise SproutError(f"{metadata['name']} {metadata['version']} is already published")
@@ -535,12 +597,22 @@ def pkg_publish(path: str = ".", registry: str | None = None) -> int:
     if not os.path.isfile(docs_path):
         generate_docs(root)
     bundle = package_project(root, registry=registry)
+    checksum = sha256_file(bundle)
+    if registry_root.startswith(("http://", "https://")):
+        record = {
+            "name": metadata["name"],
+            **package_record(metadata, lock, "", checksum),
+        }
+        record.pop("bundle", None)
+        publish_http_registry(registry_root, record, bundle, registry_token(token))
+        print(f"published {metadata['name']} {metadata['version']} to {registry_root}")
+        return 0
     relative = posixpath.join("packages", metadata["name"], metadata["version"], os.path.basename(bundle))
     destination = os.path.join(registry_root, relative)
     os.makedirs(os.path.dirname(destination), exist_ok=True)
     shutil.copy2(bundle, destination)
     package["description"] = metadata.get("description", "")
-    package["versions"][metadata["version"]] = package_record(metadata, lock, relative, sha256_file(bundle))
+    package["versions"][metadata["version"]] = package_record(metadata, lock, relative, checksum)
     package["latest"] = available_versions(index, metadata["name"])[0]
     write_registry(index, registry_root)
     print(f"published {metadata['name']} {metadata['version']} to {registry_root}")
@@ -682,7 +754,12 @@ def pkg_docs(name: str, root: str | None = None, registry: str | None = None) ->
     return 0
 
 
-def release_project(path: str = ".", registry: str | None = None, publish: bool = False) -> int:
+def release_project(
+    path: str = ".",
+    registry: str | None = None,
+    publish: bool = False,
+    token: str | None = None,
+) -> int:
     root = project_root(path)
     metadata, lock = validate_project(root, publishing=True, run_quality=True, registry=registry)
     generate_docs(root, html_mode=True)
@@ -701,6 +778,6 @@ def release_project(path: str = ".", registry: str | None = None, publish: bool 
         json.dump(release, fh, indent=2, sort_keys=True)
         fh.write("\n")
     if publish:
-        return pkg_publish(root, registry)
+        return pkg_publish(root, registry, token)
     print(f"release ready {metadata['name']} {metadata['version']}")
     return 0

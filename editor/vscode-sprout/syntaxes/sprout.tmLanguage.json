@@ -47,7 +47,7 @@
       "patterns": [
         {
           "name": "meta.class.sprout",
-          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(class|interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.control.class.sprout" },
             "2": { "name": "entity.name.type.class.sprout" }
@@ -55,7 +55,7 @@
         },
         {
           "name": "meta.function.sprout",
-          "match": "\\b(fn|def|bloom)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(?:async\\s+)?(fn|def|bloom)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.function.sprout" },
             "2": { "name": "entity.name.function.sprout" }
@@ -73,6 +73,10 @@
           "match": "\\bself\\b"
         },
         {
+          "name": "entity.name.type.sprout",
+          "match": "(?<=:\\s)[A-Z][A-Za-z0-9_]*(?:\\[[A-Za-z0-9_, ]+\\])?|(?<=->\\s)[A-Z][A-Za-z0-9_]*(?:\\[[A-Za-z0-9_, ]+\\])?"
+        },
+        {
           "name": "variable.other.property.sprout",
           "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*"
         },
@@ -86,7 +90,7 @@
       "patterns": [
         {
           "name": "keyword.control.sprout",
-          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|break|continue|return|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|extends|super)\\b"
+          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|break|continue|return|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|interface|implements|extends|super|async|await|taskgroup)\\b"
         },
         {
           "name": "storage.type.function.sprout",
@@ -130,7 +134,7 @@
       "patterns": [
         {
           "name": "keyword.operator.sprout",
-          "match": "==|!=|<=|>=|//|\\*\\*|[+\\-*/%=<>!]"
+          "match": "->|==|!=|<=|>=|//|\\*\\*|[+\\-*/%=<>!]"
         }
       ]
     }

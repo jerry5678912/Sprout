@@ -2,13 +2,20 @@
 
 Audit date: 2026-06-06
 
-This document records the capabilities found in the Sprout 0.3.0 working tree before the professional release and installation milestone began.
+This document began as the Sprout 0.3.0 baseline audit and now tracks the
+verified state after completing its ten highest-impact milestones.
 
 ## Executive Summary
 
-Sprout is a functioning language platform with a stable tree-walk interpreter, an experimental bytecode VM, project-aware editor tooling, local and JSON-backed package infrastructure, application libraries, project templates, documentation, and broad regression coverage.
+Sprout is a functioning language platform with installation and release
+artifacts, a stable tree-walk interpreter, an experimental bytecode VM,
+incremental semantic tooling, a persistent LSP, VS Code debugging, hosted package
+infrastructure, standalone application bundles, structured async syntax,
+conformance/security gates, and optional gradual types.
 
-The largest remaining foundations are reliable installation and releases, complete VM parity, incremental semantic analysis, a production LSP/editor workflow, secure public package hosting, standalone application distribution, and advanced type and async systems.
+The ten milestones from this audit are complete. Remaining work is narrower:
+direct VM async execution, richer cross-module typing, additional language
+constructs, package signing/trust governance, and production hardening.
 
 ## Capability Matrix
 
@@ -20,19 +27,19 @@ The largest remaining foundations are reliable installation and releases, comple
 | Exceptions, Sprout modules, and Python interop | Exists |
 | Stable tree-walk interpreter | Exists |
 | Bytecode VM | Experimental with broad parser-level coverage |
-| Terminal debugger and profiler | Partial |
+| Terminal debugger, profiler, and VS Code debugger | Exists |
 | Formatter, linter, semantic analysis, and IntelliSense | Exists |
-| Stdio language server | Foundation |
+| Persistent stdio language server | Exists |
 | VS Code semantic tooling | Exists |
 | Project templates and `sprout.toml` | Exists |
 | Builds, bundles, dependency resolution, and lockfiles | Exists |
-| Local writable and HTTP-readable JSON registry | Exists |
+| Local and authenticated hosted package registries | Exists |
 | HTTP, SQLite, task, engineering, test, and game APIs | Exists |
-| Static types, interfaces, and generics | Missing |
-| Native `async` / `await` | Missing |
+| Optional types, structural interfaces, and generics | Exists as gradual file-local checker |
+| Native `async` / `await` and structured task groups | Exists in stable interpreter; VM fallback |
 | Pattern matching, generators, and comprehensions | Missing |
-| Hosted authenticated package registry | Missing |
-| Automated CI, tagged releases, and language installer | Missing at audit time |
+| Hosted authenticated package registry | Exists |
+| Automated CI, tagged releases, and language installer | Exists |
 
 ## Existing Capabilities
 
@@ -40,32 +47,34 @@ The runtime exposes 175 callable global functions and 15 built-in dot methods. M
 
 The VM supports common expressions, variables, assignments, collections, calls, functions, loops, classes, methods, imports, Python interop, exceptions, `seedfn`, slices, slice assignment, inheritance, and `super`. Test declarations are accepted as ordinary-execution no-ops. Imported Sprout module bodies and the dedicated test runner still use stable interpreter infrastructure.
 
-Tooling includes JSON diagnostics, safe formatting, practical lint warnings, semantic completions, hover, definition, references, rename, signature help, document symbols, semantic highlighting, and a stdio LSP foundation.
+Tooling includes JSON diagnostics, safe formatting, practical lint warnings,
+incremental semantic completions, hover, definition, references, rename,
+signature help, document/workspace symbols, semantic highlighting, a persistent
+stdio LSP, and a VS Code debug adapter.
 
-The project and package system includes deterministic builds, `.sproutpkg` bundles, semantic-version constraints, conflict detection, `sprout.lock`, package publishing and installation, local registries, and remote read-only JSON registries.
+The project and package system includes deterministic builds, `.sproutpkg`
+bundles, semantic-version constraints, conflict detection, `sprout.lock`,
+authenticated immutable publishing, local and hosted registries, and standalone
+`.sproutapp` bundles with embedded Sprout runtimes.
 
 ## Major Missing Capabilities
 
-- Reliable language installation, a global launcher, CI, and tagged release artifacts
-- Full VM parity and consistent source maps
-- Incremental and scope-precise semantic analysis
-- Full LSP services, VS Code debugging, code actions, and extension-host tests
-- Hosted package accounts, ownership, signatures, trust policy, and revocation
-- Standalone application bundles that include their runtime
-- Static typing, interfaces, and generics
-- Native async functions and awaiting
+- Direct VM execution for structured async functions and imported module bodies
+- Package signatures, publisher identity governance, and public trust policy
+- Additional debugger workflows such as logpoints, data breakpoints, and test coverage
+- Cross-module type inference, unions, aliases, narrowing, and overloads
 - Pattern matching, generators, and comprehensions
-- Production networking and broader security/conformance testing
+- Production-grade networking and third-party security auditing
 
 ## Top 10 Highest-Impact Future Milestones
 
-1. Professional release and installation pipeline
-2. Accurate incremental semantic engine
-3. VM parity, performance, and source maps
-4. Production LSP implementation
-5. VS Code debugger and developer workflows
-6. Secure hosted package registry
-7. Standalone application distribution
-8. Structured async language model
-9. Conformance, fuzzing, and security testing
-10. Optional typed abstraction system
+1. Professional release and installation pipeline (completed)
+2. Accurate incremental semantic engine (completed)
+3. VM parity, performance, and source maps (completed)
+4. Production LSP implementation (completed)
+5. VS Code debugger and developer workflows (completed)
+6. Secure hosted package registry (completed)
+7. Standalone application distribution (completed)
+8. Structured async language model (completed)
+9. Conformance, fuzzing, and security testing (completed)
+10. Optional typed abstraction system (completed)

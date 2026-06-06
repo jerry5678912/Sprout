@@ -93,9 +93,11 @@ class TaskFuture(NativeResource):
     def get(self, name: str) -> Any:
         if name == "done":
             return self.future.done()
+        if name == "cancelled":
+            return self.future.cancelled()
         methods = {
             "result": NativeCall("task.result", self.result, None),
-            "cancel": NativeCall("task.cancel", self.future.cancel, 0),
+            "cancel": NativeCall("task.cancel", self.cancel, 0),
         }
         if name in methods:
             return methods[name]
@@ -104,9 +106,61 @@ class TaskFuture(NativeResource):
     def result(self, timeout: Any = None) -> Any:
         try:
             seconds = None if timeout is None else float(timeout)
-            return self.future.result(timeout=seconds)
+            value = self.future.result(timeout=seconds)
+            return value.result(timeout) if isinstance(value, TaskFuture) else value
         except Exception as exc:
             raise SproutError(f"Task failed: {exc}") from exc
+
+    def cancel(self) -> bool:
+        return self.future.cancel()
+
+
+class StructuredTaskGroup(NativeResource):
+    def __init__(self, spawn: Callable[[Any, list[Any]], TaskFuture]):
+        self.spawn_task = spawn
+        self.tasks: list[TaskFuture] = []
+        self.closed = False
+
+    def get(self, name: str) -> Any:
+        if name == "count":
+            return len(self.tasks)
+        methods = {
+            "spawn": NativeCall("taskgroup.spawn", self.spawn, None),
+            "wait": NativeCall("taskgroup.wait", self.wait, 0),
+            "cancel": NativeCall("taskgroup.cancel", self.cancel, 0),
+        }
+        if name in methods:
+            return methods[name]
+        return super().get(name)
+
+    def spawn(self, callable_value: Any, *args: Any) -> TaskFuture:
+        if self.closed:
+            raise SproutError("Cannot spawn into a closed task group")
+        task = self.spawn_task(callable_value, list(args))
+        self.tasks.append(task)
+        return task
+
+    def wait(self) -> list[Any]:
+        self.closed = True
+        results = []
+        try:
+            for task in self.tasks:
+                results.append(task.result())
+        except Exception:
+            self.cancel()
+            raise
+        return results
+
+    def cancel(self) -> int:
+        self.closed = True
+        return sum(1 for task in self.tasks if task.cancel())
+
+    def settle(self) -> None:
+        for task in self.tasks:
+            try:
+                task.result()
+            except Exception:
+                pass
 
 
 class MessageQueue(NativeResource):

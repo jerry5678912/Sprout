@@ -8,10 +8,16 @@ Thanks for helping Sprout grow.
 python3 sprout.py help
 python3 tests/ecosystem.py
 python3 tests/distribution.py
+python3 sprout.py conformance
+python3 sprout.py fuzz --iterations 100 --seed 20260606
+python3 tests/security.py
 tests/smoke.sh
 ```
 
 Keep changes small, add tests, and update docs when behavior changes.
+Language behavior changes should add or update a case in
+`sprout_core/conformance/manifest.json`. Fuzzer failures must include the seed in the
+bug report so maintainers can replay them.
 
 Pull requests run on Python 3.9 and 3.12 across Linux, macOS, and Windows. Release tags must match `python3 sprout.py version`.
 

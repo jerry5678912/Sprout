@@ -32,6 +32,10 @@ from .distribution import (
     uninstall_language,
 )
 from .application import STANDARD_LIBRARY_GROUPS
+from .registry_server import create_registry_token, list_registry_tokens, revoke_registry_token, serve_registry
+from .standalone import build_standalone, package_standalone, run_standalone, verify_standalone
+from .quality import conformance_suite, fuzz_suite, print_conformance, print_fuzz
+from .typesystem import typecheck_path
 from .tooling import builtin_function_names, check_file, example_files, format_file, intelligence_file, lint_file, print_help, run_file
 
 def brace_balance(source: str) -> int:
@@ -197,6 +201,21 @@ def main(argv: list[str]) -> int:
                 list_only="--list" in argv[2:],
                 name_filter=option_value(argv, "--filter"),
             )
+        elif argv[1] == "conformance":
+            return print_conformance(
+                conformance_suite(option_value(argv, "--manifest")),
+                json_mode="--json" in argv[2:],
+            )
+        elif argv[1] == "fuzz":
+            iterations = int(option_value(argv, "--iterations") or "100")
+            seed = int(option_value(argv, "--seed") or "1337")
+            return print_fuzz(
+                fuzz_suite(iterations=iterations, seed=seed),
+                json_mode="--json" in argv[2:],
+            )
+        elif argv[1] == "typecheck":
+            target = positional_value(argv[2:], ".")
+            return typecheck_path(target, json_mode="--json" in argv[2:])
         elif argv[1] == "docs":
             target = "."
             for value in argv[2:]:
@@ -237,12 +256,60 @@ def main(argv: list[str]) -> int:
             if cmd == "update":
                 return pkg_update(positional_value(argv[3:], "") or None, registry=option_value(argv, "--registry"))
             if cmd == "publish":
-                return pkg_publish(positional_value(argv[3:], "."), option_value(argv, "--registry"))
+                return pkg_publish(
+                    positional_value(argv[3:], "."),
+                    option_value(argv, "--registry"),
+                    option_value(argv, "--token"),
+                )
             if cmd == "docs" and len(argv) >= 4:
                 return pkg_docs(argv[3], registry=option_value(argv, "--registry"))
             if cmd == "tree":
                 return pkg_tree(registry=option_value(argv, "--registry"))
             print("usage: sprout.py pkg init|list|add PATH|remove NAME|info NAME|search QUERY|install NAME[@VERSION]|update|publish [DIR]|docs NAME|tree", file=sys.stderr)
+            return 2
+        elif argv[1] == "registry":
+            if len(argv) < 3:
+                print("usage: sprout.py registry serve|token ...", file=sys.stderr)
+                return 2
+            if argv[2] == "serve":
+                root = option_value(argv, "--root") or os.path.expanduser("~/.sprout/registry")
+                host = option_value(argv, "--host") or "127.0.0.1"
+                port = int(option_value(argv, "--port") or "8787")
+                return serve_registry(root, host, port)
+            if argv[2] == "token" and len(argv) >= 4:
+                root = option_value(argv, "--root") or os.path.expanduser("~/.sprout/registry")
+                if argv[3] == "list":
+                    for item in list_registry_tokens(root):
+                        print(f"{item['name']} publish packages={','.join(item['packages'])}")
+                    return 0
+                if argv[3] == "revoke" and len(argv) >= 5:
+                    revoke_registry_token(root, argv[4])
+                    print(f"revoked registry token {argv[4]}")
+                    return 0
+                packages = (option_value(argv, "--packages") or "*").split(",")
+                print(create_registry_token(root, argv[3], packages))
+                return 0
+            print("usage: sprout.py registry serve [--root DIR] [--host HOST] [--port N] | registry token NAME [--packages a,b] | token list | token revoke NAME", file=sys.stderr)
+            return 2
+        elif argv[1] == "app":
+            if len(argv) < 3:
+                print("usage: sprout.py app build|package|verify|run [PATH]", file=sys.stderr)
+                return 2
+            target = positional_value(argv[3:], ".")
+            if argv[2] == "build":
+                build_standalone(target, registry=option_value(argv, "--registry"))
+                return 0
+            if argv[2] == "package":
+                package_standalone(target, registry=option_value(argv, "--registry"))
+                return 0
+            if argv[2] == "verify":
+                manifest = verify_standalone(target)
+                print(f"standalone app ok {manifest['name']} {manifest['version']}")
+                return 0
+            if argv[2] == "run":
+                separator = argv.index("--") if "--" in argv else len(argv)
+                return run_standalone(target, argv[separator + 1:])
+            print("usage: sprout.py app build|package|verify|run [PATH]", file=sys.stderr)
             return 2
         elif argv[1] == "search":
             return pkg_search(positional_value(argv[2:], ""), option_value(argv, "--registry"))
@@ -268,6 +335,7 @@ def main(argv: list[str]) -> int:
                 target,
                 registry=option_value(argv, "--registry"),
                 publish="--publish" in argv[2:],
+                token=option_value(argv, "--token"),
             )
         elif argv[1] == "release-docs":
             return ensure_release_docs()
@@ -364,7 +432,10 @@ def positional_value(values: list[str], default: str) -> str:
         if skip_next:
             skip_next = False
             continue
-        if value in {"--registry", "--prefix", "--output"}:
+        if value in {
+            "--registry", "--prefix", "--output", "--token", "--root", "--host",
+            "--port", "--packages", "--manifest", "--iterations", "--seed",
+        }:
             skip_next = True
             continue
         if value.startswith("--"):

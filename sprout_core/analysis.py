@@ -13,15 +13,17 @@ from .tooling import module_search_paths_for, parse_source, project_for_path, re
 
 
 IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
-DECL_RE = re.compile(r"^\s*(?:(?:let|sprout)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
-FN_RE = re.compile(r"^\s*(?:def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+DECL_RE = re.compile(r"^\s*(?:(?:let|sprout)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[^=]+)?\s*=")
+FN_RE = re.compile(r"^\s*(?:async\s+)?(?:def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(")
 CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 IMPORT_RE = re.compile(r'^\s*import\s+"([^"]+)"\s+as\s+([A-Za-z_][A-Za-z0-9_]*)')
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
 FOR_RE = re.compile(r"^\s*(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
 CATCH_RE = re.compile(r"^\s*catch\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+TASKGROUP_RE = re.compile(r"^\s*taskgroup\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 
 
 def normalize_path(path: str) -> str:
@@ -306,19 +308,42 @@ def line_docs(lines: list[str], line_index: int) -> str:
     return "\n".join(reversed(docs))
 
 
-def params_signature(params: list[tuple[str, Any, bool, bool]]) -> str:
+def annotation_name(annotation: Any) -> str:
+    if annotation is None:
+        return ""
+    arguments = annotation[2]
+    if arguments:
+        return f"{annotation[1]}[{', '.join(annotation_name(item) for item in arguments)}]"
+    return str(annotation[1])
+
+
+def params_signature(
+    params: list[tuple[str, Any, bool, bool]],
+    metadata: dict[str, Any] | None = None,
+) -> str:
     parts = []
+    parameter_types = (metadata or {}).get("parameter_types", {})
     for name, default, variadic, kw_variadic in params:
         prefix = "**" if kw_variadic else ("*" if variadic else "")
+        annotation = parameter_types.get(name)
+        suffix = f": {annotation_name(annotation)}" if annotation else ""
         if default is not None:
-            parts.append(f"{prefix}{name}=...")
+            parts.append(f"{prefix}{name}{suffix}=...")
         else:
-            parts.append(f"{prefix}{name}")
+            parts.append(f"{prefix}{name}{suffix}")
     return ", ".join(parts)
 
 
-def function_signature(name: str, params: list[tuple[str, Any, bool, bool]]) -> str:
-    return f"{name}({params_signature(params)})"
+def function_signature(
+    name: str,
+    params: list[tuple[str, Any, bool, bool]],
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    type_params = (metadata or {}).get("type_params", [])
+    generic = f"[{', '.join(type_params)}]" if type_params else ""
+    result = f"{name}{generic}({params_signature(params, metadata)})"
+    return_type = (metadata or {}).get("return_type")
+    return result + (f" -> {annotation_name(return_type)}" if return_type else "")
 
 
 def walk_statements(program: list[Any]) -> list[Any]:
@@ -326,6 +351,8 @@ def walk_statements(program: list[Any]) -> list[Any]:
 
     def visit(stmt: Any) -> None:
         out.append(stmt)
+        if stmt[0] == "interface":
+            return
         for part in stmt[1:]:
             if isinstance(part, list):
                 for item in part:
@@ -391,7 +418,7 @@ def build_lexical_scopes(lines: list[str], path: str) -> dict[str, LexicalScope]
             stack.pop()
 
         kind = None
-        if CLASS_RE.match(line):
+        if CLASS_RE.match(line) or INTERFACE_RE.match(line):
             kind = "class"
         elif FN_RE.match(line):
             kind = "function"
@@ -426,7 +453,7 @@ def scope_chain(scopes: dict[str, LexicalScope], scope: LexicalScope) -> list[Le
 
 def declaration_token_locations(lines: list[str]) -> set[tuple[int, int]]:
     locations: set[tuple[int, int]] = set()
-    patterns = [CLASS_RE, FN_RE, IMPORT_RE, IMPORTPY_RE, DECL_RE, FOR_RE, CATCH_RE]
+    patterns = [CLASS_RE, INTERFACE_RE, FN_RE, IMPORT_RE, IMPORTPY_RE, DECL_RE, FOR_RE, CATCH_RE, TASKGROUP_RE]
     for line_no, line in enumerate(lines, start=1):
         for pattern in patterns:
             match = pattern.match(line)
@@ -529,7 +556,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
     analysis.symbols.extend(params)
 
     for line_no, line in enumerate(lines, start=1):
-        for pattern, kind in ((FOR_RE, "variable"), (CATCH_RE, "variable")):
+        for pattern, kind in ((FOR_RE, "variable"), (CATCH_RE, "variable"), (TASKGROUP_RE, "variable")):
             match = pattern.match(line)
             if not match:
                 continue
@@ -540,7 +567,17 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
 
     analysis.references = []
     analysis.diagnostics = [diag for diag in analysis.diagnostics if diag.code != "SPROUT_UNKNOWN_NAME"]
-    special_names = {"self", "super", "argv"}
+    type_names = {"Any", "Nil", "Bool", "Int", "Float", "Number", "String", "List", "Array", "Dict", "Task"}
+    for stmt in walk_statements(analysis.program):
+        if stmt[0] in {"fn", "async_fn"} and len(stmt) > 6:
+            type_names.update(stmt[6].get("type_params", []))
+        elif stmt[0] == "class" and len(stmt) > 4:
+            type_names.update(stmt[4])
+        elif stmt[0] == "interface":
+            type_names.update(stmt[2])
+            for method in stmt[3]:
+                type_names.update(method[2].get("type_params", []))
+    special_names = {"self", "super", "argv"} | type_names
     exact_symbols = {
         (symbol.location.line, symbol.location.col, symbol.name): symbol
         for symbol in analysis.symbols
@@ -552,6 +589,13 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
     for line_no, line in enumerate(lines, start=1):
         code = STRING_RE.sub('""', line.split("#", 1)[0])
         current_scope = scope_for_line(analysis.scopes, line_no)
+        signature_match = FN_RE.match(code)
+        signature_open = code.find("(") if signature_match else -1
+        signature_close = code.find(")", signature_open + 1) if signature_open >= 0 else -1
+        interface_signature = bool(
+            signature_match
+            and not code.rstrip().endswith(("{", ":", "bloom"))
+        )
         dotted_members = {
             match.start(2): (match.group(1), match.group(2))
             for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b", code)
@@ -579,7 +623,11 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             analysis.references.append(
                 Reference(name, Location(analysis.path, line_no, col), role, symbol.symbol_id if symbol else None)
             )
-            if symbol is None and name not in BUILTINS and name not in special_names:
+            signature_parameter = (
+                interface_signature
+                and signature_open < match.start() < signature_close
+            )
+            if symbol is None and name not in BUILTINS and name not in special_names and not signature_parameter:
                 analysis.diagnostics.append(
                     Diagnostic("warning", f"Unknown name '{name}'", analysis.path, line_no, col, "SPROUT_UNKNOWN_NAME")
                 )
@@ -619,12 +667,12 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
     class_members: dict[str, dict[str, SemanticSymbol]] = {}
     parameter_names: set[str] = set()
     for stmt in walk_statements(program):
-        if stmt[0] == "fn":
+        if stmt[0] in {"fn", "async_fn"}:
             parameter_names.update(param[0] for param in stmt[2])
 
     for line_no, line in enumerate(lines, start=1):
         indent = len(line) - len(line.lstrip(" "))
-        while class_stack and indent <= class_stack[-1][0] and line.strip() and not line.lstrip().startswith(("def ", "fn ", "bloom ")):
+        while class_stack and indent <= class_stack[-1][0] and line.strip():
             class_stack.pop()
         current_class = class_stack[-1][1] if class_stack else None
 
@@ -639,18 +687,44 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
             current_class = name
             continue
 
+        interface_match = INTERFACE_RE.match(line)
+        if interface_match:
+            name = interface_match.group(1)
+            symbol = SemanticSymbol(
+                name,
+                "interface",
+                Location(resolved, line_no, interface_match.start(1) + 1),
+                documentation=line_docs(lines, line_no - 1),
+            )
+            analysis.symbols.append(symbol)
+            analysis.classes[name] = symbol
+            class_members.setdefault(name, {})
+            class_stack.append((indent, name))
+            current_class = name
+            continue
+
         fn_match = FN_RE.match(line)
         if fn_match:
             name = fn_match.group(1)
-            ast_fn = next((stmt for stmt in walk_statements(program) if stmt[0] == "fn" and stmt[1] == name and stmt[4] == line_no), None)
-            params = ast_fn[2] if ast_fn else []
+            ast_fn = next((stmt for stmt in walk_statements(program) if stmt[0] in {"fn", "async_fn"} and stmt[1] == name and stmt[4] == line_no), None)
+            interface_method = None
+            if current_class and analysis.classes.get(current_class) and analysis.classes[current_class].kind == "interface":
+                interface_stmt = next((stmt for stmt in program if stmt[0] == "interface" and stmt[1] == current_class), None)
+                if interface_stmt:
+                    interface_method = next((method for method in interface_stmt[3] if method[0] == name and method[3] == line_no), None)
+            params = ast_fn[2] if ast_fn else (interface_method[1] if interface_method else [])
+            metadata = (
+                ast_fn[6] if ast_fn and len(ast_fn) > 6
+                else interface_method[2] if interface_method
+                else {}
+            )
             container = current_class
             kind = "method" if container else "function"
             symbol = SemanticSymbol(
                 name,
                 kind,
                 Location(resolved, line_no, fn_match.start(1) + 1),
-                signature=function_signature(name, params),
+                signature=function_signature(name, params, metadata),
                 documentation=line_docs(lines, line_no - 1),
                 container=container,
             )
@@ -712,6 +786,8 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
 
     analysis.source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
     bind_references(analysis, lines)
+    from .typesystem import typecheck_source
+    analysis.diagnostics.extend(typecheck_source(source, resolved))
     return analysis
 
 

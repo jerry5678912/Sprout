@@ -64,11 +64,7 @@ td, th {
 <body><main>
 <h1 id="the-sprout-programming-language-manual">The Sprout Programming Language Manual</h1>
 <p>
-Version: 0.3.0
- 
-Implementation: modular Python tree-walk interpreter in <code>sprout_core/</code>, launched by <code>sprout.py</code>
- 
-File extension: <code>.sprout</code>
+Version: 0.3.0 Implementation: modular Python tree-walk interpreter in <code>sprout_core/</code>, launched by <code>sprout.py</code> File extension: <code>.sprout</code>
 </p>
 <p>
 Sprout is a small, dynamic programming language with a garden-flavored personality. It is designed to be easy to read, easy to experiment with, and practical enough for scripts, terminal games, multi-file projects, and Python standard-library interop.
@@ -1064,9 +1060,7 @@ say profile.name
 say listdir(&quot;/tmp/sprout-save&quot;)
 </code></pre>
 <p>
-<code>writefile</code> and <code>appendfile</code> convert values through Sprout display formatting.
- 
-<code>writejson</code> writes real JSON from Sprout values, and <code>readjson</code> converts JSON back into Sprout arrays, dictionaries, strings, numbers, booleans, and <code>nil</code>.
+<code>writefile</code> and <code>appendfile</code> convert values through Sprout display formatting. <code>writejson</code> writes real JSON from Sprout values, and <code>readjson</code> converts JSON back into Sprout arrays, dictionaries, strings, numbers, booleans, and <code>nil</code>.
 </p>
 <h2 id="20-built-in-functions">20. Built-In Functions</h2>
 <p>
@@ -1843,9 +1837,7 @@ The server supports incremental UTF-16 document synchronization, versioned diagn
 Semantic names are bound through lexical scopes rather than text matching alone. A parameter named <code>value</code> in one function is distinct from a parameter named <code>value</code> in another function. Definitions, references, and rename operations use stable symbol identities, including imported Sprout module members.
 </p>
 <p>
-The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
- 
-The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
+The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts. The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 </p>
 <p>
 Editor-style JSON queries are available through <code>intel</code>:
@@ -1871,9 +1863,7 @@ def spawn(name, hp=10):
 Sprout has two execution paths:
 </p>
 <p>
-1. Stable tree-walk interpreter.
- 
-2. Experimental bytecode VM.
+1. Stable tree-walk interpreter. 2. Experimental bytecode VM.
 </p>
 <p>
 The tree-walk interpreter remains the source of truth and continues to run the full current language. The VM is an incremental foundation for future performance, debugging, profiling, and optimization work.
@@ -1971,13 +1961,7 @@ The VS Code extension also bundles Sprout&#x27;s Debug Adapter Protocol server. 
 To use it:
 </p>
 <p>
-1. Open a <code>.sprout</code> program in VS Code.
- 
-2. Click beside a line number to add a breakpoint.
- 
-3. Press <code>F5</code>.
- 
-4. Choose <code>Debug current Sprout file</code> if VS Code asks for a configuration.
+1. Open a <code>.sprout</code> program in VS Code. 2. Click beside a line number to add a breakpoint. 3. Press <code>F5</code>. 4. Choose <code>Debug current Sprout file</code> if VS Code asks for a configuration.
 </p>
 <p>
 The terminal and VS Code debuggers currently use the experimental bytecode VM. Programs that contain VM-unsupported behavior should still be run with the stable interpreter.
@@ -2130,6 +2114,30 @@ expect(value).to_be_false()
 expect(value).to_contain(item)
 </code></pre>
 <h3 id="tasks-futures-and-queues">Tasks, Futures, and Queues</h3>
+<p>
+Sprout has structured async syntax:
+</p>
+<pre><code class="language-sprout">
+async def fetch(label, delay):
+  sleep(delay)
+  return &quot;finished &quot; + label
+
+result = await fetch(&quot;first&quot;, 0.05)
+say result
+
+taskgroup jobs:
+  jobs.spawn(fetch, &quot;second&quot;, 0.05)
+  jobs.spawn(fetch, &quot;third&quot;, 0.05)
+</code></pre>
+<p>
+Calling an <code>async def</code> function returns a task immediately. <code>await</code> waits for that task and returns its result or raises its error. <code>await</code> may be used at the top level or inside a function.
+</p>
+<p>
+A <code>taskgroup</code> creates a lexical structured-concurrency scope. Tasks started with <code>group.spawn(function, arguments...)</code> belong to that scope. Sprout waits for all of them before leaving the block. If one task fails, the group requests cancellation of its siblings and propagates the failure. Groups also expose <code>wait()</code>, <code>cancel()</code>, <code>settle()</code>, and <code>count</code>.
+</p>
+<p>
+The older explicit task helpers remain available:
+</p>
 <pre><code class="language-sprout">
 def work(value):
   return value * value
@@ -2146,7 +2154,10 @@ messages.send(&quot;ready&quot;)
 say messages.receive()
 </code></pre>
 <p>
-Tasks use a scheduler with future-like results and delayed execution. Sprout function execution is currently serialized through a runtime lock so interpreter state remains correct. This provides safe task/timer foundations, not CPU-parallel Sprout execution.
+Tasks use a scheduler with future-like results and delayed execution. Sprout function execution is currently serialized through a runtime lock so interpreter state remains correct. This provides concurrency for waiting and orchestration, not CPU-parallel Sprout execution.
+</p>
+<p>
+Structured async execution currently uses the stable interpreter. Running an async program with <code>run --vm</code> reports the unsupported VM feature and explicitly falls back to the stable interpreter.
 </p>
 <h3 id="http">HTTP</h3>
 <p>
@@ -2304,7 +2315,24 @@ python3 sprout.py pkg docs physics_tools
 python3 sprout.py pkg publish
 </code></pre>
 <p>
-The registry is a lightweight JSON index with immutable, versioned <code>.sproutpkg</code> bundles. Registry metadata includes SHA-256 checksums and installs verify bundle integrity. Local registries are readable and writable. HTTP/HTTPS JSON registries are read-only in this milestone.
+The registry is a lightweight JSON index with immutable, versioned <code>.sproutpkg</code> bundles. Registry metadata includes SHA-256 checksums and installs verify bundle integrity. Registries may be local or hosted.
+</p>
+<p>
+Create a package-scoped token and run a hosted service:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py registry token publisher --root ./registry --packages physics_tools
+python3 sprout.py registry serve --root ./registry --host 127.0.0.1 --port 8787
+</code></pre>
+<p>
+Set <code>SPROUT_REGISTRY_TOKEN</code> or pass <code>--token</code> when publishing to HTTP/HTTPS. Raw tokens are printed once and only their SHA-256 digests are stored. Tokens can be listed and revoked:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py registry token list --root ./registry
+python3 sprout.py registry token revoke publisher --root ./registry
+</code></pre>
+<p>
+Hosted publishing enforces package permissions, immutable versions, archive path and symlink safety, upload and expansion limits, package identity, and bundle/per-file checksums. Public deployments should put the built-in service behind an HTTPS reverse proxy.
 </p>
 <p>
 Publishing validates metadata, source, dependencies, tests, and documentation. <code>release</code> performs the same quality checks, generates API documentation, creates a bundle, and writes <code>dist/release.json</code>:
@@ -2315,6 +2343,18 @@ python3 sprout.py release --publish --registry ./registry
 </code></pre>
 <p>
 Aliases are available through <code>search</code>, <code>info</code>, and <code>list-installed</code>. Full ecosystem details are in <code>docs/ECOSYSTEM.md</code>.
+</p>
+<p>
+Standalone application distribution embeds the Sprout runtime, resolved dependencies, project files, and assets:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py app build .
+python3 sprout.py app verify dist/my_app-0.1.0-standalone
+python3 sprout.py app run dist/my_app-0.1.0-standalone -- argument
+python3 sprout.py app package .
+</code></pre>
+<p>
+The generated directory includes Unix and Windows launchers plus an exact SHA-256 integrity manifest. The deterministic <code>.sproutapp</code> archive can be extracted on another machine and run without installing Sprout. Python 3.9 or newer remains the host runtime for this distribution generation.
 </p>
 <h2 id="32-installing-and-releasing-sprout">32. Installing And Releasing Sprout</h2>
 <p>
@@ -2346,7 +2386,78 @@ The first command creates a source/runtime ZIP. The second creates a self-contai
 <p>
 The capability baseline used to plan this work is recorded in <code>docs/CAPABILITY_AUDIT.md</code>.
 </p>
-<h2 id="33-current-limitations">33. Current Limitations</h2>
+<h2 id="33-conformance-fuzzing-and-security">33. Conformance, Fuzzing, and Security</h2>
+<p>
+The checked-in conformance corpus is a stable language behavior contract:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py conformance
+python3 sprout.py conformance --json
+</code></pre>
+<p>
+Cases live under <code>sprout_core/conformance/</code> and declare expected output, exit status, diagnostic fragments, and whether interpreter/VM parity is required.
+</p>
+<p>
+The deterministic fuzzer generates both valid and malformed programs:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py fuzz
+python3 sprout.py fuzz --iterations 500 --seed 20260606
+python3 sprout.py fuzz --iterations 100 --seed 42 --json
+</code></pre>
+<p>
+Valid generated programs must produce the same exit status and output in the stable interpreter and experimental VM. Malformed inputs may produce Sprout diagnostics, but may not crash the lexer/parser with internal exceptions. The reported seed makes every run reproducible.
+</p>
+<p>
+Security regression tests are separate from ordinary behavior tests:
+</p>
+<pre><code class="language-sh">
+python3 tests/security.py
+</code></pre>
+<p>
+They cover hostile source input, raw Python traceback leakage, package path traversal, symbolic links, file-count and expanded-size limits, and forged manifest hashes. Package downloads are capped at 64 MiB, and extracted package archives are capped at 10,000 files and 256 MiB expanded size.
+</p>
+<h2 id="34-optional-typed-abstractions">34. Optional Typed Abstractions</h2>
+<p>
+Sprout&#x27;s normal execution remains dynamic. Optional annotations add static checks without changing runtime values:
+</p>
+<pre><code class="language-sprout">
+interface Greeter:
+  def greet(self, name: String) -&gt; String
+
+class FriendlyGreeter implements Greeter:
+  def greet(self, name: String) -&gt; String:
+    return &quot;hello &quot; + name
+
+class Box[T]:
+  def init(self, value: T):
+    self.value = value
+
+  def get(self) -&gt; T:
+    return self.value
+
+def identity[T](value: T) -&gt; T:
+  return value
+
+let answer: Int = identity(42)
+</code></pre>
+<p>
+Check a file or project:
+</p>
+<pre><code class="language-sh">
+python3 sprout.py typecheck file.sprout
+python3 sprout.py typecheck . --json
+</code></pre>
+<p>
+Supported forms include typed variables, parameters and returns, generic functions/classes, interface method signatures, and <code>implements</code> declarations. Built-in types are <code>Any</code>, <code>Nil</code>, <code>Bool</code>, <code>Int</code>, <code>Float</code>, <code>Number</code>, <code>String</code>, <code>List[T]</code>, <code>Array[T]</code>, <code>Dict[K, V]</code>, and <code>Task[T]</code>. User classes and interfaces are also valid types.
+</p>
+<p>
+The checker reports unknown types, wrong generic arity, incompatible annotated assignments, argument and return mismatches, and missing or incompatible interface methods. VS Code/LSP diagnostics include these errors. Typed syntax is runtime-erased and works in both execution engines.
+</p>
+<p>
+This is a gradual, file-local foundation. Unannotated values are <code>Any</code>. Cross-module generic inference, unions, type aliases, narrowing, overloads, and exhaustiveness checking are not implemented yet.
+</p>
+<h2 id="35-current-limitations">35. Current Limitations</h2>
 <p>
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 </p>
@@ -2355,13 +2466,18 @@ Known limitations:
 </p>
 <ul>
 <li>Files support Python-style indentation blocks and garden-style <code>bloom</code> / <code>end</code> blocks. Brace blocks still work for older Sprout code.</li>
-<li>Inheritance and <code>super</code> exist, but there are no access modifiers or interfaces.</li>
+<li>Inheritance, <code>super</code>, and structural interfaces exist, but there are no access modifiers.</li>
 <li>Uncaught runtime errors include Sprout function/method stack traces with source file, line, and column locations for call sites and function definitions.</li>
 <li>There are no comprehensions.</li>
 <li>Sprout-defined functions support <code>*rest</code> positional arguments, <code>**options</code> keyword-rest arguments, and call-site <code>*args</code> / <code>**opts</code> spreading.</li>
 <li>Built-in Sprout functions generally reject keyword arguments unless documented.</li>
-<li>The package registry is local/JSON-backed. HTTP registries are read-only, and there is no hosted Sprout registry, authentication, signing, or trust service yet.</li>
-<li>There is no static type checker.</li>
+<li>Hosted registries and authenticated publishing exist, but package signatures and a public trust service do not yet exist.</li>
+<li>The optional checker is gradual and file-local; it does not yet support unions,</li>
+</ul>
+<p>
+  aliases, narrowing, overloads, or cross-module generic inference.
+</p>
+<ul>
 <li>The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.</li>
 <li>The dedicated test runner and imported Sprout module bodies currently use stable interpreter infrastructure even when the calling program uses the VM.</li>
 <li>Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.</li>
@@ -2370,7 +2486,7 @@ Known limitations:
 <li>Window2D and PandaWindow3D are thin wrappers and require external Python packages.</li>
 <li>Python interop depends on the Python runtime executing <code>sprout.py</code>.</li>
 </ul>
-<h2 id="34-accuracy-notes">34. Accuracy Notes</h2>
+<h2 id="36-accuracy-notes">36. Accuracy Notes</h2>
 <p>
 This manual describes the current <code>sprout.py</code> implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 </p>

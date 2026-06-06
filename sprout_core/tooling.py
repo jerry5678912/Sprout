@@ -198,7 +198,7 @@ def parse_source(source: str) -> list[Any]:
 
 
 def read_source_file(path: str) -> tuple[str, str]:
-    resolved = os.path.abspath(path)
+    resolved = os.path.realpath(os.path.abspath(path))
     with open(resolved, "r", encoding="utf-8") as fh:
         return fh.read(), resolved
 
@@ -254,12 +254,17 @@ def collect_symbols(program: list[Any], path: str | None = None) -> list[Symbol]
 
     def walk_statement(stmt: Any) -> None:
         kind = stmt[0]
-        if kind == "fn":
+        if kind in {"fn", "async_fn"}:
             symbols.append(Symbol(stmt[1], "function", path, stmt[4], stmt[5]))
         elif kind == "class":
             symbols.append(Symbol(stmt[1], "class", path, 1, 1))
             for method in stmt[3]:
                 symbols.append(Symbol(f"{stmt[1]}.{method[1]}", "method", path, method[4], method[5]))
+            return
+        elif kind == "interface":
+            symbols.append(Symbol(stmt[1], "interface", path, stmt[4], stmt[5]))
+            for method in stmt[3]:
+                symbols.append(Symbol(f"{stmt[1]}.{method[0]}", "method", path, method[3], method[4]))
             return
         elif kind == "import":
             symbols.append(Symbol(stmt[2], "module", path, 1, 1))
@@ -279,6 +284,8 @@ def iter_statements(program: list[Any]) -> list[Any]:
 
     def visit(stmt: Any) -> None:
         out.append(stmt)
+        if stmt[0] == "interface":
+            return
         for part in stmt[1:]:
             if isinstance(part, list):
                 for item in part:
@@ -330,7 +337,7 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
 
     for stmt in iter_statements(program):
         kind = stmt[0]
-        if kind == "fn":
+        if kind in {"fn", "async_fn"}:
             if stmt[1] in seen_functions:
                 diagnostics.append(Diagnostic("warning", f"Duplicate function name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_FUNCTION"))
             seen_functions.add(stmt[1])
@@ -343,6 +350,8 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
         elif kind == "let":
             declared.setdefault(stmt[1], 1)
             scan_expr(stmt[2])
+        elif kind == "taskgroup":
+            declared.setdefault(stmt[1], stmt[3])
         elif kind == "assign" and stmt[1][0] == "var":
             if stmt[1][1] in declared:
                 diagnostics.append(Diagnostic("warning", f"Assignment shadows earlier name '{stmt[1][1]}'", path, 1, 1, "SPROUT_SHADOW"))
@@ -510,7 +519,7 @@ def intelligence_file(path: str, kind: str, line: int, col: int, source_path: st
         top_level_completions,
     )
 
-    resolved = os.path.abspath(path)
+    resolved = os.path.realpath(os.path.abspath(path))
     if source_path:
         source, _source_resolved = read_source_file(source_path)
     else:
@@ -590,10 +599,18 @@ def print_help() -> None:
         "  python3 sprout.py profile FILE          Profile experimental VM execution\n"
         "  python3 sprout.py test [PATH]           Discover and run Sprout tests\n"
         "                    [--list] [--json] [--filter NAME]\n"
+        "  python3 sprout.py conformance [--json]  Run the language conformance corpus\n"
+        "  python3 sprout.py fuzz [--iterations N] Run deterministic parser/VM fuzzing\n"
+        "                    [--seed N] [--json]\n"
+        "  python3 sprout.py typecheck [PATH]      Check optional type annotations\n"
+        "                    [--json]\n"
         "  python3 sprout.py docs [DIR] [--html]   Generate project/package documentation\n"
         "  python3 sprout.py build [DIR] [--vm]    Create a reproducible project build\n"
         "  python3 sprout.py package [DIR]         Create a portable .sproutpkg bundle\n"
+        "  python3 sprout.py app COMMAND           Build, package, verify, or run standalone apps\n"
         "  python3 sprout.py pkg COMMAND           Manage, install, and publish packages\n"
+        "  python3 sprout.py registry serve        Run an authenticated package registry\n"
+        "  python3 sprout.py registry token NAME   Create a package publish token\n"
         "  python3 sprout.py search [QUERY]        Search the configured package registry\n"
         "  python3 sprout.py info PACKAGE          Show registry package metadata\n"
         "  python3 sprout.py list-installed        List project package installations\n"

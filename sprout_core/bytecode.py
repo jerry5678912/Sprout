@@ -172,9 +172,12 @@ class Compiler:
 
     def locate_statement(self, stmt: Any) -> tuple[int | None, int | None]:
         kind = stmt[0]
-        if kind == "fn":
+        if kind in {"fn", "async_fn"}:
             self.scan_line = max(self.scan_line, stmt[4])
             return stmt[4], stmt[5]
+        if kind == "taskgroup":
+            self.scan_line = max(self.scan_line, stmt[3])
+            return stmt[3], stmt[4]
         if kind == "test":
             self.scan_line = max(self.scan_line, stmt[3])
             return stmt[3], stmt[4]
@@ -183,6 +186,7 @@ class Compiler:
             "import": r"^\s*import\b",
             "importpython": r"^\s*importpython\b",
             "class": rf"^\s*class\s+{re.escape(str(stmt[1]))}\b",
+            "interface": rf"^\s*interface\s+{re.escape(str(stmt[1]))}\b",
             "if": r"^\s*(?:if|elif|else\s+if)\b",
             "while": r"^\s*(?:while|whirl)\b",
             "for": r"^\s*(?:for|each)\b",
@@ -211,6 +215,10 @@ class Compiler:
         previous_location = self.current_line, self.current_col
         self.current_line, self.current_col = self.locate_statement(stmt)
         kind = stmt[0]
+        if kind in {"async_fn", "taskgroup"}:
+            raise BytecodeUnsupported(
+                "Structured async execution is supported by the stable interpreter, not the experimental VM yet"
+            )
         if kind == "let":
             self.expression(stmt[2])
             self.emit("STORE_NAME", stmt[1])
@@ -341,6 +349,9 @@ class Compiler:
                 method_codes.append((method[1], child.code))
             self.emit("MAKE_CLASS", (stmt[1], method_codes))
             self.emit("STORE_NAME", stmt[1])
+        elif kind == "interface":
+            self.emit("LOAD_CONST", {"interface": stmt[1]})
+            self.emit("STORE_NAME", stmt[1])
         elif kind == "try":
             start = self.emit("TRY_START", (None, stmt[2]))
             for child in stmt[1]:
@@ -367,6 +378,10 @@ class Compiler:
 
     def expression(self, expr: Any) -> None:
         kind = expr[0]
+        if kind == "await":
+            raise BytecodeUnsupported(
+                "await is supported by the stable interpreter, not the experimental VM yet"
+            )
         if kind == "literal":
             self.emit("LOAD_CONST", expr[1])
         elif kind == "var":
@@ -868,8 +883,9 @@ def run_file_vm(path: str, args: list[str] | None = None, fallback: bool = True)
     source, resolved = read_source_file(path)
     try:
         code = compile_source(source, resolved)
-    except BytecodeUnsupported:
+    except BytecodeUnsupported as exc:
         if fallback:
+            print(f"warning: VM fallback to stable interpreter: {exc}", file=sys.stderr)
             run_file(path, args or [])
             return
         raise

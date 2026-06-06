@@ -124,6 +124,7 @@ def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
         "field": 5,
         "variable": 6,
         "class": 7,
+        "interface": 8,
         "module": 9,
         "python-module": 9,
         "parameter": 6,
@@ -135,7 +136,7 @@ def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
         "documentation": {"kind": "markdown", "value": symbol.documentation or f"Sprout {symbol.kind}."},
         "data": {"symbolId": symbol.symbol_id},
     }
-    if symbol.kind in {"function", "builtin", "method", "class"} and symbol.signature:
+    if symbol.kind in {"function", "builtin", "method", "class", "interface"} and symbol.signature:
         item["insertText"] = f"{symbol.name}($1)"
         item["insertTextFormat"] = 2
     return item
@@ -438,7 +439,7 @@ class SproutLanguageServer:
         index = self.index_for_uri(uri, rebuild=False)
         file = index.files.get(os.path.realpath(path_from_uri(uri)))
         symbols = file.symbols if file else []
-        kinds = {"function": 12, "class": 5, "method": 6, "module": 2, "python-module": 2, "variable": 13, "field": 8}
+        kinds = {"function": 12, "class": 5, "interface": 11, "method": 6, "module": 2, "python-module": 2, "variable": 13, "field": 8}
         return [{
             "name": symbol.name,
             "detail": symbol.signature or symbol.kind,
@@ -461,7 +462,7 @@ class SproutLanguageServer:
                         continue
                     out.append({
                         "name": symbol.name,
-                        "kind": {"function": 12, "class": 5, "method": 6, "variable": 13}.get(symbol.kind, 13),
+                        "kind": {"function": 12, "class": 5, "interface": 11, "method": 6, "variable": 13}.get(symbol.kind, 13),
                         "location": location_payload(symbol.location.path, symbol.location.line, symbol.location.col, len(symbol.name)),
                         "containerName": symbol.container,
                     })

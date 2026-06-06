@@ -23,6 +23,8 @@ from .application import (
     NativeResource,
     RouteHttpServer,
     SQLiteDatabase,
+    StructuredTaskGroup,
+    TaskFuture,
     convert_unit,
     http_request,
     mat_mul,
@@ -97,6 +99,7 @@ class Function:
     source_path: str | None = None
     line: int | None = None
     col: int | None = None
+    is_async: bool = False
 
     def frame_label(self, display_name: str | None = None) -> str:
         name = display_name or self.name
@@ -115,8 +118,17 @@ class Function:
         return name
 
     def call(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        if self.is_async:
+            return submit_task(lambda: self.invoke_async(interpreter, args, kwargs or {}))
+        return self.invoke(interpreter, args, kwargs or {})
+
+    def invoke_async(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        with interpreter.task_lock:
+            return self.invoke(interpreter, args, kwargs)
+
+    def invoke(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> Any:
         env = Env(self.closure, is_scope_boundary=True)
-        bound = bind_arguments(self.name, self.params, args, kwargs or {}, interpreter, self.closure)
+        bound = bind_arguments(self.name, self.params, args, kwargs, interpreter, self.closure)
         for name, value in bound:
             env.define(name, value)
         try:
@@ -135,11 +147,20 @@ class BoundMethod:
         self.instance = instance
 
     def call(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
+        if self.function.is_async:
+            return submit_task(lambda: self.invoke_async(interpreter, args, kwargs or {}))
+        return self.invoke(interpreter, args, kwargs or {})
+
+    def invoke_async(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        with interpreter.task_lock:
+            return self.invoke(interpreter, args, kwargs)
+
+    def invoke(self, interpreter: Interpreter, args: list[Any], kwargs: dict[str, Any]) -> Any:
         if not self.function.params:
             raise SproutError(f"{self.function.name} needs a self parameter")
         env = Env(self.function.closure, is_scope_boundary=True)
         env.define(self.function.params[0][0], self.instance)
-        bound = bind_arguments(self.function.name, self.function.params[1:], args, kwargs or {}, interpreter, self.function.closure)
+        bound = bind_arguments(self.function.name, self.function.params[1:], args, kwargs, interpreter, self.function.closure)
         for name, value in bound:
             env.define(name, value)
         try:
@@ -181,6 +202,16 @@ class SproutClass:
         if self.superclass:
             return f"<class {self.name} extends {self.superclass.name}>"
         return f"<class {self.name}>"
+
+
+@dataclass
+class SproutInterface:
+    name: str
+    methods: list[Any]
+    type_params: list[str]
+
+    def __repr__(self) -> str:
+        return f"<interface {self.name}>"
 
 
 class SproutInstance:
@@ -331,6 +362,14 @@ class SproutModule:
 
 
 class Interpreter:
+    @property
+    def env(self) -> Env:
+        return getattr(self._thread_state, "env", self.globals)
+
+    @env.setter
+    def env(self, value: Env) -> None:
+        self._thread_state.env = value
+
     def __init__(
         self,
         source_path: str | None = None,
@@ -339,6 +378,7 @@ class Interpreter:
         module_search_paths: list[str] | None = None,
     ):
         self.globals = Env(is_scope_boundary=True)
+        self._thread_state = threading.local()
         self.env = self.globals
         self.source_path = os.path.abspath(source_path) if source_path else None
         self.current_dir = os.path.dirname(self.source_path) if self.source_path else os.getcwd()
@@ -800,8 +840,20 @@ class Interpreter:
             self.env.define(stmt[2], self.import_sprout(stmt[1], stmt[2]))
         elif kind == "importpython":
             self.env.define(stmt[2], self.import_python(stmt[1]))
-        elif kind == "fn":
-            self.env.define(stmt[1], Function(stmt[1], stmt[2], stmt[3], self.env, self.source_path, stmt[4], stmt[5]))
+        elif kind in {"fn", "async_fn"}:
+            self.env.define(
+                stmt[1],
+                Function(
+                    stmt[1],
+                    stmt[2],
+                    stmt[3],
+                    self.env,
+                    self.source_path,
+                    stmt[4],
+                    stmt[5],
+                    is_async=kind == "async_fn",
+                ),
+            )
         elif kind == "test":
             return
         elif kind == "class":
@@ -817,8 +869,32 @@ class Interpreter:
                 method_env = Env(self.env)
                 method_env.define("super", superclass)
             for method in stmt[3]:
-                methods[method[1]] = Function(method[1], method[2], method[3], method_env, self.source_path, method[4], method[5])
+                methods[method[1]] = Function(
+                    method[1],
+                    method[2],
+                    method[3],
+                    method_env,
+                    self.source_path,
+                    method[4],
+                    method[5],
+                    is_async=method[0] == "async_fn",
+                )
             self.env.assign(stmt[1], SproutClass(stmt[1], methods, superclass))
+        elif kind == "interface":
+            self.env.define(stmt[1], SproutInterface(stmt[1], stmt[3], stmt[2]))
+        elif kind == "taskgroup":
+            group = StructuredTaskGroup(
+                lambda callable_value, args: submit_task(lambda: self.call_value(callable_value, args))
+            )
+            group_env = Env(self.env)
+            group_env.define(stmt[1], group)
+            try:
+                self.execute_block(stmt[2], group_env)
+                group.wait()
+            except BaseException:
+                group.cancel()
+                group.settle()
+                raise
         elif kind == "if":
             body = stmt[2] if truthy(self.evaluate(stmt[1])) else stmt[3]
             self.execute_block(body, Env(self.env))
@@ -986,6 +1062,11 @@ class Interpreter:
             return {self.evaluate(key): self.evaluate(value) for key, value in expr[1]}
         if kind == "seedfn":
             return Function("<seedfn>", expr[1], expr[2], self.env, self.source_path, expr[3], expr[4])
+        if kind == "await":
+            task = self.evaluate(expr[1])
+            if not isinstance(task, TaskFuture):
+                raise SproutError("await expects an async task")
+            return task.result()
         if kind == "index":
             obj = self.evaluate(expr[1])
             index = self.evaluate(expr[2])

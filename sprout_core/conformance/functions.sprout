@@ -1,0 +1,9 @@
+def triple(value):
+  return value * 3
+
+result = triple(7)
+say result
+if result > 10:
+  say "large"
+else:
+  say "small"

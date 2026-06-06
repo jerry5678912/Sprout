@@ -145,9 +145,9 @@ def build(markdown: str) -> str:
         if not in_para:
             out.append("<p>")
             in_para = True
+            out.append(inline(line))
         else:
-            out.append(" ")
-        out.append(inline(line))
+            out[-1] += " " + inline(line)
 
     close_para()
     close_list()

@@ -2,6 +2,27 @@
 
 ## 0.3.0
 
+- Added structured async functions, `await`, and lexical `taskgroup` scopes with
+  failure propagation and best-effort sibling cancellation.
+- Added async method support, editor completions/highlighting/snippets, semantic
+  indexing, interpreter tests, and explicit experimental-VM fallback reporting.
+- Added a checked-in language conformance corpus with machine-readable results
+  and interpreter/VM parity expectations.
+- Added seed-reproducible valid-program differential fuzzing and malformed-input
+  lexer/parser fuzzing.
+- Added a dedicated security regression suite and package extraction file-count
+  and expanded-size limits.
+- Fixed trailing string escapes so hostile input produces a Sprout diagnostic
+  instead of an internal index error.
+- Added optional variable, parameter, and return type annotations with a
+  machine-readable `typecheck` command.
+- Added generic functions/classes, structural interface declarations, and
+  `implements` validation with runtime-erased interpreter/VM execution.
+- Added typed signatures, diagnostics, highlighting, completions, snippets,
+  examples, conformance coverage, and regression tests.
+- Added standalone application directories and deterministic `.sproutapp` archives with embedded Sprout runtimes, resolved dependencies, assets, cross-platform launchers, and exact integrity manifests.
+- Added an authenticated hosted package registry with package-scoped bearer tokens, token revocation, immutable publishing, and public search/install endpoints.
+- Added server-side archive identity, path, symlink, expansion-size, bundle checksum, and per-file checksum validation.
 - Added native VS Code Test Explorer discovery and per-test execution backed by structured test JSON.
 - Added LSP quick fixes for tab indentation and Python-style constant aliases.
 - Added conditional breakpoints, hit-count breakpoints, expression evaluation, and uncaught-error stopping.

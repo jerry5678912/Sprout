@@ -39,6 +39,13 @@ def test_install_and_uninstall() -> None:
             command = ["cmd", "/c", str(launcher), "version"]
         output = subprocess.run(command, text=True, capture_output=True, check=True)
         assert output.stdout.strip() == f"Sprout {SPROUT_VERSION}"
+        conformance = subprocess.run(
+            [*command[:-1], "conformance"],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert conformance.stdout.strip().endswith("7/7 conformance cases passed")
         assert uninstall_language(prefix=prefix) == 0
         assert not launcher.exists()
         assert not manifest.exists()
@@ -55,6 +62,8 @@ def test_release_archives() -> None:
             names = archive.namelist()
             assert f"sprout-{SPROUT_VERSION}/install.py" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/runtime.py" in names
+            assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/manifest.json" in names
+            assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/typed.sprout" in names
             assert f"sprout-{SPROUT_VERSION}/tests/smoke.sh" in names
         with zipfile.ZipFile(extension) as archive:
             names = archive.namelist()
@@ -63,6 +72,8 @@ def test_release_archives() -> None:
             assert "extension/package.json" in names
             assert "extension/sprout.py" in names
             assert "extension/sprout_core/runtime.py" in names
+            assert "extension/sprout_core/conformance/manifest.json" in names
+            assert "extension/sprout_core/conformance/typed.sprout" in names
             assert "extension/tools/sprout_lsp.py" in names
             assert "extension/tools/sprout_dap.py" in names
             assert "extension/lsp-client.js" in names

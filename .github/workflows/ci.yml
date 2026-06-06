@@ -37,6 +37,11 @@ jobs:
           python tests/dogfood.py
           python tests/application.py
           python tests/ecosystem.py
+          python tests/standalone.py
+          python tests/async_language.py
+          python tests/quality.py
+          python tests/security.py
+          python tests/typesystem.py
           python tests/distribution.py
           python tests/lsp.py
           python tools/check_editor_coverage.py

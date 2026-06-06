@@ -1,0 +1,21 @@
+interface Greeter:
+  def greet(self, name: String) -> String
+
+class FriendlyGreeter implements Greeter:
+  def greet(self, name: String) -> String:
+    return "hello " + name
+
+class Box[T]:
+  def init(self, value: T):
+    self.value = value
+
+  def get(self) -> T:
+    return self.value
+
+def identity[T](value: T) -> T:
+  return value
+
+let message: String = FriendlyGreeter().greet("Mina")
+let answer: Int = identity(42)
+say message
+say answer

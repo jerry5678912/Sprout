@@ -221,6 +221,12 @@ def doctor() -> int:
         "tests/smoke.sh",
         "tests/application.py",
         "tests/ecosystem.py",
+        "tests/standalone.py",
+        "tests/async_language.py",
+        "tests/quality.py",
+        "tests/security.py",
+        "tests/typesystem.py",
+        "sprout_core/conformance/manifest.json",
         "tests/distribution.py",
         "tests/lsp.py",
         "tools/package_vscode.py",
@@ -230,6 +236,7 @@ def doctor() -> int:
         ".github/workflows/release.yml",
         "examples/modules/engineering.sprout",
         "examples/modules/appgame.sprout",
+        "examples/typed_abstractions.sprout",
     ]:
         full = os.path.join(root, path)
         checks.append((path, os.path.exists(full), full))

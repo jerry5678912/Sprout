@@ -15,7 +15,11 @@ It adds:
 - Hover help with signatures, `##` documentation comments, and source locations
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json`
-- Application-layer completions and highlighting for `test`, expectations, tasks, HTTP, SQLite, engineering helpers, and reusable game APIs
+- Application-layer completions and highlighting for `test`, `async def`,
+  `await`, `taskgroup`, expectations, tasks, HTTP, SQLite, engineering helpers,
+  and reusable game APIs
+- Highlighting, snippets, symbols, hovers, and diagnostics for optional type
+  annotations, generic functions/classes, interfaces, and `implements`
 - VS Code debugging with breakpoints, call stacks, variable scopes, expression evaluation, continue, pause, step in, step over, and step out
 - Native Testing view discovery and execution for Sprout test declarations
 - LSP quick fixes for tab indentation and Python-style boolean/nil aliases

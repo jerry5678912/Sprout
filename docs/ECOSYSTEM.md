@@ -1,6 +1,6 @@
 # Sprout Build And Package Ecosystem
 
-Sprout 0.3 provides reproducible builds, portable package bundles, dependency lockfiles, and a registry foundation. The registry is local or JSON-backed today. A hosted public service is future work.
+Sprout 0.3 provides reproducible builds, portable package bundles, dependency lockfiles, and local or hosted registries.
 
 ## Package Metadata
 
@@ -55,7 +55,7 @@ Set the registry for a shell:
 export SPROUT_REGISTRY="$HOME/.sprout/registry"
 ```
 
-Every registry contains an `index.json` plus versioned bundles under `packages/`. Registry records include SHA-256 checksums, installs verify bundle integrity, and an existing package version cannot be republished. Read-only HTTP/HTTPS JSON registries are supported. Publishing currently requires a writable local path.
+Every registry contains an `index.json` plus versioned bundles under `packages/`. Registry records include SHA-256 checksums, installs verify bundle integrity, and an existing package version cannot be republished. HTTP/HTTPS registries support public search/install and authenticated publishing.
 
 ```sh
 python3 sprout.py pkg search physics
@@ -77,11 +77,47 @@ python3 sprout.py list-installed
 
 Installed packages live under `.sprout/packages/` and are recorded in `sprout.toml`. Their requested constraint is preserved for deterministic updates.
 
+## Hosted Registry
+
+Create a package-scoped publishing token:
+
+```sh
+python3 sprout.py registry token physics-publisher \
+  --root ./registry-data \
+  --packages physics_tools
+```
+
+The command prints the secret once. The registry stores only its SHA-256 digest. Set the token for publishing:
+
+```sh
+export SPROUT_REGISTRY_TOKEN="sprout_..."
+export SPROUT_REGISTRY="https://packages.example.com"
+python3 sprout.py pkg publish
+```
+
+Run the registry service:
+
+```sh
+python3 sprout.py registry serve --root ./registry-data --host 127.0.0.1 --port 8787
+```
+
+For public deployment, keep the service on a private interface and place it behind an HTTPS reverse proxy. The built-in server intentionally does not manage TLS certificates.
+
+Token administration:
+
+```sh
+python3 sprout.py registry token list --root ./registry-data
+python3 sprout.py registry token revoke physics-publisher --root ./registry-data
+```
+
+Hosted publishing enforces bearer authentication, package scopes, immutable versions, bundle and per-file checksums, manifest identity, archive path safety, symlink rejection, and upload/expanded-size limits.
+
 ## Publishing
 
 ```sh
 python3 sprout.py pkg publish
 python3 sprout.py pkg publish path/to/package --registry ./registry
+python3 sprout.py pkg publish --registry https://packages.example.com --token "sprout_..."
 ```
 
 Publishing checks:
@@ -105,12 +141,36 @@ python3 sprout.py release --publish --registry ./registry
 
 `release` runs package quality checks, generates Markdown and HTML API documentation, creates the bundle, and writes `dist/release.json`. `--publish` also publishes the package.
 
+## Standalone Applications
+
+Application bundles include the Sprout runtime and resolved dependencies:
+
+```sh
+python3 sprout.py app build path/to/project
+python3 sprout.py app verify path/to/project/dist/name-version-standalone
+python3 sprout.py app run path/to/project/dist/name-version-standalone -- arg1
+python3 sprout.py app package path/to/project
+```
+
+The build contains:
+
+- `app/`: validated project source, assets, and materialized dependencies
+- `runtime/`: the matching Sprout runtime
+- `launcher.py`: runtime bootstrap
+- an executable macOS/Linux launcher
+- a Windows `.cmd` launcher
+- `standalone-manifest.json`: exact file list and SHA-256 hashes
+
+`app package` writes a deterministic `.sproutapp` archive. A recipient needs Python 3.9 or newer but does not need a separate Sprout installation. `app verify` rejects missing, changed, or unexpected files.
+
 ## Generated Files
 
 - `sprout.lock`: exact resolved dependency versions and sources
 - `build/`: validated build images
 - `dist/*.sproutpkg`: portable package bundles
 - `dist/release.json`: release metadata
+- `dist/*-standalone/`: runnable standalone application directories
+- `dist/*.sproutapp`: portable standalone application archives
 - `.sprout/packages/`: installed registry packages
 
 Applications should normally commit `sprout.lock`. Generated build, distribution, and installation folders should normally stay out of Git.

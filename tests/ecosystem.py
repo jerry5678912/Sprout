@@ -10,23 +10,35 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sprout_core.ecosystem import version_matches
+from sprout_core.registry_server import (
+    RegistryHTTPServer,
+    RegistryStore,
+    create_registry_token,
+    load_tokens,
+    revoke_registry_token,
+)
 from sprout_core.tooling import parse_simple_toml
 
 
 def run(
     args: list[str],
     cwd: Path,
-    registry: Path,
+    registry: Path | str,
     check: bool = True,
+    token: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["SPROUT_REGISTRY"] = str(registry)
+    if token is not None:
+        env["SPROUT_REGISTRY_TOKEN"] = token
     return subprocess.run(
         [sys.executable, str(ROOT / "sprout.py"), *args],
         cwd=cwd,
@@ -192,10 +204,103 @@ def test_version_constraints() -> None:
     assert parsed["dependencies"]["geometry"]["version"] == ">=1.0.0,<2.0.0"
 
 
+def test_authenticated_hosted_registry() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        registry_root = base / "hosted-registry"
+        library = base / "physics_tools"
+        app = base / "app"
+        write_package(library, "2.0.0", "hosted physics")
+        allowed_token = create_registry_token(str(registry_root), "physics-publisher", ["physics_tools"])
+        denied_token = create_registry_token(str(registry_root), "other-publisher", ["other_tools"])
+        stored = json.dumps(load_tokens(str(registry_root)))
+        assert allowed_token not in stored
+        assert denied_token not in stored
+
+        server = RegistryHTTPServer(("127.0.0.1", 0), str(registry_root))
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        registry_url = f"http://127.0.0.1:{server.server_port}"
+        try:
+            unauthorized = run(["pkg", "publish", str(library)], base, registry_url, check=False)
+            assert unauthorized.returncode == 1
+            assert "requires --token" in unauthorized.stderr
+
+            forbidden = run(["pkg", "publish", str(library)], base, registry_url, check=False, token=denied_token)
+            assert forbidden.returncode == 1
+            assert "valid publish token required" in forbidden.stderr
+
+            published = run(["pkg", "publish", str(library)], base, registry_url, token=allowed_token)
+            assert "published physics_tools 2.0.0" in published.stdout
+            assert "physics_tools 2.0.0" in run(["pkg", "search", "physics"], base, registry_url).stdout
+
+            duplicate = run(["pkg", "publish", str(library)], base, registry_url, check=False, token=allowed_token)
+            assert duplicate.returncode == 1
+            assert "already published" in duplicate.stderr
+
+            app.mkdir()
+            run(["pkg", "init"], app, registry_url)
+            run(["pkg", "install", "physics_tools@2.0.0"], app, registry_url)
+            installed = app / ".sprout" / "packages" / "physics_tools" / "2.0.0"
+            assert (installed / "src" / "physics_tools.sprout").exists()
+
+            revoke_registry_token(str(registry_root), "physics-publisher")
+            write_package(library, "2.1.0", "hosted physics update")
+            revoked = run(["pkg", "publish", str(library)], base, registry_url, check=False, token=allowed_token)
+            assert revoked.returncode == 1
+            assert "valid publish token required" in revoked.stderr
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
+
+def test_registry_rejects_untrusted_archives() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        store = RegistryStore(str(Path(tmp) / "registry"))
+        record = {
+            "name": "physics_tools",
+            "version": "1.0.0",
+            "sha256": "",
+        }
+        malformed = Path(tmp) / "malformed.sproutpkg"
+        with zipfile.ZipFile(malformed, "w") as archive:
+            archive.writestr("../escape.txt", "bad")
+            archive.writestr("build-manifest.json", json.dumps({
+                "name": "physics_tools",
+                "version": "1.0.0",
+                "files": {},
+            }))
+        data = malformed.read_bytes()
+        record["sha256"] = hashlib.sha256(data).hexdigest()
+        try:
+            store.publish(record, data)
+            raise AssertionError("unsafe archive was accepted")
+        except Exception as exc:
+            assert "Unsafe package archive path" in str(exc)
+
+        mismatched = Path(tmp) / "mismatched.sproutpkg"
+        with zipfile.ZipFile(mismatched, "w") as archive:
+            archive.writestr("build-manifest.json", json.dumps({
+                "name": "different_name",
+                "version": "1.0.0",
+                "files": {},
+            }))
+        data = mismatched.read_bytes()
+        record["sha256"] = hashlib.sha256(data).hexdigest()
+        try:
+            store.publish(record, data)
+            raise AssertionError("mismatched archive was accepted")
+        except Exception as exc:
+            assert "does not match publish metadata" in str(exc)
+
+
 def main() -> int:
     test_build_package_publish_install_update_release()
     test_dependency_conflict()
     test_version_constraints()
+    test_authenticated_hosted_registry()
+    test_registry_rejects_untrusted_archives()
     print("sprout ecosystem tests passed")
     return 0
 

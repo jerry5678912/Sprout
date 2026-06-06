@@ -221,7 +221,16 @@ python3 sprout.py pkg publish
 python3 sprout.py pkg docs physics_tools
 ```
 
-`build/` contains a validated project image, assets, dependencies, hashes, metadata, and `sprout.lock`. `dist/` contains reproducible package bundles and release metadata. The registry is writable locally and readable from local JSON or HTTP-hosted JSON; publishing to a hosted service is intentionally deferred.
+`build/` contains a validated project image, assets, dependencies, hashes, metadata, and `sprout.lock`. `dist/` contains reproducible package bundles and release metadata. Registries may be local or hosted; hosted publishing uses package-scoped bearer tokens and immutable releases.
+
+Run a hosted registry:
+
+```sh
+python3 sprout.py registry token publisher --root ./registry --packages my_package
+python3 sprout.py registry serve --root ./registry --host 127.0.0.1 --port 8787
+```
+
+Public deployments should place the service behind an HTTPS reverse proxy. See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for token administration and security guarantees.
 
 Create working projects from templates:
 
@@ -251,6 +260,19 @@ python3 sprout.py vscode-package
 ```
 
 See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for package metadata, constraints, registry layout, publishing checks, and distribution commands.
+
+## Standalone Applications
+
+Build a runnable application directory that includes the Sprout runtime, resolved dependencies, source, assets, cross-platform launchers, and an integrity manifest:
+
+```sh
+python3 sprout.py app build .
+python3 sprout.py app verify dist/my_app-0.1.0-standalone
+python3 sprout.py app run dist/my_app-0.1.0-standalone -- argument
+python3 sprout.py app package .
+```
+
+`app package` creates a deterministic `.sproutapp` archive. Recipients extract it and run the app-named launcher on macOS/Linux or the `.cmd` launcher on Windows. Sprout does not need to be installed. This distribution generation still requires Python 3.9 or newer on the recipient machine; it does not claim to be a native single executable.
 
 ## Language Releases
 
@@ -306,7 +328,9 @@ Notes from dogfooding live in [docs/DOGFOOD.md](docs/DOGFOOD.md).
 
 ## Application Layer
 
-Sprout now includes foundations for testing, tasks, HTTP, SQLite, engineering utilities, documentation generation, and reusable game application structure.
+Sprout now includes foundations for testing, structured async tasks, HTTP,
+SQLite, engineering utilities, documentation generation, and reusable game
+application structure.
 
 Run Sprout tests:
 
@@ -331,6 +355,7 @@ Application examples:
 
 ```sh
 python3 sprout.py run examples/application/async_demo.sprout
+python3 sprout.py run examples/application/structured_async.sprout
 python3 sprout.py run examples/application/http_server_demo.sprout
 python3 sprout.py run examples/application/sqlite_demo.sprout
 python3 sprout.py run examples/application/engineering_demo.sprout
@@ -339,6 +364,7 @@ python3 sprout.py run examples/application/game_app_demo.sprout
 
 Key APIs:
 
+- Structured async: `async def`, `await`, and lexical `taskgroup` scopes
 - Tasks and queues: `task_spawn`, `task_after`, `task_wait_all`, `queue_open`
 - HTTP: `http_get`, `http_post`, `http_request`, `http_server`
 - SQLite: `sqlite_open`, `sqlite_exec`, `sqlite_query`, transactions, `sqlite_close`
@@ -359,7 +385,83 @@ Inspect standard-library groups:
 python3 sprout.py stdlib --groups
 ```
 
-The task foundation runs work on a scheduler and supports delayed tasks, futures, and queues. Sprout function execution is serialized through a runtime lock in this first version so shared interpreter state remains correct.
+Async functions return task values. `await` unwraps their result, while
+`taskgroup` waits for all tasks started in its lexical scope and propagates
+failures. The scheduler also supports delayed tasks, futures, and queues through
+the original helper API. Sprout function execution is serialized through a
+runtime lock so shared interpreter state remains correct; this is structured
+concurrency, not CPU-parallel execution. The experimental VM reports an explicit
+fallback when it encounters structured async syntax.
+
+## Conformance, Fuzzing, And Security
+
+Run the checked-in language conformance corpus:
+
+```sh
+python3 sprout.py conformance
+python3 sprout.py conformance --json
+```
+
+The corpus in `sprout_core/conformance/` verifies stable interpreter behavior, clean diagnostics, structured
+async behavior, and interpreter/VM parity for supported features.
+
+Run deterministic grammar and differential fuzzing:
+
+```sh
+python3 sprout.py fuzz
+python3 sprout.py fuzz --iterations 500 --seed 20260606
+python3 sprout.py fuzz --iterations 100 --seed 42 --json
+```
+
+Each seed generates valid programs for interpreter/VM comparison and malformed
+programs that must never crash the parser with an internal exception. A failed
+seed can be replayed exactly.
+
+Security regression tests cover hostile source input, package traversal,
+symlinks, archive file-count and expansion limits, forged package hashes, and
+raw Python traceback leakage:
+
+```sh
+python3 tests/security.py
+```
+
+## Optional Typed Abstractions
+
+Sprout remains dynamically executed, but code may opt into gradual static
+checking:
+
+```sprout
+interface Greeter:
+  def greet(self, name: String) -> String
+
+class FriendlyGreeter implements Greeter:
+  def greet(self, name: String) -> String:
+    return "hello " + name
+
+def identity[T](value: T) -> T:
+  return value
+
+let message: String = FriendlyGreeter().greet("Mina")
+let answer: Int = identity(42)
+```
+
+Run the checker on one file or an entire project:
+
+```sh
+python3 sprout.py typecheck examples/typed_abstractions.sprout
+python3 sprout.py typecheck . --json
+```
+
+The checker validates known types, generic arity, annotated assignments,
+function arguments and returns, and structural interface method requirements.
+Annotations and interfaces are erased for execution, so the stable interpreter
+and experimental VM run the same program without runtime type overhead.
+
+Built-in types are `Any`, `Nil`, `Bool`, `Int`, `Float`, `Number`, `String`,
+`List[T]`/`Array[T]`, `Dict[K, V]`, and `Task[T]`. User classes and interfaces
+may also be used as annotation types. This first checker is intentionally
+gradual and file-local; it does not yet provide unions, aliases, narrowing, or
+cross-module generic inference.
 
 ## Language Tour
 
@@ -825,4 +927,6 @@ Sprout now covers a meaningful middle slice of Python:
 - Similar via bridge: Python standard-library modules can be imported with `importpython`.
 - Different: Sprout has its own garden-style `bloom` / `end` blocks, old-compatible brace blocks, and no comprehensions yet.
 
-Good next work includes hosted-registry authentication, signed packages, stronger sandboxing, and broader VM coverage.
+Good next work includes conformance and fuzz testing, optional typed
+abstractions, signed packages, stronger sandboxing, and native single-file
+freezing.

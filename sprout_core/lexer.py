@@ -136,6 +136,8 @@ class Lexer:
                 chars.append("\n")
             elif self.peek() == "\\":
                 self.advance()
+                if self.at_end():
+                    raise SproutError(f"Unterminated string escape at {self.line}:{self.col}")
                 esc = self.advance()
                 chars.append(escapes.get(esc, esc))
             else:
@@ -148,7 +150,7 @@ class Lexer:
     def symbol(self) -> Token:
         line, col = self.line, self.col
         two = self.peek() + self.peek(1)
-        if two in {"==", "!=", "<=", ">=", "//", "**"}:
+        if two in {"==", "!=", "<=", ">=", "//", "**", "->"}:
             self.advance()
             self.advance()
             return Token(two, two, line, col)

@@ -9,9 +9,16 @@ from .model import SproutError
 from .tooling import load_project
 
 
-DECLARATION_RE = re.compile(
-    r"^\s*(?:(def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]*\))|class\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_]*))?)"
+FUNCTION_RE = re.compile(
+    r"^\s*(?:async\s+)?(?:def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"(\[[^\]]+\])?\s*(\([^)]*\))(?:\s*->\s*([^:{]+))?"
 )
+CLASS_RE = re.compile(
+    r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]+\])?"
+    r"(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_]*))?"
+    r"(?:\s+implements\s+([A-Za-z_][A-Za-z0-9_, ]*))?"
+)
+INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]+\])?")
 
 
 @dataclass
@@ -34,17 +41,28 @@ def scan_docs(path: str) -> list[DocItem]:
         if stripped.startswith("##"):
             comments.append(stripped[2:].strip())
             continue
-        match = DECLARATION_RE.match(line)
-        if match:
-            function_kind, function_name, params, class_name, superclass = match.groups()
-            if function_name:
+        function_match = FUNCTION_RE.match(line)
+        class_match = CLASS_RE.match(line)
+        interface_match = INTERFACE_RE.match(line)
+        if function_match or class_match or interface_match:
+            if function_match:
+                name, generic, params, return_type = function_match.groups()
                 kind = "function"
-                name = function_name
-                signature = f"{name}{params}"
-            else:
+                signature = f"{name}{generic or ''}{params}"
+                if return_type:
+                    signature += f" -> {return_type.strip()}"
+            elif class_match:
+                name, generic, superclass, interfaces = class_match.groups()
                 kind = "class"
-                name = class_name
-                signature = f"class {name}" + (f" extends {superclass}" if superclass else "")
+                signature = f"class {name}{generic or ''}"
+                if superclass:
+                    signature += f" extends {superclass}"
+                if interfaces:
+                    signature += f" implements {interfaces.strip()}"
+            else:
+                name, generic = interface_match.groups()
+                kind = "interface"
+                signature = f"interface {name}{generic or ''}"
             items.append(DocItem(kind, name, signature, "\n".join(comments), path, line_number))
             comments = []
             continue

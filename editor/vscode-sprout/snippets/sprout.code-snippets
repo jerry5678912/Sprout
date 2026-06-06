@@ -1,4 +1,25 @@
 {
+  "Async function": {
+    "prefix": "async",
+    "body": [
+      "async def ${1:name}(${2:args}):",
+      "  ${3}"
+    ],
+    "description": "Define an asynchronous Sprout function"
+  },
+  "Await task": {
+    "prefix": "await",
+    "body": "await ${1:task}",
+    "description": "Wait for an asynchronous Sprout task"
+  },
+  "Structured task group": {
+    "prefix": "taskgroup",
+    "body": [
+      "taskgroup ${1:tasks}:",
+      "  ${1:tasks}.spawn(${2:function}${3:, arg})"
+    ],
+    "description": "Run child tasks in a structured scope"
+  },
   "Function": {
     "prefix": "def",
     "body": [
@@ -54,6 +75,39 @@
       "    ${3}"
     ],
     "description": "Define a Sprout class"
+  },
+  "Typed Function": {
+    "prefix": "deftyped",
+    "body": [
+      "def ${1:name}(${2:value}: ${3:String}) -> ${4:String}:",
+      "  ${5:return ${2:value}}"
+    ],
+    "description": "Define a function with optional type annotations"
+  },
+  "Generic Function": {
+    "prefix": "defgeneric",
+    "body": [
+      "def ${1:identity}[${2:T}](${3:value}: ${2:T}) -> ${2:T}:",
+      "  return ${3:value}"
+    ],
+    "description": "Define a generic Sprout function"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Named}:",
+      "  def ${2:name}(self) -> ${3:String}"
+    ],
+    "description": "Define a structural Sprout interface"
+  },
+  "Typed Class": {
+    "prefix": "implements",
+    "body": [
+      "class ${1:Thing} implements ${2:Named}:",
+      "  def ${3:name}(self) -> ${4:String}:",
+      "    return ${5:\"thing\"}"
+    ],
+    "description": "Define a class that implements an interface"
   },
   "Subclass": {
     "prefix": "extends",

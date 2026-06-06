@@ -11,4 +11,5 @@ from .testing import *
 from .docsgen import *
 from .ecosystem import *
 from .distribution import *
+from .standalone import *
 from .cli import brace_balance, repl, main

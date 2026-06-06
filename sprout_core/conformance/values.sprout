@@ -1,0 +1,6 @@
+value = 3 + 4
+items = [1, 2, 3, 4]
+person = {"name": "Ada"}
+say value
+say items[1:3]
+say person["name"]

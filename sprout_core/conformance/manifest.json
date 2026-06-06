@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "name": "values and collections",
+      "file": "values.sprout",
+      "exit": 0,
+      "stdout": "7\n[2, 3]\nAda\n",
+      "vm": true
+    },
+    {
+      "name": "functions and control flow",
+      "file": "functions.sprout",
+      "exit": 0,
+      "stdout": "21\nlarge\n",
+      "vm": true
+    },
+    {
+      "name": "classes, inheritance, and super",
+      "file": "classes.sprout",
+      "exit": 0,
+      "stdout": "hello Mina!\n",
+      "vm": true
+    },
+    {
+      "name": "exceptions",
+      "file": "exceptions.sprout",
+      "exit": 0,
+      "stdout": "caught boom\n",
+      "vm": true
+    },
+    {
+      "name": "structured async",
+      "file": "async.sprout",
+      "exit": 0,
+      "stdout": "42\n2\n",
+      "vm": false
+    },
+    {
+      "name": "typed abstractions are runtime-erased",
+      "file": "typed.sprout",
+      "exit": 0,
+      "stdout": "hello Mina\n42\n",
+      "vm": true
+    },
+    {
+      "name": "clean syntax diagnostics",
+      "file": "syntax_error.sprout",
+      "exit": 1,
+      "stderr_contains": "Expected a line ending after say",
+      "vm": false
+    }
+  ]
+}

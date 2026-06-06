@@ -22,10 +22,11 @@ class Parser:
         self.skip_newlines()
         if self.match("LET", "SPROUT"):
             name = self.consume("IDENT", "Expected a variable name")
+            annotation = self.type_annotation() if self.match(":") else None
             self.consume("=", "Expected '=' after variable name")
             expr = self.expression()
             self.terminator("Expected a line ending after variable declaration")
-            return ("let", name.value, expr)
+            return ("let", name.value, expr, annotation, name.line, name.col)
         if self.match("IMPORTPYTHON"):
             if self.match("STRING"):
                 module_name = self.previous().value
@@ -51,10 +52,19 @@ class Parser:
             token = self.previous()
             name = self.consume("STRING", "Expected test name string after test")
             return ("test", name.value, self.block(), token.line, token.col)
+        if self.match("ASYNC"):
+            self.consume_any(("FN", "DEF", "BLOOM"), "Expected def, fn, or bloom after async")
+            return self.function_decl(async_function=True)
         if self.match("FN", "DEF", "BLOOM"):
             return self.function_decl()
+        if self.match("TASKGROUP"):
+            token = self.previous()
+            name = self.consume("IDENT", "Expected task group name")
+            return ("taskgroup", name.value, self.block(), token.line, token.col)
         if self.match("CLASS"):
             return self.class_decl()
+        if self.match("INTERFACE"):
+            return self.interface_decl()
         if self.match("IF"):
             return self.if_stmt()
         if self.match("WHILE", "WHIRL"):
@@ -95,20 +105,39 @@ class Parser:
         self.terminator("Expected a line ending after expression")
         return ("expr", expr)
 
-    def function_decl(self) -> Any:
+    def function_decl(self, async_function: bool = False) -> Any:
         name = self.consume("IDENT", "Expected function name")
+        type_params = self.type_parameters()
         params = self.parameter_list()
-        return ("fn", name.value, params, self.block(), name.line, name.col)
+        return_type = self.type_annotation() if self.match("->") else None
+        metadata = {
+            "parameter_types": self.last_parameter_types,
+            "return_type": return_type,
+            "type_params": type_params,
+        }
+        return (
+            "async_fn" if async_function else "fn",
+            name.value,
+            params,
+            self.block(),
+            name.line,
+            name.col,
+            metadata,
+        )
 
     def parameter_list(self) -> list[tuple[str, Any, bool, bool]]:
         self.consume("(", "Expected '(' after function name")
         params = []
+        parameter_types = {}
         saw_default = False
         if not self.check(")"):
             while True:
                 kw_variadic = self.match("**")
                 variadic = False if kw_variadic else self.match("*")
                 param = self.consume("IDENT", "Expected parameter name").value
+                annotation = self.type_annotation() if self.match(":") else None
+                if annotation is not None:
+                    parameter_types[param] = annotation
                 default = None
                 if (variadic or kw_variadic) and self.check("="):
                     tok = self.peek()
@@ -129,7 +158,30 @@ class Parser:
                 if not self.match(","):
                     break
         self.consume(")", "Expected ')' after parameters")
+        self.last_parameter_types = parameter_types
         return params
+
+    def type_parameters(self) -> list[str]:
+        if not self.match("["):
+            return []
+        names = [self.consume("IDENT", "Expected generic type parameter").value]
+        while self.match(","):
+            names.append(self.consume("IDENT", "Expected generic type parameter").value)
+        self.consume("]", "Expected ']' after generic type parameters")
+        if len(set(names)) != len(names):
+            token = self.previous()
+            raise SproutError(f"Duplicate generic type parameter at {token.line}:{token.col}")
+        return names
+
+    def type_annotation(self) -> Any:
+        token = self.consume("IDENT", "Expected type name")
+        arguments = []
+        if self.match("["):
+            arguments.append(self.type_annotation())
+            while self.match(","):
+                arguments.append(self.type_annotation())
+            self.consume("]", "Expected ']' after type arguments")
+        return ("type", token.value, arguments, token.line, token.col)
 
     def seedfn_expr(self) -> Any:
         token = self.previous()
@@ -148,20 +200,55 @@ class Parser:
 
     def class_decl(self) -> Any:
         name = self.consume("IDENT", "Expected class name")
+        type_params = self.type_parameters()
         superclass = None
         if self.match("EXTENDS"):
             superclass = self.consume("IDENT", "Expected superclass name after extends").value
+        interfaces = []
+        if self.match("IMPLEMENTS"):
+            interfaces.append(self.consume("IDENT", "Expected interface name after implements").value)
+            while self.match(","):
+                interfaces.append(self.consume("IDENT", "Expected interface name").value)
         style = self.block_start("Expected class body")
         self.skip_newlines()
         methods = []
         while not self.block_done(style) and not self.check("EOF"):
+            async_method = self.match("ASYNC")
             if not self.match("FN", "DEF", "BLOOM"):
                 tok = self.peek()
                 raise SproutError(f"Expected method declaration at {tok.line}:{tok.col}")
-            methods.append(self.function_decl())
+            methods.append(self.function_decl(async_function=async_method))
             self.skip_newlines()
         self.block_end(style, "Expected end of class body")
-        return ("class", name.value, superclass, methods)
+        return ("class", name.value, superclass, methods, type_params, interfaces, name.line, name.col)
+
+    def interface_decl(self) -> Any:
+        name = self.consume("IDENT", "Expected interface name")
+        type_params = self.type_parameters()
+        style = self.block_start("Expected interface body")
+        self.skip_newlines()
+        methods = []
+        while not self.block_done(style) and not self.check("EOF"):
+            self.consume_any(("FN", "DEF", "BLOOM"), "Expected interface method declaration")
+            method_name = self.consume("IDENT", "Expected interface method name")
+            method_type_params = self.type_parameters()
+            params = self.parameter_list()
+            return_type = self.type_annotation() if self.match("->") else None
+            self.terminator("Expected a line ending after interface method")
+            methods.append((
+                method_name.value,
+                params,
+                {
+                    "parameter_types": self.last_parameter_types,
+                    "return_type": return_type,
+                    "type_params": method_type_params,
+                },
+                method_name.line,
+                method_name.col,
+            ))
+            self.skip_newlines()
+        self.block_end(style, "Expected end of interface body")
+        return ("interface", name.value, type_params, methods, name.line, name.col)
 
     def if_stmt(self) -> Any:
         condition = self.expression()
@@ -292,6 +379,9 @@ class Parser:
         return expr
 
     def unary(self) -> Any:
+        if self.match("AWAIT"):
+            token = self.previous()
+            return ("await", self.unary(), token.line, token.col)
         if self.match("!", "-", "NOT"):
             op = self.previous().kind
             if op == "NOT":
@@ -429,6 +519,13 @@ class Parser:
 
     def consume(self, kind: str, message: str) -> Token:
         if self.check(kind):
+            self.i += 1
+            return self.previous()
+        tok = self.peek()
+        raise SproutError(f"{message} at {tok.line}:{tok.col}")
+
+    def consume_any(self, kinds: tuple[str, ...], message: str) -> Token:
+        if self.check(*kinds):
             self.i += 1
             return self.previous()
         tok = self.peek()

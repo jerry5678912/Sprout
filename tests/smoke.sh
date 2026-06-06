@@ -88,6 +88,11 @@ python3 tests/package.py >/tmp/sprout_package_tests.out
 python3 tests/dogfood.py >/tmp/sprout_dogfood_tests.out
 python3 tests/application.py >/tmp/sprout_application_tests.out
 python3 tests/ecosystem.py >/tmp/sprout_ecosystem_tests.out
+python3 tests/standalone.py >/tmp/sprout_standalone_tests.out
+python3 tests/async_language.py >/tmp/sprout_async_language_tests.out
+python3 tests/quality.py >/tmp/sprout_quality_tests.out
+python3 tests/security.py >/tmp/sprout_security_tests.out
+python3 tests/typesystem.py >/tmp/sprout_typesystem_tests.out
 python3 tests/distribution.py >/tmp/sprout_distribution_tests.out
 python3 tests/lsp.py >/tmp/sprout_lsp_tests.out
 python3 tests/errors.py >/tmp/sprout_error_tests.out
@@ -260,6 +265,11 @@ grep -q "sprout package tests passed" /tmp/sprout_package_tests.out
 grep -q "sprout dogfood tests passed" /tmp/sprout_dogfood_tests.out
 grep -q "sprout application tests passed" /tmp/sprout_application_tests.out
 grep -q "sprout ecosystem tests passed" /tmp/sprout_ecosystem_tests.out
+grep -q "sprout standalone tests passed" /tmp/sprout_standalone_tests.out
+grep -q "sprout async language tests passed" /tmp/sprout_async_language_tests.out
+grep -q "sprout quality tests passed" /tmp/sprout_quality_tests.out
+grep -q "sprout security tests passed" /tmp/sprout_security_tests.out
+grep -q "sprout type system tests passed" /tmp/sprout_typesystem_tests.out
 grep -q "sprout distribution tests passed" /tmp/sprout_distribution_tests.out
 grep -q "sprout lsp tests passed" /tmp/sprout_lsp_tests.out
 grep -q "sprout error reporting tests passed" /tmp/sprout_error_tests.out

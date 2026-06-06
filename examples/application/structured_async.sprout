@@ -1,0 +1,15 @@
+events = []
+
+async def fetch(label, delay):
+  sleep(delay)
+  events.append(label)
+  return "finished " + label
+
+first = await fetch("first", 0.01)
+say first
+
+taskgroup jobs:
+  jobs.spawn(fetch, "second", 0.01)
+  jobs.spawn(fetch, "third", 0.01)
+
+say "all tasks:", events

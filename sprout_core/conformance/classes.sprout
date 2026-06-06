@@ -1,0 +1,9 @@
+class Greeter:
+  def greet(self, name):
+    return "hello " + name
+
+class LoudGreeter extends Greeter:
+  def greet(self, name):
+    return super.greet(name) + "!"
+
+say LoudGreeter().greet("Mina")

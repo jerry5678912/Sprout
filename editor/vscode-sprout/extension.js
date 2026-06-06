@@ -40,6 +40,8 @@ const entries = [
   ["defbraces", "Define a legacy brace-style Sprout function.", "def ${1:name}(${2:args}) {\n  ${3}\n}"],
   ["callspread", "Call a function with *args and **opts spread values.", "${1:fn}(*${2:args}, **${3:opts})"],
   ["class", "Define a Sprout class.", "class ${1:Name}:\n  def init(self${2:, value}):\n    ${3}"],
+  ["interface", "Define a structural interface.", "interface ${1:Named}:\n  def ${2:name}(self) -> ${3:String}"],
+  ["implements", "Declare that a class satisfies an interface.", "class ${1:Thing} implements ${2:Named}:\n  ${3}"],
   ["if", "Run a block when a condition is truthy.", "if ${1:condition}:\n  ${2}"],
   ["else", "Fallback branch for if.", "else:\n  ${1}"],
   ["while", "Loop while a condition is truthy.", "while ${1:condition}:\n  ${2}"],
@@ -131,6 +133,9 @@ const entries = [
 ];
 
 const keywordEntries = [
+  ["async", "Define an asynchronous Sprout function.", "async def ${1:name}(${2:args}):\n  ${3}"],
+  ["await", "Wait for an asynchronous Sprout task and return its value.", "await ${1:task}"],
+  ["taskgroup", "Run child tasks in a structured scope that waits before exit.", "taskgroup ${1:tasks}:\n  ${1:tasks}.spawn(${2:function}${3:, arg})"],
   ["def", "Define a Python-style Sprout function.", "def ${1:name}(${2:args}):\n  ${3}"],
   ["fn", "Define a Sprout function.", "fn ${1:name}(${2:args}):\n  ${3}"],
   ["bloom", "Define a garden-flavored function or open a garden block.", "bloom ${1:name}(${2:args}):\n  ${3}"],
@@ -138,6 +143,8 @@ const keywordEntries = [
   ["defbloom", "Define a garden-style Sprout function.", "def ${1:name}(${2:args}) bloom\n  ${3}\nend"],
   ["defbraces", "Define an old-compatible brace-style function.", "def ${1:name}(${2:args}) {\n  ${3}\n}"],
   ["class", "Define a Sprout class.", "class ${1:Name}:\n  def init(self${2:, value}):\n    ${3}"],
+  ["interface", "Define a structural interface.", "interface ${1:Named}:\n  def ${2:name}(self) -> ${3:String}"],
+  ["implements", "Declare that a class satisfies an interface.", "class ${1:Thing} implements ${2:Named}:\n  ${3}"],
   ["extends", "Define a class that inherits from another class.", "class ${1:Child} extends ${2:Parent}:\n  def init(self${3:, value}):\n    super.init(${4:value})\n    ${5}"],
   ["if", "Run a block when a condition is truthy.", "if ${1:condition}:\n  ${2}"],
   ["elif", "Add another conditional branch.", "elif ${1:condition}:\n  ${2}"],
@@ -855,6 +862,7 @@ function semanticKind(kind) {
     "builtin": vscode.CompletionItemKind.Function,
     "method": vscode.CompletionItemKind.Method,
     "class": vscode.CompletionItemKind.Class,
+    "interface": vscode.CompletionItemKind.Interface,
     "module": vscode.CompletionItemKind.Module,
     "python-module": vscode.CompletionItemKind.Module,
     "variable": vscode.CompletionItemKind.Variable,
@@ -938,9 +946,9 @@ function collectSemanticNames(document) {
   };
   for (let line = 0; line < document.lineCount; line += 1) {
     const text = document.lineAt(line).text;
-    const declaration = text.match(/\b(class|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    const declaration = text.match(/\b(class|interface|(?:async\s+)?def|(?:async\s+)?fn|(?:async\s+)?bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
     if (declaration) {
-      if (declaration[1] === "class") names.classes.add(declaration[2]);
+      if (declaration[1] === "class" || declaration[1] === "interface") names.classes.add(declaration[2]);
       else names.functions.add(declaration[2]);
       const open = text.indexOf("(", declaration.index + declaration[0].length);
       const close = open === -1 ? -1 : text.indexOf(")", open + 1);
@@ -951,7 +959,7 @@ function collectSemanticNames(document) {
         }
       }
     }
-    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*=)/);
+    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?::[^=]+)?=)/);
     if (assignment) {
       names.variables.add(assignment[1]);
     }
@@ -980,12 +988,12 @@ function collectSemanticTokens(document) {
   for (let line = 0; line < document.lineCount; line += 1) {
     const text = document.lineAt(line).text;
     const ignored = ignoredRanges(text);
-    const declaration = text.match(/\b(class|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    const declaration = text.match(/\b(class|interface|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
     if (declaration) {
       const kind = declaration[1];
       const name = declaration[2];
       const nameStart = text.indexOf(name, declaration.index + declaration[0].indexOf(name));
-      add(line, nameStart, name.length, kind === "class" ? "class" : "function");
+      add(line, nameStart, name.length, (kind === "class" || kind === "interface") ? "class" : "function");
 
       const open = text.indexOf("(", nameStart + name.length);
       const close = open === -1 ? -1 : text.indexOf(")", open + 1);
@@ -1000,7 +1008,7 @@ function collectSemanticTokens(document) {
       }
     }
 
-    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*=)/);
+    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?::[^=]+)?=)/);
     if (assignment) {
       const start = text.indexOf(assignment[1], assignment.index);
       add(line, start, assignment[1].length, /^[A-Z]/.test(assignment[1]) ? "class" : "variable");
@@ -1014,7 +1022,7 @@ function collectSemanticTokens(document) {
 
     for (const match of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()/g)) {
       const name = match[1];
-      if (["if", "elif", "while", "for", "catch", "class", "def", "fn", "bloom"].includes(name)) continue;
+      if (["if", "elif", "while", "for", "catch", "class", "interface", "implements", "def", "fn", "bloom", "async", "await", "taskgroup"].includes(name)) continue;
       if (!rangeContains(ignored, match.index, match.index + name.length)) {
         add(line, match.index, name.length, /^[A-Z]/.test(name) ? "class" : "function");
       }

@@ -1,0 +1,4 @@
+try:
+  raise "boom"
+catch error:
+  say "caught", error

@@ -2050,6 +2050,33 @@ expect(value).to_contain(item)
 
 ### Tasks, Futures, and Queues
 
+Sprout has structured async syntax:
+
+```sprout
+async def fetch(label, delay):
+  sleep(delay)
+  return "finished " + label
+
+result = await fetch("first", 0.05)
+say result
+
+taskgroup jobs:
+  jobs.spawn(fetch, "second", 0.05)
+  jobs.spawn(fetch, "third", 0.05)
+```
+
+Calling an `async def` function returns a task immediately. `await` waits for that
+task and returns its result or raises its error. `await` may be used at the top
+level or inside a function.
+
+A `taskgroup` creates a lexical structured-concurrency scope. Tasks started with
+`group.spawn(function, arguments...)` belong to that scope. Sprout waits for all
+of them before leaving the block. If one task fails, the group requests
+cancellation of its siblings and propagates the failure. Groups also expose
+`wait()`, `cancel()`, `settle()`, and `count`.
+
+The older explicit task helpers remain available:
+
 ```sprout
 def work(value):
   return value * value
@@ -2066,7 +2093,14 @@ messages.send("ready")
 say messages.receive()
 ```
 
-Tasks use a scheduler with future-like results and delayed execution. Sprout function execution is currently serialized through a runtime lock so interpreter state remains correct. This provides safe task/timer foundations, not CPU-parallel Sprout execution.
+Tasks use a scheduler with future-like results and delayed execution. Sprout
+function execution is currently serialized through a runtime lock so interpreter
+state remains correct. This provides concurrency for waiting and orchestration,
+not CPU-parallel Sprout execution.
+
+Structured async execution currently uses the stable interpreter. Running an
+async program with `run --vm` reports the unsupported VM feature and explicitly
+falls back to the stable interpreter.
 
 ### HTTP
 
@@ -2222,7 +2256,23 @@ python3 sprout.py pkg docs physics_tools
 python3 sprout.py pkg publish
 ```
 
-The registry is a lightweight JSON index with immutable, versioned `.sproutpkg` bundles. Registry metadata includes SHA-256 checksums and installs verify bundle integrity. Local registries are readable and writable. HTTP/HTTPS JSON registries are read-only in this milestone.
+The registry is a lightweight JSON index with immutable, versioned `.sproutpkg` bundles. Registry metadata includes SHA-256 checksums and installs verify bundle integrity. Registries may be local or hosted.
+
+Create a package-scoped token and run a hosted service:
+
+```sh
+python3 sprout.py registry token publisher --root ./registry --packages physics_tools
+python3 sprout.py registry serve --root ./registry --host 127.0.0.1 --port 8787
+```
+
+Set `SPROUT_REGISTRY_TOKEN` or pass `--token` when publishing to HTTP/HTTPS. Raw tokens are printed once and only their SHA-256 digests are stored. Tokens can be listed and revoked:
+
+```sh
+python3 sprout.py registry token list --root ./registry
+python3 sprout.py registry token revoke publisher --root ./registry
+```
+
+Hosted publishing enforces package permissions, immutable versions, archive path and symlink safety, upload and expansion limits, package identity, and bundle/per-file checksums. Public deployments should put the built-in service behind an HTTPS reverse proxy.
 
 Publishing validates metadata, source, dependencies, tests, and documentation. `release` performs the same quality checks, generates API documentation, creates a bundle, and writes `dist/release.json`:
 
@@ -2232,6 +2282,17 @@ python3 sprout.py release --publish --registry ./registry
 ```
 
 Aliases are available through `search`, `info`, and `list-installed`. Full ecosystem details are in `docs/ECOSYSTEM.md`.
+
+Standalone application distribution embeds the Sprout runtime, resolved dependencies, project files, and assets:
+
+```sh
+python3 sprout.py app build .
+python3 sprout.py app verify dist/my_app-0.1.0-standalone
+python3 sprout.py app run dist/my_app-0.1.0-standalone -- argument
+python3 sprout.py app package .
+```
+
+The generated directory includes Unix and Windows launchers plus an exact SHA-256 integrity manifest. The deterministic `.sproutapp` archive can be extracted on another machine and run without installing Sprout. Python 3.9 or newer remains the host runtime for this distribution generation.
 
 ## 32. Installing And Releasing Sprout
 
@@ -2262,20 +2323,105 @@ The first command creates a source/runtime ZIP. The second creates a self-contai
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 
-## 33. Current Limitations
+## 33. Conformance, Fuzzing, and Security
+
+The checked-in conformance corpus is a stable language behavior contract:
+
+```sh
+python3 sprout.py conformance
+python3 sprout.py conformance --json
+```
+
+Cases live under `sprout_core/conformance/` and declare expected output, exit status,
+diagnostic fragments, and whether interpreter/VM parity is required.
+
+The deterministic fuzzer generates both valid and malformed programs:
+
+```sh
+python3 sprout.py fuzz
+python3 sprout.py fuzz --iterations 500 --seed 20260606
+python3 sprout.py fuzz --iterations 100 --seed 42 --json
+```
+
+Valid generated programs must produce the same exit status and output in the
+stable interpreter and experimental VM. Malformed inputs may produce Sprout
+diagnostics, but may not crash the lexer/parser with internal exceptions. The
+reported seed makes every run reproducible.
+
+Security regression tests are separate from ordinary behavior tests:
+
+```sh
+python3 tests/security.py
+```
+
+They cover hostile source input, raw Python traceback leakage, package path
+traversal, symbolic links, file-count and expanded-size limits, and forged
+manifest hashes. Package downloads are capped at 64 MiB, and extracted package
+archives are capped at 10,000 files and 256 MiB expanded size.
+
+## 34. Optional Typed Abstractions
+
+Sprout's normal execution remains dynamic. Optional annotations add static
+checks without changing runtime values:
+
+```sprout
+interface Greeter:
+  def greet(self, name: String) -> String
+
+class FriendlyGreeter implements Greeter:
+  def greet(self, name: String) -> String:
+    return "hello " + name
+
+class Box[T]:
+  def init(self, value: T):
+    self.value = value
+
+  def get(self) -> T:
+    return self.value
+
+def identity[T](value: T) -> T:
+  return value
+
+let answer: Int = identity(42)
+```
+
+Check a file or project:
+
+```sh
+python3 sprout.py typecheck file.sprout
+python3 sprout.py typecheck . --json
+```
+
+Supported forms include typed variables, parameters and returns, generic
+functions/classes, interface method signatures, and `implements` declarations.
+Built-in types are `Any`, `Nil`, `Bool`, `Int`, `Float`, `Number`, `String`,
+`List[T]`, `Array[T]`, `Dict[K, V]`, and `Task[T]`. User classes and interfaces
+are also valid types.
+
+The checker reports unknown types, wrong generic arity, incompatible annotated
+assignments, argument and return mismatches, and missing or incompatible
+interface methods. VS Code/LSP diagnostics include these errors. Typed syntax is
+runtime-erased and works in both execution engines.
+
+This is a gradual, file-local foundation. Unannotated values are `Any`.
+Cross-module generic inference, unions, type aliases, narrowing, overloads, and
+exhaustiveness checking are not implemented yet.
+
+## 35. Current Limitations
 
 Sprout is usable for scripts, examples, terminal games, multi-file projects, and Python library experiments, but it is still young.
 
 Known limitations:
 
 - Files support Python-style indentation blocks and garden-style `bloom` / `end` blocks. Brace blocks still work for older Sprout code.
-- Inheritance and `super` exist, but there are no access modifiers or interfaces.
+- Inheritance, `super`, and structural interfaces exist, but there are no access modifiers.
 - Uncaught runtime errors include Sprout function/method stack traces with source file, line, and column locations for call sites and function definitions.
 - There are no comprehensions.
 - Sprout-defined functions support `*rest` positional arguments, `**options` keyword-rest arguments, and call-site `*args` / `**opts` spreading.
 - Built-in Sprout functions generally reject keyword arguments unless documented.
-- The package registry is local/JSON-backed. HTTP registries are read-only, and there is no hosted Sprout registry, authentication, signing, or trust service yet.
-- There is no static type checker.
+- Hosted registries and authenticated publishing exist, but package signatures and a public trust service do not yet exist.
+- The optional checker is gradual and file-local; it does not yet support unions,
+  aliases, narrowing, overloads, or cross-module generic inference.
 - The bytecode VM exists, but it is experimental and not feature-complete. There is no native-code compiler or JIT.
 - The dedicated test runner and imported Sprout module bodies currently use stable interpreter infrastructure even when the calling program uses the VM.
 - Task scheduling is safe and timer-friendly, but Sprout function bodies are serialized rather than CPU-parallel.
@@ -2284,7 +2430,7 @@ Known limitations:
 - Window2D and PandaWindow3D are thin wrappers and require external Python packages.
 - Python interop depends on the Python runtime executing `sprout.py`.
 
-## 34. Accuracy Notes
+## 36. Accuracy Notes
 
 This manual describes the current `sprout.py` implementation in this project. It is not a promise of future compatibility. If behavior changes, update this manual, examples, tests, and VS Code grammar together.
 

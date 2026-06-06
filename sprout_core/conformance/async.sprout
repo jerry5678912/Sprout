@@ -1,0 +1,10 @@
+events = []
+
+async def double(value):
+  events.append(value)
+  return value * 2
+
+say await double(21)
+taskgroup jobs:
+  jobs.spawn(double, 1)
+say len(events)
