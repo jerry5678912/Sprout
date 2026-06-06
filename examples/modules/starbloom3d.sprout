@@ -14,12 +14,86 @@ def cross(a, b) { return s3d.cross(a, b) }
 def length(v) { return s3d.length(v) }
 def normalize(v) { return s3d.normalize(v) }
 def cube(size=2) { return s3d.cube(size) }
+def pyramid(size=2, height=2) { return s3d.pyramid(size, height) }
+def plane(width=2, depth=2) { return s3d.plane(width, depth) }
 def load_obj(path) { return s3d.load_obj(path) }
 def translate_mesh(mesh, offset) { return s3d.translate_mesh(mesh, offset) }
+def scale_mesh(mesh, amount) { return s3d.scale_mesh(mesh, amount) }
 def rotate_mesh(mesh, ax=0, ay=0, az=0) { return s3d.rotate_mesh(mesh, ax=ax, ay=ay, az=az) }
+def transform_mesh(mesh, position=vec3(0, 0, 0), rotation=vec3(0, 0, 0), scale=1) { return s3d.transform_mesh(mesh, position, rotation, scale) }
+def merge_meshes(meshes) { return s3d.merge_meshes(meshes) }
 def camera(position, fov=18, near=0.1) { return s3d.camera(position, fov, near) }
 def look_at_camera(position, target, fov=18, near=0.1) { return s3d.look_at_camera(position, target, fov=fov, near=near) }
 def orbit_camera(target, radius=8, yaw=0, pitch=0, fov=18, near=0.1) { return s3d.orbit_camera(target, radius, yaw, pitch, fov, near) }
 def render_wireframe(mesh, camera, width=48, height=22, char="#") { return s3d.render_wireframe(mesh, camera, width, height, char) }
 def render_solid(mesh, camera, width=48, height=22) { return s3d.render_solid(mesh, camera, width, height) }
 def frame_to_text(frame) { return s3d.frame_to_text(frame) }
+
+def object(mesh, position=vec3(0, 0, 0), rotation=vec3(0, 0, 0), scale=1, char="#", visible=true) {
+  return {
+    "mesh": mesh,
+    "position": position,
+    "rotation": rotation,
+    "scale": scale,
+    "char": char,
+    "visible": visible
+  }
+}
+
+def scene(camera, width=48, height=22, mode="wireframe", background=" ") {
+  return {
+    "camera": camera,
+    "width": width,
+    "height": height,
+    "mode": mode,
+    "background": background,
+    "objects": []
+  }
+}
+
+def add(scene, object) {
+  scene.objects.append(object)
+  return object
+}
+
+def object_mesh(object) {
+  return transform_mesh(object.mesh, object.position, object.rotation, object.scale)
+}
+
+def scene_mesh(scene) {
+  meshes = []
+  for item in scene.objects {
+    if item.visible {
+      meshes.append(object_mesh(item))
+    }
+  }
+  if len(meshes) == 0 {
+    return s3d.mesh([], [], [])
+  }
+  return merge_meshes(meshes)
+}
+
+def render(scene) {
+  combined = scene_mesh(scene)
+  if scene.mode == "solid" {
+    return render_solid(combined, scene.camera, scene.width, scene.height)
+  }
+  frame = s3d.make_frame(scene.width, scene.height, scene.background)
+  for item in scene.objects {
+    if item.visible {
+      rendered = render_wireframe(object_mesh(item), scene.camera, scene.width, scene.height, item.char)
+      y = 0
+      while y < scene.height {
+        x = 0
+        while x < scene.width {
+          if rendered.rows[y][x] != " " {
+            frame.rows[y][x] = rendered.rows[y][x]
+          }
+          x = x + 1
+        }
+        y = y + 1
+      }
+    }
+  }
+  return frame
+}

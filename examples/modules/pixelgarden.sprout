@@ -26,6 +26,15 @@ def circle(canvas, shape, char="#") { return c2d.circle(canvas, shape, char) }
 def fill_circle(canvas, shape, char="#") { return c2d.fill_circle(canvas, shape, char) }
 def text(canvas, x, y, value) { return c2d.text(canvas, x, y, value) }
 def sprite(canvas, x, y, rows) { return c2d.sprite(canvas, x, y, rows) }
+def sprite_asset(rows, transparent=" ") { return c2d.sprite_asset(rows, transparent) }
+def draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false, transparent=nil) { return c2d.draw_sprite(canvas, asset, x, y, flip_x, flip_y, transparent) }
+def layer(width, height, fill=" ") { return c2d.make_canvas(width, height, fill) }
+def composite(canvas, layer, x=0, y=0, transparent=" ") { return c2d.composite(canvas, layer, x, y, transparent) }
 def camera(position=g2d.vec2(0, 0), zoom=1) { return c2d.camera(position, zoom) }
+def world_to_screen(point, camera, canvas) { return c2d.world_to_screen(point, camera, canvas) }
 def plot_world(canvas, point, camera, char="#") { return c2d.plot_world(canvas, point, camera, char) }
+def line_world(canvas, start, finish, camera, char="#") { return c2d.line_world(canvas, start, finish, camera, char) }
+def sprite_world(canvas, asset, position, camera, flip_x=false, flip_y=false) { return c2d.sprite_world(canvas, asset, position, camera, flip_x, flip_y) }
+def animation(frames, fps=8, loop=true) { return c2d.animation(frames, fps, loop) }
+def animation_frame(animation, seconds) { return c2d.animation_frame(animation, seconds) }
 def frame_to_text(canvas) { return c2d.frame_to_text(canvas) }

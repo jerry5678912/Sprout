@@ -99,6 +99,7 @@ python3 tests/lsp.py >/tmp/sprout_lsp_tests.out
 python3 tests/errors.py >/tmp/sprout_error_tests.out
 python3 tests/debug_adapter.py >/tmp/sprout_debug_adapter_tests.out
 python3 sprout.py test tests/application_test.sprout >/tmp/sprout_language_tests.out
+python3 sprout.py test tests/graphics_test.sprout >/tmp/sprout_graphics_tests.out
 python3 sprout.py run examples/application/async_demo.sprout >/tmp/sprout_async_demo.out
 python3 sprout.py run examples/application/sqlite_demo.sprout >/tmp/sprout_sqlite_demo.out
 python3 sprout.py run examples/application/engineering_demo.sprout >/tmp/sprout_engineering_demo.out
@@ -225,8 +226,11 @@ grep -q "oo@....#" /tmp/sprout_canvas2d.out
 grep -q "========..Sprout2D" /tmp/sprout_canvas2d.out
 grep -q "PixelGarden" /tmp/sprout_pixelgarden.out
 grep -q "garden step:" /tmp/sprout_pixelgarden.out
+grep -q "sprite size: 3 3" /tmp/sprout_pixelgarden.out
 grep -q "StarBloom3D" /tmp/sprout_starbloom3d.out
 grep -q "\\*" /tmp/sprout_starbloom3d.out
+grep -q "scene objects: 2" /tmp/sprout_starbloom3d.out
+grep -q "4 passed" /tmp/sprout_graphics_tests.out
 grep -q "vertices: 8 edges: 12" /tmp/sprout_engine3d.out
 grep -q "\\*" /tmp/sprout_engine3d.out
 grep -q "solid faces: 12 zbuffered: true" /tmp/sprout_engine3d_solid.out

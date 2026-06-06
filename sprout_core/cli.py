@@ -217,6 +217,15 @@ def main(argv: list[str]) -> int:
             target = positional_value(argv[2:], ".")
             return typecheck_path(target, json_mode="--json" in argv[2:])
         elif argv[1] == "docs":
+            if any(value in {"--help", "-h"} for value in argv[2:]):
+                print(
+                    "Usage: sprout docs [DIR|PACKAGE] [--html] [--registry URL]\n"
+                    "\n"
+                    "Generate API documentation from Sprout source files and ## doc comments.\n"
+                    "Without DIR, Sprout documents the current project.\n"
+                    "Use --html to generate docs/API.html in addition to docs/API.md."
+                )
+                return 0
             target = "."
             for value in argv[2:]:
                 if not value.startswith("--"):

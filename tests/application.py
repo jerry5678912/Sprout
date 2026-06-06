@@ -87,6 +87,16 @@ def test_docs_command() -> None:
         assert (project / "docs/API.html").exists()
 
 
+def test_docs_help_does_not_generate_files() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp)
+        result = run(["docs", "--help"], cwd=project)
+        assert "Usage: sprout docs [DIR|PACKAGE]" in result.stdout
+        assert "Generate API documentation" in result.stdout
+        assert not (project / "docs/API.md").exists()
+        assert not (project / "docs/API.html").exists()
+
+
 def test_http_server_resource_without_socket() -> None:
     class FakeServer:
         server_address = ("127.0.0.1", 4321)
@@ -114,6 +124,7 @@ def main() -> int:
     test_structured_test_discovery_and_filtering()
     test_application_examples()
     test_docs_command()
+    test_docs_help_does_not_generate_files()
     test_http_server_resource_without_socket()
     print("sprout application tests passed")
     return 0

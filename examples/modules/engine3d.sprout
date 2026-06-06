@@ -73,6 +73,36 @@ def cube(size=2) {
   return mesh(vertices, edges, faces)
 }
 
+def pyramid(size=2, height=2) {
+  h = size / 2
+  vertices = [
+    vec3(0 - h, 0, 0 - h),
+    vec3(h, 0, 0 - h),
+    vec3(h, 0, h),
+    vec3(0 - h, 0, h),
+    vec3(0, height, 0)
+  ]
+  edges = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [0, 4], [1, 4], [2, 4], [3, 4]
+  ]
+  faces = [
+    [0, 2, 1], [0, 3, 2],
+    [0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]
+  ]
+  return mesh(vertices, edges, faces)
+}
+
+def plane(width=2, depth=2) {
+  x = width / 2
+  z = depth / 2
+  return mesh(
+    [vec3(0 - x, 0, 0 - z), vec3(x, 0, 0 - z), vec3(x, 0, z), vec3(0 - x, 0, z)],
+    [[0, 1], [1, 2], [2, 3], [3, 0]],
+    [[0, 2, 1], [0, 3, 2]]
+  )
+}
+
 def edge_key(a, b) {
   if a < b {
     return str(a) + ":" + str(b)
@@ -193,6 +223,32 @@ def rotate_mesh(m, ax=0, ay=0, az=0) {
     vertices.append(p)
   }
   return mesh(vertices, m.edges, m.faces)
+}
+
+def transform_mesh(m, position=vec3(0, 0, 0), rotation=vec3(0, 0, 0), scale=1) {
+  result = scale_mesh(m, scale)
+  result = rotate_mesh(result, rotation.x, rotation.y, rotation.z)
+  return translate_mesh(result, position)
+}
+
+def merge_meshes(meshes) {
+  vertices = []
+  edges = []
+  faces = []
+  offset = 0
+  for item in meshes {
+    for vertex in item.vertices {
+      vertices.append(vertex)
+    }
+    for edge in item.edges {
+      edges.append([edge[0] + offset, edge[1] + offset])
+    }
+    for face in item.faces {
+      faces.append([face[0] + offset, face[1] + offset, face[2] + offset])
+    }
+    offset = offset + len(item.vertices)
+  }
+  return mesh(vertices, edges, faces)
 }
 
 def camera(position, fov=18, near=0.1) {

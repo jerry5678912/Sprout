@@ -1,10 +1,24 @@
 import "modules/starbloom3d.sprout" as star
 
-cam = star.camera(star.vec3(0, 0, -6), fov=20)
-shape = star.cube(size=2.4)
-shape = star.rotate_mesh(shape, ax=radians(20), ay=radians(35), az=radians(5))
-shape = star.translate_mesh(shape, star.vec3(0, 0, 7))
+cam = star.look_at_camera(star.vec3(0, 3, -8), star.vec3(0, 0, 7), fov=20)
+world = star.scene(cam, width=48, height=20)
 
-frame = star.render_wireframe(shape, cam, width=42, height=18, char="*")
+cube = star.object(
+  star.cube(size=2.4),
+  position=star.vec3(-1.8, 0, 7),
+  rotation=star.vec3(radians(20), radians(35), radians(5)),
+  char="*"
+)
+pyramid = star.object(
+  star.pyramid(size=2.4, height=2.8),
+  position=star.vec3(1.8, -1.2, 7),
+  rotation=star.vec3(0, radians(-25), 0),
+  char="+"
+)
+star.add(world, cube)
+star.add(world, pyramid)
+
+frame = star.render(world)
 say "StarBloom3D"
 say star.frame_to_text(frame)
+say "scene objects:", len(world.objects)

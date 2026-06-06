@@ -1453,9 +1453,16 @@ c2d.circle(canvas, circle, char="#")
 c2d.fill_circle(canvas, circle, char="#")
 c2d.text(canvas, x, y, value)
 c2d.sprite(canvas, x, y, rows)
+c2d.sprite_asset(rows, transparent=" ")
+c2d.draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false)
+c2d.composite(canvas, layer, x=0, y=0, transparent=" ")
 c2d.camera(position=g2d.vec2(0, 0), zoom=1)
 c2d.world_to_screen(point, camera, canvas)
 c2d.plot_world(canvas, point, camera, char="#")
+c2d.line_world(canvas, start, finish, camera, char="#")
+c2d.sprite_world(canvas, asset, position, camera)
+c2d.animation(frames, fps=8, loop=true)
+c2d.animation_frame(animation, seconds)
 c2d.frame_to_text(canvas)
 ```
 
@@ -1482,8 +1489,19 @@ pix.fill_rect(canvas, rect, char="#")
 pix.circle(canvas, shape, char="#")
 pix.text(canvas, x, y, value)
 pix.sprite(canvas, x, y, rows)
+pix.sprite_asset(rows, transparent=" ")
+pix.draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false)
+pix.layer(width, height, fill=" ")
+pix.composite(canvas, layer, x=0, y=0)
+pix.camera(position=pix.vec2(0, 0), zoom=1)
+pix.line_world(canvas, start, finish, camera, char="#")
+pix.sprite_world(canvas, asset, position, camera)
+pix.animation(frames, fps=8, loop=true)
+pix.animation_frame(animation, seconds)
 pix.frame_to_text(canvas)
 ```
+
+Reusable sprite assets store their dimensions and transparent character. Layers are ordinary canvases that can be composited without replacing transparent cells. Animations select frames deterministically from elapsed seconds, which makes them suitable for games and tests.
 
 ## 23. StarBloom3D Terminal Rendering
 
@@ -1543,6 +1561,8 @@ Vectors are dictionaries with `x`, `y`, and `z` fields.
 ```sprout
 s3d.mesh(vertices, edges)
 s3d.cube(size=2)
+s3d.pyramid(size=2, height=2)
+s3d.plane(width=2, depth=2)
 s3d.obj_mesh(text)
 s3d.load_obj(path)
 s3d.parse_face_index(token)
@@ -1550,6 +1570,8 @@ s3d.unique_edges(edges)
 s3d.translate_mesh(mesh, offset)
 s3d.scale_mesh(mesh, amount)
 s3d.rotate_mesh(mesh, ax=0, ay=0, az=0)
+s3d.transform_mesh(mesh, position=s3d.vec3(0, 0, 0), rotation=s3d.vec3(0, 0, 0), scale=1)
+s3d.merge_meshes(meshes)
 s3d.bounds(mesh)
 ```
 
@@ -1594,6 +1616,29 @@ Lighting and triangle helpers:
 s3d.face_normal(a, b, c)
 s3d.shade_char(light, ramp=" .:-=+*#%@")
 ```
+
+### StarBloom3D Scenes
+
+StarBloom3D adds a higher-level scene API over the software renderer:
+
+```sprout
+cam = star.look_at_camera(star.vec3(0, 3, -8), star.vec3(0, 0, 7))
+world = star.scene(cam, width=48, height=20, mode="wireframe")
+
+cube = star.object(
+  star.cube(),
+  position=star.vec3(-2, 0, 7),
+  rotation=star.vec3(0, radians(30), 0),
+  char="*"
+)
+pyramid = star.object(star.pyramid(), position=star.vec3(2, 0, 7), char="+")
+
+star.add(world, cube)
+star.add(world, pyramid)
+say star.frame_to_text(star.render(world))
+```
+
+Objects store a mesh, position, rotation, scale, drawing character, and visibility. `star.render(scene)` composites visible wireframe objects while preserving each object's character. Set `mode="solid"` for a merged z-buffered solid render.
 
 Current limitation: StarBloom3D and `engine3d.sprout` are terminal/ASCII only. They do not yet have materials beyond character ramps, textures, skeletal animation, physics, or realtime window output.
 

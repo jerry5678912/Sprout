@@ -154,19 +154,102 @@ def sprite(canvas, x, y, rows) {
   return canvas
 }
 
+def sprite_asset(rows, transparent=" ") {
+  width = 0
+  for row in rows {
+    width = max(width, len(row))
+  }
+  return {
+    "rows": rows,
+    "width": width,
+    "height": len(rows),
+    "transparent": transparent
+  }
+}
+
+def draw_sprite(canvas, asset, x, y, flip_x=false, flip_y=false, transparent=nil) {
+  if transparent == nil {
+    transparent = asset.transparent
+  }
+  row_index = 0
+  while row_index < asset.height {
+    source_y = row_index
+    if flip_y {
+      source_y = asset.height - row_index - 1
+    }
+    row = asset.rows[source_y]
+    col = 0
+    while col < len(row) {
+      source_x = col
+      if flip_x {
+        source_x = len(row) - col - 1
+      }
+      char = row[source_x]
+      if char != transparent {
+        plot(canvas, x + col, y + row_index, char)
+      }
+      col = col + 1
+    }
+    row_index = row_index + 1
+  }
+  return canvas
+}
+
+def composite(canvas, layer, x=0, y=0, transparent=" ") {
+  row_index = 0
+  while row_index < layer.height {
+    col = 0
+    while col < layer.width {
+      char = layer.rows[row_index][col]
+      if char != transparent {
+        plot(canvas, x + col, y + row_index, char)
+      }
+      col = col + 1
+    }
+    row_index = row_index + 1
+  }
+  return canvas
+}
+
 def camera(position=g2d.vec2(0, 0), zoom=1) {
   return {"position": position, "zoom": zoom}
 }
 
 def world_to_screen(point, cam, canvas) {
-  x = (point.x - cam.position.x) * cam.zoom + canvas.width / 2
-  y = (point.y - cam.position.y) * cam.zoom + canvas.height / 2
+  x = (point.x - cam.position.x) * cam.zoom + floor(canvas.width / 2)
+  y = (point.y - cam.position.y) * cam.zoom + floor(canvas.height / 2)
   return g2d.vec2(x, y)
 }
 
 def plot_world(canvas, point, cam, char="#") {
   p = world_to_screen(point, cam, canvas)
   return plot(canvas, p.x, p.y, char)
+}
+
+def line_world(canvas, start, finish, cam, char="#") {
+  a = world_to_screen(start, cam, canvas)
+  b = world_to_screen(finish, cam, canvas)
+  return line(canvas, a.x, a.y, b.x, b.y, char)
+}
+
+def sprite_world(canvas, asset, position, cam, flip_x=false, flip_y=false) {
+  point = world_to_screen(position, cam, canvas)
+  return draw_sprite(canvas, asset, point.x, point.y, flip_x, flip_y)
+}
+
+def animation(frames, fps=8, loop=true) {
+  return {"frames": frames, "fps": fps, "loop": loop}
+}
+
+def animation_frame(value, seconds) {
+  ensure(len(value.frames) > 0, "PixelGarden animation needs at least one frame")
+  index = int(seconds * value.fps)
+  if value.loop {
+    index = index % len(value.frames)
+  } else {
+    index = min(index, len(value.frames) - 1)
+  }
+  return value.frames[index]
 }
 
 def frame_to_text(canvas) {

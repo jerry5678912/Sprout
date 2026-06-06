@@ -585,8 +585,8 @@ end
 - Special Sprout helpers: `sparkle`, `whisper`, `shout`, `mirror`, `chant`, `weave`, `grow`, `plant`, `harvest`, `prune`, `sprinkle`, `bundle`, `first`, `last`, `rest`, `unique`, `countby`, `zipbud`, `dice`
 - Game helpers: `choose`, `clamp`, `wrap`, `dist`, `sleep`, `now`
 - Expanded standard library with `functions()` reporting 183 callable global functions
-- PixelGarden terminal engine for fun ASCII 2D drawing, sprites, text, simple cameras, vectors, bounds, and collision checks
-- StarBloom3D terminal engine for fun ASCII 3D wireframe/solid software rendering
+- PixelGarden terminal engine with reusable sprites, layers, animation, world-space cameras, drawing, vectors, bounds, and collision checks
+- StarBloom3D terminal engine with reusable scenes and objects, mesh transforms and composition, primitives, OBJ loading, and wireframe/solid rendering
 - Window2D optional Pygame-backed module for real 2D windows
 - PandaWindow3D optional Panda3D-backed module for real 3D windows
 - Dot methods on arrays, dictionaries, and strings
