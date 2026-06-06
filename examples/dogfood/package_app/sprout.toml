@@ -4,7 +4,7 @@ version = "0.1.0"
 main = "src/main.sprout"
 authors = []
 description = "Dogfood multi-file project using a local package dependency."
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]

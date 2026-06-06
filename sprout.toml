@@ -4,7 +4,7 @@ version = "0.3.0"
 main = "examples/fibonacci.sprout"
 authors = ["Sprout contributors"]
 description = "A programming language platform with tooling, application libraries, reproducible builds, and package distribution."
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["examples"]

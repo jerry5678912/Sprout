@@ -35,6 +35,13 @@ body:
     id: alternatives
     attributes:
       label: Alternatives considered
+  - type: textarea
+    id: impact
+    attributes:
+      label: Project impact
+      description: Explain maintenance cost and effects on tooling, docs, the VM, compatibility, and the package ecosystem.
+    validations:
+      required: true
   - type: checkboxes
     id: scope
     attributes:
@@ -43,4 +50,6 @@ body:
         - label: I checked the manual and roadmap for an existing equivalent.
           required: true
         - label: I understand major syntax changes require discussion before implementation.
+          required: true
+        - label: I searched existing issues and pull requests for overlapping work.
           required: true

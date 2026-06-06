@@ -4,7 +4,7 @@ version = "0.1.0"
 main = "src/main.sprout"
 authors = []
 description = "Dogfood 2D game simulation with movement, collision, score, and rendering."
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]

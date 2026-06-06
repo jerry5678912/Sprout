@@ -6,12 +6,16 @@ carefully designed language changes.
 
 Sprout is an alpha language. Compatibility matters: avoid changing syntax or
 runtime behavior accidentally, and describe deliberate changes clearly.
+Read [GOVERNANCE.md](GOVERNANCE.md) for the project's priorities and
+decision-making principles.
 
 ## Before You Start
 
 - Search existing issues and pull requests.
-- Open an issue before a large language, VM, package-format, or architecture
-  change.
+- Open an issue before a large language, runtime, VM, package-format,
+  standard-library, ecosystem, or architecture change.
+- Check [ROADMAP.md](ROADMAP.md) and coordinate with existing work instead of
+  starting a duplicate implementation.
 - Keep security reports private as described in [SECURITY.md](SECURITY.md).
 - Do not include generated `build/`, `dist/`, `.sprout/`, credentials, or local
   editor files.
@@ -148,6 +152,21 @@ A useful pull request:
 
 Maintainers may ask to split large changes so language semantics, runtime work,
 and editor work remain reviewable.
+
+## Licensing Contributions
+
+Sprout is licensed under the Apache License 2.0. By submitting a contribution,
+you agree that it may be distributed under that license and confirm that you
+have the right to submit it. Apache License 2.0 includes copyright terms,
+attribution requirements, and an express patent grant for submitted
+contributions.
+
+- Preserve applicable copyright, attribution, and `NOTICE` information.
+- Do not add code, assets, or dependencies with incompatible license terms.
+- Identify third-party work clearly and include its required notices.
+- Ask in an issue before introducing a dependency with unclear licensing.
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the complete project terms.
 
 ## Packages and Releases
 

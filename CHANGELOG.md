@@ -4,8 +4,12 @@
 
 - Added standard Python packaging with a `sprout` console entry point, wheel and
   source-distribution CI, and a trusted-publishing PyPI workflow.
-- Completed the MIT license text and expanded security, conduct, architecture,
-  contribution, issue, and pull-request documentation for public development.
+- Adopted Apache License 2.0 consistently across source releases, Python
+  packaging, project templates, examples, and contribution documentation.
+- Added project governance and contribution licensing guidance focused on
+  stability, coordination, attribution, and maintainable language evolution.
+- Expanded security, conduct, architecture, contribution, issue, and
+  pull-request documentation for public development.
 - Made `release-check` portable when a POSIX shell is unavailable and expanded
   CI to cover error reporting, the debug adapter, and conformance tests.
 - Reworked the README around accurate alpha status, installation, capabilities,

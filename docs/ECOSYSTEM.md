@@ -13,14 +13,14 @@ version = "1.2.0"
 main = "src/main.sprout"
 authors = ["Ada Example"]
 description = "Engineering helpers"
-license = "MIT"
+license = "Apache-2.0"
 
 [package]
 name = "physics_tools"
 version = "1.2.0"
 description = "Engineering helpers"
 author = "Ada Example"
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]

@@ -1,7 +1,7 @@
 # Sprout
 
 [![CI](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml/badge.svg)](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](ROADMAP.md)
 
 Sprout is an independent, general-purpose programming language with a stable
@@ -119,6 +119,7 @@ sprout examples/panda3d_window_demo.sprout
 - [Architecture](docs/ARCHITECTURE.md)
 - [Ecosystem and package format](docs/ECOSYSTEM.md)
 - [Capability audit](docs/CAPABILITY_AUDIT.md)
+- [Project governance](GOVERNANCE.md)
 - [Roadmap](ROADMAP.md)
 - [Changelog](CHANGELOG.md)
 
@@ -139,6 +140,12 @@ python3 sprout.py conformance
 tests/smoke.sh
 ```
 
+## License
+
+Sprout is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE)
+for project attribution information. Contributions are accepted under the same
+license and workflow described in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Project Tooling
 
 Sprout now has an early project and tooling foundation.
@@ -152,7 +159,7 @@ version = "0.1.0"
 main = "src/main.sprout"
 authors = []
 description = "A Sprout project"
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]

@@ -3,7 +3,7 @@
 Dogfood multi-file project using a local package dependency.
 
 - Version: `0.1.0`
-- License: `MIT`
+- License: `Apache-2.0`
 
 ## `packages/textforge/src/textforge.sprout`
 

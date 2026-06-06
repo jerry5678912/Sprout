@@ -29,7 +29,7 @@ def write_projects(base: Path) -> Path:
     )
     (library / "sprout.toml").write_text(
         '[project]\nname = "greetings"\nversion = "1.0.0"\nmain = "src/main.sprout"\n'
-        'description = "Greeting library"\nlicense = "MIT"\n\n'
+        'description = "Greeting library"\nlicense = "Apache-2.0"\n\n'
         '[paths]\nsource = ["src"]\nmodules = []\n',
         encoding="utf-8",
     )
@@ -45,7 +45,7 @@ def write_projects(base: Path) -> Path:
     )
     (app / "sprout.toml").write_text(
         '[project]\nname = "hello_app"\nversion = "1.2.0"\nmain = "src/main.sprout"\n'
-        'description = "Standalone test app"\nlicense = "MIT"\n\n'
+        'description = "Standalone test app"\nlicense = "Apache-2.0"\n\n'
         '[paths]\nsource = ["src"]\nmodules = []\nassets = ["assets"]\n\n'
         '[dependencies]\ngreetings = { path = "../greetings", version = "1.0.0" }\n',
         encoding="utf-8",

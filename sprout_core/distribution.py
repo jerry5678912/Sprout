@@ -20,8 +20,10 @@ LANGUAGE_FILES = [
     "sprout.toml",
     "README.md",
     "LICENSE",
+    "NOTICE",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
+    "GOVERNANCE.md",
     "CODE_OF_CONDUCT.md",
     "SECURITY.md",
     "ROADMAP.md",
@@ -308,9 +310,20 @@ def verify_release_versions() -> list[str]:
     project = (root / "sprout.toml").read_text(encoding="utf-8")
     if f'version = "{SPROUT_VERSION}"' not in project:
         errors.append("sprout.toml version does not match runtime version")
+    if 'license = "Apache-2.0"' not in project:
+        errors.append("sprout.toml license must be Apache-2.0")
     packaging = (root / "pyproject.toml").read_text(encoding="utf-8")
     if f'version = "{SPROUT_VERSION}"' not in packaging:
         errors.append("pyproject.toml version does not match runtime version")
+    if 'license = "Apache-2.0"' not in packaging:
+        errors.append("pyproject.toml license must be Apache-2.0")
+    license_text = (root / "LICENSE").read_text(encoding="utf-8")
+    if "Apache License" not in license_text or "Version 2.0, January 2004" not in license_text:
+        errors.append("LICENSE is not the canonical Apache License 2.0 text")
+    if not (root / "NOTICE").is_file():
+        errors.append("NOTICE is missing")
+    if not (root / "GOVERNANCE.md").is_file():
+        errors.append("GOVERNANCE.md is missing")
     try:
         extension_metadata(root / "editor" / "vscode-sprout")
     except SproutError as exc:

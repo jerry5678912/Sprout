@@ -68,6 +68,9 @@ def test_release_archives() -> None:
             names = archive.namelist()
             assert f"sprout-{SPROUT_VERSION}/install.py" in names
             assert f"sprout-{SPROUT_VERSION}/pyproject.toml" in names
+            assert f"sprout-{SPROUT_VERSION}/LICENSE" in names
+            assert f"sprout-{SPROUT_VERSION}/NOTICE" in names
+            assert f"sprout-{SPROUT_VERSION}/GOVERNANCE.md" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/runtime.py" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/manifest.json" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/typed.sprout" in names
@@ -96,6 +99,8 @@ def test_version_consistency() -> None:
 def test_python_package_metadata() -> None:
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert f'version = "{SPROUT_VERSION}"' in metadata
+    assert 'license = "Apache-2.0"' in metadata
+    assert 'license-files = ["LICENSE", "NOTICE"]' in metadata
     assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
     assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout"]' in metadata
     module = subprocess.run(

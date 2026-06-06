@@ -1678,7 +1678,7 @@ version = "0.1.0"
 main = "src/main.sprout"
 authors = []
 description = "A Sprout project"
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]
@@ -2240,7 +2240,7 @@ name = "physics_tools"
 version = "1.2.0"
 description = "Engineering helpers"
 author = "Ada Example"
-license = "MIT"
+license = "Apache-2.0"
 
 [dependencies]
 vectors = "^2.0.0"

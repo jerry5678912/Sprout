@@ -60,14 +60,14 @@ version = "{version}"
 main = "src/main.sprout"
 authors = ["Sprout Tests"]
 description = "Deterministic physics helpers"
-license = "MIT"
+license = "Apache-2.0"
 
 [package]
 name = "physics_tools"
 version = "{version}"
 description = "Deterministic physics helpers"
 author = "Sprout Tests"
-license = "MIT"
+license = "Apache-2.0"
 
 [paths]
 source = ["src"]

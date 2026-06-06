@@ -74,8 +74,21 @@ def test_doctor_and_release_docs() -> None:
             else:
                 shutil.copy2(source, dest)
         run(["release-docs"], release_root)
-        for path in ["LICENSE", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "CHANGELOG.md", "ROADMAP.md", ".github/pull_request_template.md"]:
+        for path in [
+            "LICENSE",
+            "NOTICE",
+            "GOVERNANCE.md",
+            "CONTRIBUTING.md",
+            "CODE_OF_CONDUCT.md",
+            "SECURITY.md",
+            "CHANGELOG.md",
+            "ROADMAP.md",
+            ".github/pull_request_template.md",
+        ]:
             assert (release_root / path).exists()
+        license_text = (release_root / "LICENSE").read_text(encoding="utf-8")
+        assert "Apache License" in license_text
+        assert "Version 2.0, January 2004" in license_text
         doctor = run(["doctor"], release_root).stdout
         assert "ok python >= 3.9" in doctor
 

@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 from .model import SPROUT_VERSION, SproutError
-from .distribution import verify_release_versions
+from .distribution import language_root, verify_release_versions
 from .tooling import check_file, example_files, load_project, parse_simple_toml
 
 
@@ -105,7 +105,7 @@ def pkg_init(root: str | None = None, name: str | None = None) -> int:
             "main": "src/main.sprout",
             "authors": [],
             "description": "",
-            "license": "MIT",
+            "license": "Apache-2.0",
         },
         "paths": {"source": ["src"], "modules": ["modules"]},
         "dependencies": {},
@@ -185,7 +185,7 @@ def project_toml(name: str, main: str, description: str = "") -> str:
             "main": main,
             "authors": [],
             "description": description,
-            "license": "MIT",
+            "license": "Apache-2.0",
         },
         "paths": {"source": ["src"], "modules": ["modules"]},
         "dependencies": {},
@@ -256,6 +256,9 @@ def doctor() -> int:
         "install.py",
         "pyproject.toml",
         "README.md",
+        "LICENSE",
+        "NOTICE",
+        "GOVERNANCE.md",
         "docs/MANUAL.md",
         "editor/vscode-sprout/package.json",
         "tests/smoke.sh",
@@ -335,8 +338,11 @@ def release_check() -> int:
 
 def ensure_release_docs(root: str | None = None) -> int:
     root = os.path.abspath(root or os.getcwd())
+    source_root = language_root()
     files = {
-        "LICENSE": "MIT License\n\nCopyright (c) 2026 Sprout contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files to deal in the Software without restriction.\n",
+        "LICENSE": (source_root / "LICENSE").read_text(encoding="utf-8"),
+        "NOTICE": (source_root / "NOTICE").read_text(encoding="utf-8"),
+        "GOVERNANCE.md": (source_root / "GOVERNANCE.md").read_text(encoding="utf-8"),
         "CONTRIBUTING.md": "# Contributing to Sprout\n\nThanks for helping Sprout grow.\n\n## Setup\n\n```sh\npython3 sprout.py help\ntests/smoke.sh\n```\n\nKeep changes small, add tests, and update docs when behavior changes.\n",
         "CODE_OF_CONDUCT.md": "# Code of Conduct\n\nBe kind, curious, and respectful. Harassment, threats, and exclusionary behavior are not welcome.\n",
         "SECURITY.md": "# Security Policy\n\nPlease report security issues privately to the project maintainers. Do not publish exploit details before a fix is available.\n",

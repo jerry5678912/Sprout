@@ -73,7 +73,7 @@ def test_docs_command() -> None:
         (project / "src").mkdir()
         (project / "sprout.toml").write_text(
             '[project]\nname = "docs_demo"\nversion = "0.1.0"\nmain = "src/main.sprout"\n'
-            'description = "Docs demo"\nlicense = "MIT"\n\n[paths]\nsource = ["src"]\nmodules = []\n',
+            'description = "Docs demo"\nlicense = "Apache-2.0"\n\n[paths]\nsource = ["src"]\nmodules = []\n',
             encoding="utf-8",
         )
         (project / "src/main.sprout").write_text(
