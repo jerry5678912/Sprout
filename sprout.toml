@@ -1,6 +1,6 @@
 [project]
 name = "sprout"
-version = "0.3.1"
+version = "0.3.2"
 main = "examples/fibonacci.sprout"
 authors = ["Sprout contributors"]
 description = "A programming language platform with tooling, application libraries, reproducible builds, and package distribution."

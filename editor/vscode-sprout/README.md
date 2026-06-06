@@ -43,7 +43,7 @@ From the Sprout repository:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.1.vsix
+code --install-extension dist/sprout-language-0.3.2.vsix
 ```
 
 The VSIX contains the Sprout runner and core. Diagnostics and semantic IntelliSense work immediately as long as Python 3.9 or newer is available.

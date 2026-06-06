@@ -1,6 +1,6 @@
 # The Sprout Programming Language Manual
 
-Version: 0.3.1
+Version: 0.3.2
 Implementation: modular Python tree-walk interpreter in `sprout_core/`, launched by `sprout.py`  
 File extension: `.sprout`
 
@@ -1982,7 +1982,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.1.vsix
+code --install-extension dist/sprout-language-0.3.2.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2375,7 +2375,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.1` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.2` must match the runtime version before the release workflow publishes artifacts.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 
