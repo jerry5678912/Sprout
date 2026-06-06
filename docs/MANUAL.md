@@ -1,6 +1,6 @@
 # The Sprout Programming Language Manual
 
-Version: 0.3.0
+Version: 0.3.1
 Implementation: modular Python tree-walk interpreter in `sprout_core/`, launched by `sprout.py`  
 File extension: `.sprout`
 
@@ -1926,6 +1926,13 @@ To use it:
 
 The terminal and VS Code debuggers currently use the experimental bytecode VM. Programs that contain VM-unsupported behavior should still be run with the stable interpreter.
 
+When a `.sprout` file is active, the extension displays **Sprout: Auto** or
+**Sprout: Selected** in the status bar. Click it, or run **Sprout: Select
+Interpreter**, to choose the bundled interpreter, a workspace source checkout,
+or a custom `sprout.py`. Custom interpreters are validated before use. Run
+**Sprout: Run Current File** or click the editor-title play icon to execute the
+saved file in an interactive terminal.
+
 Right-click a breakpoint to add a condition or hit count. A hit count can be `3`, `>= 5`, or `% 2`. The **Uncaught Sprout errors** checkbox in the Breakpoints view pauses before an unhandled error terminates the program.
 
 `profile` is a VM profiler foundation:
@@ -1943,6 +1950,15 @@ Sprout includes a local VS Code language package:
 ```text
 editor/vscode-sprout
 ```
+
+For normal user installation:
+
+1. Install Sprout with `python3 -m pip install sprout-language`.
+2. Open the VS Code Extensions view.
+3. Search for **Sprout Language** by `jerry5678912` and install it.
+4. Open a `.sprout` file.
+5. Click **Sprout: Auto** to select an interpreter when needed.
+6. Click the editor-title play icon or run **Sprout: Run Current File**.
 
 It provides:
 
@@ -1966,7 +1982,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.0.vsix
+code --install-extension dist/sprout-language-0.3.1.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2359,7 +2375,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.0` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.1` must match the runtime version before the release workflow publishes artifacts.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 

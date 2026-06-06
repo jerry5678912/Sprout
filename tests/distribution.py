@@ -91,6 +91,8 @@ def test_release_archives() -> None:
             package = json.loads(archive.read("extension/package.json"))
             assert package["version"] == SPROUT_VERSION
             assert package["publisher"] == "jerry5678912"
+            commands = {entry["command"] for entry in package["contributes"]["commands"]}
+            assert {"sprout.selectInterpreter", "sprout.runCurrentFile"}.issubset(commands)
 
 
 def test_version_consistency() -> None:

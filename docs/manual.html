@@ -64,7 +64,7 @@ td, th {
 <body><main>
 <h1 id="the-sprout-programming-language-manual">The Sprout Programming Language Manual</h1>
 <p>
-Version: 0.3.0 Implementation: modular Python tree-walk interpreter in <code>sprout_core/</code>, launched by <code>sprout.py</code> File extension: <code>.sprout</code>
+Version: 0.3.1 Implementation: modular Python tree-walk interpreter in <code>sprout_core/</code>, launched by <code>sprout.py</code> File extension: <code>.sprout</code>
 </p>
 <p>
 Sprout is a small, dynamic programming language with a garden-flavored personality. It is designed to be easy to read, easy to experiment with, and practical enough for scripts, terminal games, multi-file projects, and Python standard-library interop.
@@ -1980,6 +1980,9 @@ To use it:
 The terminal and VS Code debuggers currently use the experimental bytecode VM. Programs that contain VM-unsupported behavior should still be run with the stable interpreter.
 </p>
 <p>
+When a <code>.sprout</code> file is active, the extension displays <strong>Sprout: Auto</strong> or <strong>Sprout: Selected</strong> in the status bar. Click it, or run **Sprout: Select Interpreter**, to choose the bundled interpreter, a workspace source checkout, or a custom <code>sprout.py</code>. Custom interpreters are validated before use. Run <strong>Sprout: Run Current File</strong> or click the editor-title play icon to execute the saved file in an interactive terminal.
+</p>
+<p>
 Right-click a breakpoint to add a condition or hit count. A hit count can be <code>3</code>, <code>&gt;= 5</code>, or <code>% 2</code>. The <strong>Uncaught Sprout errors</strong> checkbox in the Breakpoints view pauses before an unhandled error terminates the program.
 </p>
 <p>
@@ -1998,6 +2001,12 @@ Sprout includes a local VS Code language package:
 <pre><code class="language-text">
 editor/vscode-sprout
 </code></pre>
+<p>
+For normal user installation:
+</p>
+<p>
+1. Install Sprout with <code>python3 -m pip install sprout-language</code>. 2. Open the VS Code Extensions view. 3. Search for <strong>Sprout Language</strong> by <code>jerry5678912</code> and install it. 4. Open a <code>.sprout</code> file. 5. Click <strong>Sprout: Auto</strong> to select an interpreter when needed. 6. Click the editor-title play icon or run <strong>Sprout: Run Current File</strong>.
+</p>
 <p>
 It provides:
 </p>
@@ -2023,7 +2032,7 @@ Build and install the self-contained VSIX:
 </p>
 <pre><code class="language-sh">
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.0.vsix
+code --install-extension dist/sprout-language-0.3.1.vsix
 </code></pre>
 <p>
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2417,7 +2426,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 </code></pre>
 <p>
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as <code>v0.3.0</code> must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as <code>v0.3.1</code> must match the runtime version before the release workflow publishes artifacts.
 </p>
 <p>
 The capability baseline used to plan this work is recorded in <code>docs/CAPABILITY_AUDIT.md</code>.

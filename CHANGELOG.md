@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a VS Code interpreter selector, interpreter status item, validation,
+  and an integrated-terminal command for running the current Sprout file.
 - Published `sprout-language` 0.3.0 on PyPI and updated installation
   documentation for `pip` and `pipx`.
 - Added standard Python packaging with a `sprout` console entry point, wheel and

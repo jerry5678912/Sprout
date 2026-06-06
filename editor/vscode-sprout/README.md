@@ -15,6 +15,8 @@ It adds:
 - Hover help with signatures, `##` documentation comments, and source locations
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json`
+- A status-bar interpreter selector for bundled, workspace, or custom Sprout interpreters
+- **Sprout: Run Current File** in the Command Palette and editor title
 - Application-layer completions and highlighting for `test`, `async def`,
   `await`, `taskgroup`, expectations, tasks, HTTP, SQLite, engineering helpers,
   and reusable game APIs
@@ -25,13 +27,23 @@ It adds:
 - LSP quick fixes for tab indentation and Python-style boolean/nil aliases
 - Conditional breakpoints, hit counts, and uncaught-error breakpoints
 
+## Install From VS Code
+
+1. Install Sprout with `python3 -m pip install sprout-language`.
+2. Open VS Code's Extensions view.
+3. Search for **Sprout Language** by `jerry5678912`.
+4. Install the extension and open a `.sprout` file.
+5. Click **Sprout: Auto** in the status bar if you want to choose a different
+   interpreter.
+6. Click the editor-title play icon to run the current file.
+
 ## Install The VSIX
 
 From the Sprout repository:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.0.vsix
+code --install-extension dist/sprout-language-0.3.1.vsix
 ```
 
 The VSIX contains the Sprout runner and core. Diagnostics and semantic IntelliSense work immediately as long as Python 3.9 or newer is available.
@@ -76,7 +88,18 @@ Those comments appear in hover help and completion descriptions.
 - `sprout.diagnostics.enabled`: turn editor diagnostics on or off.
 - `sprout.diagnostics.styleWarnings`: show yellow style warnings for tabs and Python-style constants.
 - `sprout.pythonPath`: optional Python executable; empty selects `python` on Windows and `python3` elsewhere.
-- `sprout.runnerPath`: optional explicit path to `sprout.py`; packaged releases already include the runner.
+- `sprout.runnerPath`: selected `sprout.py` interpreter; use **Sprout: Select Interpreter** instead of editing this manually.
+
+## Select And Run
+
+Click **Sprout: Auto** or **Sprout: Selected** in the VS Code status bar, or run
+**Sprout: Select Interpreter** from the Command Palette. The selector can use
+the interpreter bundled with the extension, a workspace checkout, or a custom
+`sprout.py` file. Custom selections are validated with `sprout.py version`.
+
+Open a saved `.sprout` file and click the play icon in the editor title, or run
+**Sprout: Run Current File**. The program runs in an interactive integrated
+terminal using the selected interpreter.
 
 ## Language Server
 

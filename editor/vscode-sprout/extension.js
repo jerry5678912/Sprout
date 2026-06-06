@@ -7,6 +7,7 @@ const { SproutLanguageClient } = require("./lsp-client");
 const { createSproutTestController } = require("./test-controller");
 
 let languageClient;
+let interpreterStatus;
 
 function findDebugAdapter(context, runner) {
   const candidates = [
@@ -618,42 +619,212 @@ function findUp(startPath, filename) {
   return undefined;
 }
 
+function uniquePaths(paths) {
+  const seen = new Set();
+  return paths.filter((candidate) => {
+    if (!candidate) return false;
+    const resolved = path.resolve(candidate);
+    if (seen.has(resolved) || !fs.existsSync(resolved)) return false;
+    seen.add(resolved);
+    return true;
+  });
+}
+
+function runnerCandidates(context, document) {
+  const candidates = [
+    {
+      path: path.join(context.extensionPath, "sprout.py"),
+      label: "Bundled Sprout",
+      description: "Included with the VS Code extension"
+    },
+    {
+      path: path.resolve(context.extensionPath, "..", "..", "sprout.py"),
+      label: "Sprout source checkout",
+      description: "Development interpreter"
+    }
+  ];
+
+  if (document?.uri.scheme === "file") {
+    const runner = findUp(path.dirname(document.uri.fsPath), "sprout.py");
+    candidates.push({ path: runner, label: "Current project", description: runner });
+  }
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    const runner = findUp(folder.uri.fsPath, "sprout.py");
+    candidates.push({ path: runner, label: `Workspace: ${folder.name}`, description: runner });
+  }
+
+  const paths = uniquePaths(candidates.map((candidate) => candidate.path));
+  return paths.map((candidatePath) => candidates.find((candidate) => (
+    candidate.path && path.resolve(candidate.path) === candidatePath
+  )));
+}
+
 function findRunner(context, document) {
   const configured = vscode.workspace.getConfiguration("sprout").get("runnerPath");
   if (configured && fs.existsSync(configured)) {
     return configured;
   }
 
-  const extensionRunner = path.join(context.extensionPath, "sprout.py");
-  if (fs.existsSync(extensionRunner)) {
-    return extensionRunner;
-  }
-
-  const developmentRunner = path.resolve(context.extensionPath, "..", "..", "sprout.py");
-  if (fs.existsSync(developmentRunner)) {
-    return developmentRunner;
-  }
-
-  if (document && document.uri.scheme === "file") {
-    const documentRunner = findUp(path.dirname(document.uri.fsPath), "sprout.py");
-    if (documentRunner) {
-      return documentRunner;
-    }
-  }
-
-  for (const folder of vscode.workspace.workspaceFolders || []) {
-    const workspaceRunner = findUp(folder.uri.fsPath, "sprout.py");
-    if (fs.existsSync(workspaceRunner)) {
-      return workspaceRunner;
-    }
-  }
-
-  return undefined;
+  return runnerCandidates(context, document)[0]?.path;
 }
 
 function pythonExecutable() {
   return vscode.workspace.getConfiguration("sprout").get("pythonPath")
     || (process.platform === "win32" ? "python" : "python3");
+}
+
+function validateRunner(runner) {
+  return new Promise((resolve) => {
+    childProcess.execFile(
+      pythonExecutable(),
+      [runner, "version"],
+      { timeout: 5000 },
+      (error, stdout, stderr) => {
+        const version = String(stdout || "").trim();
+        if (!error && /^Sprout\s+\S+/.test(version)) {
+          resolve({ ok: true, version });
+          return;
+        }
+        resolve({
+          ok: false,
+          message: String(stderr || stdout || error || "Unknown interpreter error").trim()
+        });
+      }
+    );
+  });
+}
+
+function activeSproutDocument() {
+  const document = vscode.window.activeTextEditor?.document;
+  return document?.languageId === "sprout" ? document : undefined;
+}
+
+async function updateInterpreterStatus(context) {
+  if (!interpreterStatus) return;
+  const document = activeSproutDocument();
+  if (!document) {
+    interpreterStatus.hide();
+    return;
+  }
+  const configured = vscode.workspace.getConfiguration("sprout", document?.uri).get("runnerPath");
+  const runner = findRunner(context, document);
+  interpreterStatus.text = configured ? "$(symbol-method) Sprout: Selected" : "$(symbol-method) Sprout: Auto";
+  interpreterStatus.tooltip = runner
+    ? `Sprout interpreter: ${runner}\nClick to select another interpreter.`
+    : "No Sprout interpreter found. Click to select one.";
+  interpreterStatus.backgroundColor = runner
+    ? undefined
+    : new vscode.ThemeColor("statusBarItem.warningBackground");
+  interpreterStatus.show();
+}
+
+async function selectInterpreter(context) {
+  const document = activeSproutDocument();
+  const configuration = vscode.workspace.getConfiguration("sprout", document?.uri);
+  const current = configuration.get("runnerPath");
+  const candidates = runnerCandidates(context, document);
+  const selected = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(wand) Auto Detect",
+        description: current ? "Clear the current selection" : "Currently selected",
+        detail: "Prefer the bundled interpreter, then discover a workspace sprout.py.",
+        action: "auto"
+      },
+      ...candidates.map((candidate) => ({
+        label: `$(file-code) ${candidate.label}`,
+        description: candidate.path === current ? "Currently selected" : "",
+        detail: candidate.path,
+        runner: candidate.path
+      })),
+      {
+        label: "$(folder-opened) Enter Interpreter Path...",
+        detail: "Choose a custom sprout.py file.",
+        action: "browse"
+      }
+    ],
+    {
+      title: "Select Sprout Interpreter",
+      placeHolder: "Choose the interpreter used for running, diagnostics, IntelliSense, tests, and debugging",
+      matchOnDescription: true,
+      matchOnDetail: true
+    }
+  );
+  if (!selected) return;
+
+  let runner = selected.runner;
+  if (selected.action === "browse") {
+    const picked = await vscode.window.showOpenDialog({
+      title: "Select sprout.py",
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      filters: { "Sprout interpreter": ["py"], "All files": ["*"] }
+    });
+    runner = picked?.[0]?.fsPath;
+    if (!runner) return;
+  }
+
+  const target = vscode.workspace.workspaceFolders?.length
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  if (selected.action === "auto") {
+    await configuration.update("runnerPath", undefined, target);
+  } else {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: "Validating Sprout interpreter" },
+      () => validateRunner(runner)
+    );
+    if (!result.ok) {
+      vscode.window.showErrorMessage(`That file is not a working Sprout interpreter: ${result.message}`);
+      return;
+    }
+    await configuration.update("runnerPath", runner, target);
+    vscode.window.showInformationMessage(`Selected ${result.version}.`);
+  }
+  await updateInterpreterStatus(context);
+
+  const reload = await vscode.window.showInformationMessage(
+    "Reload VS Code to restart Sprout IntelliSense, tests, and debugging with this interpreter.",
+    "Reload Window"
+  );
+  if (reload === "Reload Window") {
+    vscode.commands.executeCommand("workbench.action.reloadWindow");
+  }
+}
+
+function shellQuote(value) {
+  const text = String(value);
+  if (process.platform === "win32") {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
+async function runCurrentFile(context) {
+  const document = activeSproutDocument();
+  if (!document || document.uri.scheme !== "file") {
+    vscode.window.showErrorMessage("Open a saved .sprout file before running it.");
+    return;
+  }
+  if (document.isDirty) await document.save();
+  const runner = findRunner(context, document);
+  if (!runner) {
+    const choose = await vscode.window.showErrorMessage(
+      "No Sprout interpreter was found.",
+      "Select Interpreter"
+    );
+    if (choose === "Select Interpreter") await selectInterpreter(context);
+    return;
+  }
+
+  const terminal = vscode.window.terminals.find((item) => item.name === "Sprout")
+    || vscode.window.createTerminal({ name: "Sprout", cwd: path.dirname(document.uri.fsPath) });
+  terminal.show();
+  terminal.sendText(
+    `${shellQuote(pythonExecutable())} ${shellQuote(runner)} run ${shellQuote(document.uri.fsPath)}`,
+    true
+  );
 }
 
 function diagnosticFromOutput(text, document) {
@@ -1090,6 +1261,21 @@ async function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("sprout");
   const timers = new Map();
   const runner = findRunner(context);
+  interpreterStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  interpreterStatus.command = "sprout.selectInterpreter";
+  interpreterStatus.name = "Sprout Interpreter";
+  context.subscriptions.push(
+    interpreterStatus,
+    vscode.commands.registerCommand("sprout.selectInterpreter", () => selectInterpreter(context)),
+    vscode.commands.registerCommand("sprout.runCurrentFile", () => runCurrentFile(context)),
+    vscode.window.onDidChangeActiveTextEditor(() => updateInterpreterStatus(context)),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("sprout.runnerPath") || event.affectsConfiguration("sprout.pythonPath")) {
+        updateInterpreterStatus(context);
+      }
+    })
+  );
+  await updateInterpreterStatus(context);
   await createSproutTestController(vscode, context, runner, pythonExecutable());
   const lspEnabled = vscode.workspace.getConfiguration("sprout").get("languageServer.enabled");
   if (runner && lspEnabled !== false) {
