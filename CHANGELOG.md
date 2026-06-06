@@ -8,6 +8,7 @@
   packaging, project templates, examples, and contribution documentation.
 - Added project governance and contribution licensing guidance focused on
   stability, coordination, attribution, and maintainable language evolution.
+- Set the VS Code extension publisher to the public Marketplace publisher ID.
 - Expanded security, conduct, architecture, contribution, issue, and
   pull-request documentation for public development.
 - Made `release-check` portable when a POSIX shell is unavailable and expanded

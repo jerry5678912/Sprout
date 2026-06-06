@@ -90,6 +90,7 @@ def test_release_archives() -> None:
             assert "extension/test-controller.js" in names
             package = json.loads(archive.read("extension/package.json"))
             assert package["version"] == SPROUT_VERSION
+            assert package["publisher"] == "jerry5678912"
 
 
 def test_version_consistency() -> None:
