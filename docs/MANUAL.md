@@ -1872,7 +1872,11 @@ The VM now covers the current parser's core statement and expression forms, incl
 
 Every emitted instruction keeps source file, line, column, and code-object context. The disassembler prints source locations, breakpoints use those locations, and uncaught VM errors report both the failing function location and its call site.
 
-The VM remains experimental. Sprout module imports currently use the stable module loader, advanced Python/native-resource edge cases may still differ, and the VM is not yet consistently faster than the tree-walk interpreter. `bench` reports measured compile time, execution times, instruction count, support state, and fallback state rather than claiming a speedup.
+The VM remains experimental. Imported Sprout module bodies compile through the
+VM, but advanced Python/native-resource edge cases may still differ, and the VM
+is not yet consistently faster than the tree-walk interpreter. `bench` reports
+measured compile time, execution times, instruction count, support state, and
+fallback state rather than claiming a speedup.
 
 `bench` measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
 
@@ -2098,9 +2102,9 @@ function execution is currently serialized through a runtime lock so interpreter
 state remains correct. This provides concurrency for waiting and orchestration,
 not CPU-parallel Sprout execution.
 
-Structured async execution currently uses the stable interpreter. Running an
-async program with `run --vm` reports the unsupported VM feature and explicitly
-falls back to the stable interpreter.
+Structured async functions, `await`, task groups, streams, and `async for`
+execute directly in the VM. Unsupported edge cases still produce an explicit
+experimental-VM diagnostic rather than silently changing behavior.
 
 ### HTTP
 
@@ -2299,10 +2303,18 @@ The generated directory includes Unix and Windows launchers plus an exact SHA-25
 Install Sprout from a checkout or extracted release:
 
 ```sh
+python3 -m pip install .
+sprout version
+
+# Or use the standalone source-release installer:
 python3 install.py
 python3 install.py --prefix /custom/prefix
 python3 install.py --force
 ```
+
+For an isolated command installation, use `pipx install .`. After the
+`sprout-language` distribution is published on PyPI, users can install it with
+`pipx install sprout-language`.
 
 The installer copies the runtime and supporting files under the prefix and creates a `sprout` launcher under its `bin` directory. The equivalent CLI commands are:
 

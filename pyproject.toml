@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sprout-language"
+version = "0.3.0"
+description = "The Sprout programming language, runtime, tooling, and package ecosystem"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Sprout contributors" }
+]
+keywords = ["programming-language", "interpreter", "bytecode", "lsp", "education"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Compilers",
+  "Topic :: Software Development :: Interpreters",
+]
+
+[project.scripts]
+sprout = "sprout_core.cli:entrypoint"
+
+[project.urls]
+Homepage = "https://github.com/jerry5678912/Sprout"
+Documentation = "https://github.com/jerry5678912/Sprout/blob/main/docs/MANUAL.md"
+Repository = "https://github.com/jerry5678912/Sprout.git"
+Issues = "https://github.com/jerry5678912/Sprout/issues"
+Changelog = "https://github.com/jerry5678912/Sprout/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["sprout_core*"]
+
+[tool.setuptools.package-data]
+sprout_core = ["conformance/*.json", "conformance/*.sprout"]

@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible Sprout language, runtime, tooling, or editor problem
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here. Use the private process in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Sprout version
+      description: Output of `sprout version` or the commit hash.
+      placeholder: Sprout 0.3.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, and editor version when relevant.
+      placeholder: macOS 15, Python 3.12, VS Code 1.100
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Parser or language semantics
+        - Stable interpreter
+        - Experimental VM
+        - Type checker
+        - LSP or VS Code extension
+        - Projects, packages, or registry
+        - Standard library or application APIs
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest `.sprout` program and exact command.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include complete Sprout diagnostics. Remove credentials and private data.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This report does not contain secrets or a security vulnerability.
+          required: true

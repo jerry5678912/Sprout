@@ -16,6 +16,7 @@ from .model import SPROUT_VERSION, SproutError
 LANGUAGE_FILES = [
     "sprout.py",
     "install.py",
+    "pyproject.toml",
     "sprout.toml",
     "README.md",
     "LICENSE",
@@ -102,7 +103,11 @@ def write_launcher(path: Path, runtime: Path, python_executable: str | None = No
     path.parent.mkdir(parents=True, exist_ok=True)
     python = python_executable or sys.executable
     if path.suffix == ".cmd":
-        text = f'@echo off\r\n"{python}" "{runtime / "sprout.py"}" %*\r\n'
+        text = (
+            "@echo off\r\n"
+            f'set "PYTHONPATH={runtime};%PYTHONPATH%"\r\n'
+            f'"{python}" -m sprout_core %*\r\n'
+        )
     else:
         text = (
             f"#!{python}\n"
@@ -303,6 +308,9 @@ def verify_release_versions() -> list[str]:
     project = (root / "sprout.toml").read_text(encoding="utf-8")
     if f'version = "{SPROUT_VERSION}"' not in project:
         errors.append("sprout.toml version does not match runtime version")
+    packaging = (root / "pyproject.toml").read_text(encoding="utf-8")
+    if f'version = "{SPROUT_VERSION}"' not in packaging:
+        errors.append("pyproject.toml version does not match runtime version")
     try:
         extension_metadata(root / "editor" / "vscode-sprout")
     except SproutError as exc:

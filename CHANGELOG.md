@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added standard Python packaging with a `sprout` console entry point, wheel and
+  source-distribution CI, and a trusted-publishing PyPI workflow.
+- Completed the MIT license text and expanded security, conduct, architecture,
+  contribution, issue, and pull-request documentation for public development.
+- Made `release-check` portable when a POSIX shell is unavailable and expanded
+  CI to cover error reporting, the debug adapter, and conformance tests.
+- Reworked the README around accurate alpha status, installation, capabilities,
+  documentation, and contribution paths.
 - Added generic, data-carrying enums and guarded structural pattern matching
   with wildcard, literal, binding, variant, and array-rest patterns.
 - Added exhaustiveness and duplicate-case diagnostics for typed enum matches.

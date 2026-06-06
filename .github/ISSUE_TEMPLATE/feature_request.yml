@@ -1,0 +1,46 @@
+name: Feature proposal
+description: Propose a focused language, tooling, runtime, or ecosystem improvement
+title: "[Proposal]: "
+labels: ["proposal", "needs-discussion"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Language semantics
+        - Runtime or VM
+        - Type system
+        - Tooling or editor
+        - Standard library
+        - Packages or distribution
+        - Documentation or contributor experience
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user problem before proposing syntax or implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include concise examples and compatibility implications.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I checked the manual and roadmap for an existing equivalent.
+          required: true
+        - label: I understand major syntax changes require discussion before implementation.
+          required: true

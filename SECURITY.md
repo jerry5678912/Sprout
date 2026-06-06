@@ -1,20 +1,50 @@
 # Security Policy
 
-Please report security issues privately to the project maintainers. Do not publish exploit details before a fix is available.
+## Supported Versions
 
-Do not include registry tokens, private package contents, or other credentials
-in a public report. Include the Sprout version, operating system, minimal
-reproduction, and any fuzz seed involved.
+Sprout is currently alpha software. Security fixes are applied to the latest
+release and the `main` branch. Older alpha releases may not receive patches.
 
-Maintainers run:
+## Reporting a Vulnerability
+
+Do not open a public issue for a suspected vulnerability.
+
+Use GitHub's **Report a vulnerability** flow under the repository Security tab:
+
+<https://github.com/jerry5678912/Sprout/security/advisories/new>
+
+Include:
+
+- the affected Sprout version or commit;
+- operating system and Python version;
+- the smallest practical reproduction;
+- impact and required attacker access;
+- any malicious package/archive sample;
+- a deterministic fuzz seed when relevant.
+
+Do not include live registry tokens, private packages, personal data, or
+unredacted credentials. Maintainers should acknowledge a complete report within
+seven days and coordinate disclosure after a fix is available.
+
+## Security Boundaries
+
+- Sprout programs are not sandboxed. They can access files, networking, Python
+  interop, and other capabilities granted to the host process.
+- `importpython` executes Python code and should be treated as trusted-code
+  interop.
+- The built-in registry should run behind HTTPS and an authenticated reverse
+  proxy for public deployments.
+- Package downloads and extraction enforce path, symlink, file-count, expanded
+  size, and checksum checks, but package signatures and a public trust service
+  are not implemented yet.
+- The VS Code extension launches the bundled/local Sprout runtime and should
+  only be used with trusted workspaces.
+
+## Maintainer Checks
 
 ```sh
 python3 tests/security.py
 python3 sprout.py conformance
 python3 sprout.py fuzz --iterations 500 --seed 20260606
+python3 sprout.py release-check
 ```
-
-The built-in registry is intended to run behind HTTPS. Publish tokens are stored
-as SHA-256 digests and may be package-scoped and revoked. Package publishing and
-installation reject path traversal and symbolic links, verify checksums, and
-enforce download, file-count, and expanded-size limits.

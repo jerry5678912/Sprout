@@ -45,7 +45,15 @@ jobs:
           python tests/typesystem.py
           python tests/distribution.py
           python tests/lsp.py
+          python tests/errors.py
+          python tests/debug_adapter.py
+          python sprout.py conformance
           python tools/check_editor_coverage.py
+      - name: Build Python package
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*.whl dist/*.tar.gz
       - name: Validate release metadata
         run: |
           python sprout.py doctor

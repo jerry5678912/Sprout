@@ -21,10 +21,13 @@ def repository_root() -> Path:
 
 
 def run_sprout(path: Path, *, vm: bool = False, timeout: float = 10.0) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, str(repository_root() / "sprout.py"), "run"]
+    command = [sys.executable, "-m", "sprout_core", "run"]
     if vm:
         command.append("--vm")
     command.append(str(path))
+    python_path = os.pathsep.join(
+        item for item in [str(repository_root()), os.environ.get("PYTHONPATH", "")] if item
+    )
     return subprocess.run(
         command,
         cwd=path.parent,
@@ -32,7 +35,7 @@ def run_sprout(path: Path, *, vm: bool = False, timeout: float = 10.0) -> subpro
         capture_output=True,
         check=False,
         timeout=timeout,
-        env={**os.environ, "PYTHONHASHSEED": "0"},
+        env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": python_path},
     )
 
 

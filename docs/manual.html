@@ -1925,7 +1925,7 @@ The VM now covers the current parser&#x27;s core statement and expression forms,
 Every emitted instruction keeps source file, line, column, and code-object context. The disassembler prints source locations, breakpoints use those locations, and uncaught VM errors report both the failing function location and its call site.
 </p>
 <p>
-The VM remains experimental. Sprout module imports currently use the stable module loader, advanced Python/native-resource edge cases may still differ, and the VM is not yet consistently faster than the tree-walk interpreter. <code>bench</code> reports measured compile time, execution times, instruction count, support state, and fallback state rather than claiming a speedup.
+The VM remains experimental. Imported Sprout module bodies compile through the VM, but advanced Python/native-resource edge cases may still differ, and the VM is not yet consistently faster than the tree-walk interpreter. <code>bench</code> reports measured compile time, execution times, instruction count, support state, and fallback state rather than claiming a speedup.
 </p>
 <p>
 <code>bench</code> measures honestly. It reports tree-walk time, VM time, speed ratio, number of runs, and whether the VM supported the program. It does not claim the VM is always faster.
@@ -2157,7 +2157,7 @@ say messages.receive()
 Tasks use a scheduler with future-like results and delayed execution. Sprout function execution is currently serialized through a runtime lock so interpreter state remains correct. This provides concurrency for waiting and orchestration, not CPU-parallel Sprout execution.
 </p>
 <p>
-Structured async execution currently uses the stable interpreter. Running an async program with <code>run --vm</code> reports the unsupported VM feature and explicitly falls back to the stable interpreter.
+Structured async functions, <code>await</code>, task groups, streams, and <code>async for</code> execute directly in the VM. Unsupported edge cases still produce an explicit experimental-VM diagnostic rather than silently changing behavior.
 </p>
 <h3 id="http">HTTP</h3>
 <p>
@@ -2361,10 +2361,17 @@ The generated directory includes Unix and Windows launchers plus an exact SHA-25
 Install Sprout from a checkout or extracted release:
 </p>
 <pre><code class="language-sh">
+python3 -m pip install .
+sprout version
+
+# Or use the standalone source-release installer:
 python3 install.py
 python3 install.py --prefix /custom/prefix
 python3 install.py --force
 </code></pre>
+<p>
+For an isolated command installation, use <code>pipx install .</code>. After the <code>sprout-language</code> distribution is published on PyPI, users can install it with <code>pipx install sprout-language</code>.
+</p>
 <p>
 The installer copies the runtime and supporting files under the prefix and creates a <code>sprout</code> launcher under its <code>bin</code> directory. The equivalent CLI commands are:
 </p>

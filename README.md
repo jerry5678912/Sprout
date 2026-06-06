@@ -1,146 +1,142 @@
 # Sprout
 
-Sprout is a tiny programming language with a now-modular Python implementation. It is designed to feel readable, compact, friendly for experiments, and a little weird in a good way.
+[![CI](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml/badge.svg)](https://github.com/jerry5678912/Sprout/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](ROADMAP.md)
 
-Sprout aims for about **55% Python closeness**: familiar expressions, `def`, `for ... in`, dictionaries, lists, truthy values, dot methods, indentation blocks, and optional semicolons, while keeping its own garden-flavored words like `bloom`, `sprout`, `pluck`, `whirl`, `each`, and `say`.
+Sprout is an independent, general-purpose programming language with a stable
+tree-walk interpreter, an experimental bytecode VM, gradual typing, async I/O,
+project/package tooling, a language server, and a VS Code extension.
 
-Sprout can also call Python standard-library modules with `importpython`, including module functions, constants, classes, returned objects, fields, and methods. That makes it much more useful while the language grows.
+Its syntax is deliberately approachable:
 
-## Run It
+```sprout
+enum Result[T]:
+  Ok(value: T)
+  Error(message: String)
 
-Install Sprout from a source checkout or downloaded release:
+def squares(limit: Int) -> Generator[Int]:
+  for value in range(limit):
+    yield value * value
+
+match Result.Ok(squares(4).collect()):
+  case Result.Ok(values):
+    say "values:", values
+  case Result.Error(message):
+    say "error:", message
+```
+
+Sprout is implemented in Python 3.9+ but parses and executes its own syntax,
+maintains its own runtime model, emits Sprout bytecode, and provides Sprout
+diagnostics and stack traces. Python libraries are available through an
+explicit `importpython` bridge.
+
+> **Project status:** Sprout is alpha software. It is suitable for experiments,
+> learning, tools, small applications, and language development. APIs and
+> package formats may still evolve before 1.0.
+
+## Quick Start
+
+Clone and run without installing:
+
+```sh
+git clone https://github.com/jerry5678912/Sprout.git
+cd Sprout
+python3 sprout.py examples/advanced_features.sprout
+```
+
+Install the `sprout` command from a checkout:
+
+```sh
+python3 -m pip install .
+sprout version
+sprout examples/fibonacci.sprout
+```
+
+For an isolated command-line installation, use `pipx install .`. Once the
+`sprout-language` package is published to PyPI, the corresponding public
+command will be:
+
+```sh
+pipx install sprout-language
+```
+
+The source-release installer remains available:
 
 ```sh
 python3 install.py
 ~/.local/bin/sprout version
 ```
 
-If `~/.local/bin` is on `PATH`, the `sprout` command works from any folder. Use `--prefix PATH` for a custom installation and `--force` to replace an existing installation.
+## What Exists
 
-Without installing, run directly from the repository:
+- Language: functions, closures, classes, inheritance, exceptions, modules,
+  enums, guarded pattern matching, generators, comprehensions, and async syntax.
+- Types: gradual annotations, generics, interfaces, unions, aliases, narrowing,
+  imported types, and enum exhaustiveness diagnostics.
+- Runtime: stable interpreter plus an optional experimental bytecode VM,
+  debugger, profiler, disassembler, and benchmark tools.
+- Application APIs: files, JSON, HTTP, SQLite, tasks, queues, async streams,
+  engineering helpers, terminal graphics, Pygame, and Panda3D bridges.
+- Tooling: formatter, linter, tests, project templates, package management,
+  reproducible builds, standalone bundles, LSP, semantic highlighting, and
+  VS Code debugging.
+- Quality: conformance tests, interpreter/VM parity tests, fuzzing, security
+  regressions, smoke tests, and CI on Linux, macOS, and Windows.
+
+## Try It
 
 ```sh
-python3 sprout.py examples/fibonacci.sprout
+sprout examples/advanced_features.sprout
+sprout run examples/project
+sprout test tests/application_test.sprout
+sprout typecheck examples/typed_abstractions.sprout
+sprout run --vm examples/vm_expanded.sprout
+sprout bench examples/vm_expanded.sprout
 ```
 
-Try the no-brace block styles:
+Explore larger dogfood projects:
 
 ```sh
-python3 sprout.py examples/python_blocks.sprout
-python3 sprout.py examples/garden_blocks.sprout
-python3 sprout.py examples/seedfn.sprout
+sprout run examples/dogfood/cli_tool add docs:2 tests:3 release:5
+sprout run examples/dogfood/game2d
+sprout run examples/dogfood/math_utility
+sprout run examples/dogfood/python_interop
+sprout run examples/dogfood/package_app
 ```
 
-Full language manual:
-
-- [docs/MANUAL.md](docs/MANUAL.md)
-- [docs/manual.html](docs/manual.html)
-
-Try Python library access:
+Window-backed examples require optional host libraries:
 
 ```sh
-python3 sprout.py examples/pythonlibs.sprout
+python3 -m pip install pygame panda3d
+sprout examples/window2d_demo.sprout
+sprout examples/panda3d_window_demo.sprout
 ```
 
-Try the dogfood projects built with normal Sprout project structure:
+## Documentation
+
+- [Language manual](docs/MANUAL.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Ecosystem and package format](docs/ECOSYSTEM.md)
+- [Capability audit](docs/CAPABILITY_AUDIT.md)
+- [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), which
+documents the repository layout, test matrix, language-change checklist, and
+pull-request expectations. Bugs and feature proposals should use the GitHub
+issue templates. Security reports must follow [SECURITY.md](SECURITY.md).
+
+Useful first checks:
 
 ```sh
-python3 sprout.py run examples/dogfood/cli_tool add docs:2 tests:3 release:5
-python3 sprout.py run examples/dogfood/game2d
-python3 sprout.py run examples/dogfood/math_utility
-python3 sprout.py run examples/dogfood/python_interop
-python3 sprout.py run examples/dogfood/package_app
-```
-
-Try a tiny terminal game simulation:
-
-```sh
-python3 sprout.py examples/minigame.sprout
-```
-
-Try a multi-file adventure with a Sprout module, command-line args, and a map file:
-
-```sh
-python3 sprout.py examples/adventure.sprout Jerry
-```
-
-Try native classes for game objects:
-
-```sh
-python3 sprout.py examples/oopgame.sprout
-```
-
-Try an interactive terminal game:
-
-```sh
-python3 sprout.py examples/tictactoe.sprout
-```
-
-Try the expanded standard library:
-
-```sh
-python3 sprout.py examples/stdlib100.sprout
-```
-
-Try Sprout2D geometry and collision helpers:
-
-```sh
-python3 sprout.py examples/geom2d_demo.sprout
-python3 sprout.py examples/canvas2d_demo.sprout
-python3 sprout.py examples/pixelgarden_demo.sprout
-```
-
-Try the Sprout3D terminal renderer:
-
-```sh
-python3 sprout.py examples/engine3d_demo.sprout
-python3 sprout.py examples/engine3d_solid_demo.sprout
-python3 sprout.py examples/engine3d_obj_demo.sprout
-python3 sprout.py examples/engine3d_camera_demo.sprout
-python3 sprout.py examples/starbloom3d_demo.sprout
-```
-
-Try real window-backed wrappers after installing their Python libraries:
-
-```sh
-python3 -m pip install pygame
-python3 sprout.py examples/window2d_demo.sprout
-
-python3 -m pip install panda3d
-python3 sprout.py examples/panda3d_window_demo.sprout
-```
-
-Start the REPL:
-
-```sh
-python3 sprout.py
-```
-
-CLI tooling:
-
-```sh
-python3 sprout.py help
-python3 sprout.py run examples/fibonacci.sprout
-python3 sprout.py run examples/project
-python3 sprout.py check examples/tictactoe.sprout
-python3 sprout.py check examples/fibonacci.sprout --json
-python3 sprout.py lint examples/seedfn.sprout
-python3 sprout.py fmt examples/seedfn.sprout
-python3 sprout.py compile examples/vm_supported.sprout
-python3 sprout.py dis examples/vm_supported.sprout
-python3 sprout.py run --vm examples/vm_expanded.sprout
-python3 sprout.py bench examples/vm_expanded.sprout
-python3 sprout.py debug examples/vm_expanded.sprout --break 21
-python3 sprout.py profile examples/vm_expanded.sprout
-python3 sprout.py pkg init
-python3 sprout.py new cli my_tool
-python3 sprout.py doctor
-python3 sprout.py install
-python3 sprout.py language-package
-python3 sprout.py vscode-package
-python3 sprout.py stdlib
-python3 sprout.py examples
-python3 sprout.py version
+python3 tests/advanced_language.py
+python3 tests/typesystem.py
+python3 tests/lsp.py
+python3 sprout.py conformance
+tests/smoke.sh
 ```
 
 ## Project Tooling
@@ -391,7 +387,9 @@ failures. The scheduler also supports delayed tasks, futures, and queues through
 the original helper API. Sprout function execution is serialized through a
 runtime lock so shared interpreter state remains correct; this is structured
 concurrency, not CPU-parallel execution. The experimental VM reports an explicit
-fallback when it encounters structured async syntax.
+unsupported-feature diagnostic only for constructs it still cannot compile;
+structured async functions, `await`, task groups, streams, and async iteration
+execute directly in the VM.
 
 ## Conformance, Fuzzing, And Security
 

@@ -20,8 +20,10 @@ from sprout_core.distribution import (
     package_vscode_extension,
     uninstall_language,
     verify_release_versions,
+    write_launcher,
 )
 from sprout_core.model import SPROUT_VERSION
+from sprout_core.package import RELEASE_TEST_SCRIPTS
 
 
 def test_install_and_uninstall() -> None:
@@ -65,6 +67,7 @@ def test_release_archives() -> None:
         with zipfile.ZipFile(language) as archive:
             names = archive.namelist()
             assert f"sprout-{SPROUT_VERSION}/install.py" in names
+            assert f"sprout-{SPROUT_VERSION}/pyproject.toml" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/runtime.py" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/manifest.json" in names
             assert f"sprout-{SPROUT_VERSION}/sprout_core/conformance/typed.sprout" in names
@@ -90,10 +93,47 @@ def test_version_consistency() -> None:
     assert verify_release_versions() == []
 
 
+def test_python_package_metadata() -> None:
+    metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'version = "{SPROUT_VERSION}"' in metadata
+    assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
+    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout"]' in metadata
+    module = subprocess.run(
+        [sys.executable, "-m", "sprout_core", "version"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert module.stdout.strip() == f"Sprout {SPROUT_VERSION}"
+
+
+def test_portable_release_suite_is_complete() -> None:
+    assert "tests/advanced_language.py" in RELEASE_TEST_SCRIPTS
+    assert "tests/errors.py" in RELEASE_TEST_SCRIPTS
+    assert "tests/debug_adapter.py" in RELEASE_TEST_SCRIPTS
+    for script in RELEASE_TEST_SCRIPTS:
+        assert (ROOT / script).is_file(), script
+
+
+def test_windows_launcher_uses_installed_module() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        launcher = Path(tmp) / "sprout.cmd"
+        runtime = Path(tmp) / "runtime"
+        write_launcher(launcher, runtime, python_executable="python")
+        text = launcher.read_text(encoding="utf-8")
+        assert f"PYTHONPATH={runtime}" in text
+        assert '"python" -m sprout_core %*' in text
+        assert "sprout.py" not in text
+
+
 def main() -> int:
     test_install_and_uninstall()
     test_release_archives()
     test_version_consistency()
+    test_python_package_metadata()
+    test_portable_release_suite_is_complete()
+    test_windows_launcher_uses_installed_module()
     print("sprout distribution tests passed")
     return 0
 

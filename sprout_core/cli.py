@@ -384,7 +384,11 @@ def main(argv: list[str]) -> int:
                 for name in names:
                     print(name)
         elif argv[1] == "examples":
-            for path in example_files():
+            paths = example_files()
+            if not paths:
+                print("No examples are bundled in this installation.")
+                print("Browse examples at https://github.com/jerry5678912/Sprout/tree/main/examples")
+            for path in paths:
                 print(path)
         elif len(argv) >= 2:
             run_file(argv[1], argv[2:])
@@ -415,6 +419,11 @@ def main(argv: list[str]) -> int:
             raise
         print(format_error(native_runtime_error("Sprout command", exc)), file=sys.stderr)
         return 1
+
+
+def entrypoint() -> int:
+    """Console-script entry point used by Python package installers."""
+    return main(sys.argv)
 
 
 def option_value(argv: list[str], name: str) -> str | None:

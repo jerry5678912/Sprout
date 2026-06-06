@@ -13,6 +13,27 @@ from .distribution import verify_release_versions
 from .tooling import check_file, example_files, load_project, parse_simple_toml
 
 
+RELEASE_TEST_SCRIPTS = [
+    "tests/tooling.py",
+    "tests/intellisense.py",
+    "tests/vm.py",
+    "tests/package.py",
+    "tests/dogfood.py",
+    "tests/application.py",
+    "tests/ecosystem.py",
+    "tests/standalone.py",
+    "tests/async_language.py",
+    "tests/advanced_language.py",
+    "tests/quality.py",
+    "tests/security.py",
+    "tests/typesystem.py",
+    "tests/distribution.py",
+    "tests/lsp.py",
+    "tests/errors.py",
+    "tests/debug_adapter.py",
+]
+
+
 def write_text(path: str, text: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -212,9 +233,28 @@ def doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     checks.append(("python >= 3.9", sys.version_info >= (3, 9), platform.python_version()))
+    if not os.path.isfile(os.path.join(root, "sprout.py")):
+        runtime_files = [
+            "sprout_core/__init__.py",
+            "sprout_core/cli.py",
+            "sprout_core/runtime.py",
+            "sprout_core/parser.py",
+            "sprout_core/conformance/manifest.json",
+        ]
+        for path in runtime_files:
+            full = os.path.join(root, path)
+            checks.append((path, os.path.isfile(full), full))
+        checks.append(("runtime version", bool(SPROUT_VERSION), SPROUT_VERSION))
+        ok = True
+        print("doctor mode installed-runtime")
+        for name, passed, detail in checks:
+            ok = ok and passed
+            print(f"{'ok' if passed else 'fail'} {name} {detail}")
+        return 0 if ok else 1
     for path in [
         "sprout.py",
         "install.py",
+        "pyproject.toml",
         "README.md",
         "docs/MANUAL.md",
         "editor/vscode-sprout/package.json",
@@ -235,6 +275,10 @@ def doctor() -> int:
         "docs/CAPABILITY_AUDIT.md",
         ".github/workflows/ci.yml",
         ".github/workflows/release.yml",
+        ".github/workflows/publish-pypi.yml",
+        ".github/ISSUE_TEMPLATE/config.yml",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+        "docs/ARCHITECTURE.md",
         "examples/modules/engineering.sprout",
         "examples/modules/appgame.sprout",
         "examples/typed_abstractions.sprout",
@@ -253,16 +297,38 @@ def doctor() -> int:
 
 def release_check() -> int:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not os.path.isfile(os.path.join(root, "sprout.py")):
+        raise SproutError("release-check requires a Sprout source checkout")
     status = doctor()
     examples_ok = True
     for rel in example_files():
         if check_file(os.path.join(root, rel)) != 0:
             examples_ok = False
-    smoke = subprocess.run(["sh", "tests/smoke.sh"], cwd=root)
+    shell = shutil.which("sh")
+    if shell:
+        tests_ok = subprocess.run([shell, "tests/smoke.sh"], cwd=root).returncode == 0
+    else:
+        tests_ok = True
+        print("release-check: no POSIX shell; running portable structured tests")
+        for script in RELEASE_TEST_SCRIPTS:
+            result = subprocess.run([sys.executable, script], cwd=root)
+            if result.returncode != 0:
+                tests_ok = False
+                break
+        if tests_ok:
+            tests_ok = subprocess.run(
+                [sys.executable, "sprout.py", "conformance"],
+                cwd=root,
+            ).returncode == 0
+        if tests_ok:
+            tests_ok = subprocess.run(
+                [sys.executable, "tools/check_editor_coverage.py"],
+                cwd=root,
+            ).returncode == 0
     version_errors = verify_release_versions()
     for error in version_errors:
         print(f"fail version {error}")
-    ok = status == 0 and examples_ok and smoke.returncode == 0 and not version_errors
+    ok = status == 0 and examples_ok and tests_ok and not version_errors
     print("release-check:", "ok" if ok else "failed")
     return 0 if ok else 1
 
