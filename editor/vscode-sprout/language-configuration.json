@@ -31,6 +31,12 @@
       "action": {
         "indent": "outdent"
       }
+    },
+    {
+      "beforeText": "^\\s*(break|continue|return|pluck|raise)\\b.*$",
+      "action": {
+        "indent": "outdent"
+      }
     }
   ],
   "indentationRules": {
