@@ -220,10 +220,8 @@ def extension_metadata(extension_root: Path) -> dict[str, Any]:
         data = json.loads(package_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SproutError(f"Could not read VS Code extension metadata: {exc}") from exc
-    if data.get("version") != SPROUT_VERSION:
-        raise SproutError(
-            f"VS Code extension version {data.get('version')} does not match Sprout {SPROUT_VERSION}"
-        )
+    if not data.get("version"):
+        raise SproutError("VS Code extension metadata is missing a version")
     return data
 
 
@@ -267,7 +265,7 @@ def package_vscode_extension(output_dir: str | os.PathLike[str] | None = None) -
     extension_root = root / "editor" / "vscode-sprout"
     metadata = extension_metadata(extension_root)
     destination = Path(output_dir).resolve() if output_dir else root / "dist"
-    output = destination / f"{metadata['name']}-{SPROUT_VERSION}.vsix"
+    output = destination / f"{metadata['name']}-{metadata['version']}.vsix"
     generated_dir = destination / ".vscode-package"
     generated_dir.mkdir(parents=True, exist_ok=True)
     content_types = generated_dir / "[Content_Types].xml"

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sprout_core.distribution import (
+    extension_metadata,
     install_language,
     package_language,
     package_vscode_extension,
@@ -74,6 +75,7 @@ def test_release_archives() -> None:
         output = Path(tmp)
         language = Path(package_language(output))
         extension = Path(package_vscode_extension(output))
+        extension_version = extension_metadata(ROOT / "editor" / "vscode-sprout")["version"]
         assert language.exists()
         assert extension.exists()
         with zipfile.ZipFile(language) as archive:
@@ -101,7 +103,8 @@ def test_release_archives() -> None:
             assert "extension/lsp-client.js" in names
             assert "extension/test-controller.js" in names
             package = json.loads(archive.read("extension/package.json"))
-            assert package["version"] == SPROUT_VERSION
+            assert extension.name == f"sprout-language-{extension_version}.vsix"
+            assert package["version"] == extension_version
             assert package["publisher"] == "jerry5678912"
             commands = {entry["command"] for entry in package["contributes"]["commands"]}
             assert {"sprout.selectInterpreter", "sprout.runCurrentFile"}.issubset(commands)
