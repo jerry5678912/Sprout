@@ -41,10 +41,12 @@ class Parser:
             return ("type_alias", name.value, type_params, annotation, name.line, name.col)
         if self.match("IMPORTPYTHON"):
             if self.match("STRING"):
-                module_name = self.previous().value
+                token = self.previous()
+                module_name = token.value
                 parts = module_name.split(".")
             else:
-                parts = [self.consume("IDENT", "Expected Python module name after importpython").value]
+                token = self.consume("IDENT", "Expected Python module name after importpython")
+                parts = [token.value]
                 while self.match("."):
                     parts.append(self.consume("IDENT", "Expected module path after '.'").value)
                 module_name = ".".join(parts)
@@ -52,13 +54,15 @@ class Parser:
             if self.match("AS"):
                 alias = self.consume("IDENT", "Expected alias after as").value
             self.terminator("Expected a line ending after importpython")
-            return ("importpython", module_name, alias)
+            return ("importpython", module_name, alias, token.line, token.col)
         if self.match("IMPORT"):
             if self.match("STRING"):
-                path = self.previous().value
+                token = self.previous()
+                path = token.value
                 alias = os.path.splitext(os.path.basename(path))[0].replace("-", "_")
             else:
-                parts = [self.consume("IDENT", "Expected a module name or quoted path after import").value]
+                token = self.consume("IDENT", "Expected a module name or quoted path after import")
+                parts = [token.value]
                 while self.match("."):
                     parts.append(self.consume("IDENT", "Expected module name after '.'").value)
                 path = os.path.join(*parts)
@@ -66,7 +70,7 @@ class Parser:
             if self.match("AS"):
                 alias = self.consume("IDENT", "Expected alias after as").value
             self.terminator("Expected a line ending after import")
-            return ("import", path, alias)
+            return ("import", path, alias, token.line, token.col)
         if self.match("TEST"):
             token = self.previous()
             name = self.consume("STRING", "Expected test name string after test")

@@ -80,7 +80,9 @@ python3 -m json.tool editor/vscode-sprout/package.json >/tmp/sprout_vscode_packa
 python3 -m json.tool editor/vscode-sprout/snippets/sprout.code-snippets >/tmp/sprout_vscode_snippets.out
 python3 -m json.tool editor/vscode-sprout/syntaxes/sprout.tmLanguage.json >/tmp/sprout_vscode_syntax.out
 python3 tools/check_editor_coverage.py >/tmp/sprout_editor_coverage.out
+python3 tools/check_vscode_editor_behavior.py >/tmp/sprout_vscode_editor_behavior.out
 node --check editor/vscode-sprout/extension.js >/tmp/sprout_vscode_extension.out
+node --check editor/vscode-sprout/lsp-client.js >/tmp/sprout_vscode_lsp_client.out
 PYTHONPYCACHEPREFIX=/tmp/sprout-pycache python3 -m py_compile sprout.py sprout_core/*.py tools/*.py tests/*.py >/tmp/sprout_compile.out
 python3 tests/tooling.py >/tmp/sprout_tooling_tests.out
 python3 tests/intellisense.py >/tmp/sprout_intellisense_tests.out
@@ -259,12 +261,13 @@ grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out
 grep -q "^py_available$" /tmp/sprout_stdlib_cmd.out
 grep -q "examples/tictactoe.sprout" /tmp/sprout_examples_cmd.out
-grep -q "Sprout 0.3.3" /tmp/sprout_version.out
+grep -q "Sprout 0.3.8" /tmp/sprout_version.out
 grep -q "ok python >= 3.9" /tmp/sprout_doctor.out
 grep -q "\\[0, 1, 1, 2, 3, 5, 8, 13\\]" /tmp/sprout_repl.out
 grep -q '"snippets"' /tmp/sprout_vscode_package.out
 grep -q '"sprout.diagnostics.enabled"' /tmp/sprout_vscode_package.out
 grep -q "editor coverage ok" /tmp/sprout_editor_coverage.out
+grep -q "sprout vscode editor behavior check passed" /tmp/sprout_vscode_editor_behavior.out
 grep -q "sprout tooling tests passed" /tmp/sprout_tooling_tests.out
 grep -q "sprout intellisense tests passed" /tmp/sprout_intellisense_tests.out
 grep -q "sprout vm tests passed" /tmp/sprout_vm_tests.out

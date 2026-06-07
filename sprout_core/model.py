@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 
-SPROUT_VERSION = "0.3.3"
+SPROUT_VERSION = "0.3.4"
 
 
 def standard_library_paths() -> list[str]:
@@ -107,6 +107,8 @@ class Diagnostic:
     line: int | None = None
     col: int | None = None
     code: str | None = None
+    tags: list[str] | None = None
+    data: dict[str, Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -116,6 +118,8 @@ class Diagnostic:
             "line": self.line,
             "col": self.col,
             "code": self.code,
+            "tags": self.tags or [],
+            "data": self.data or {},
         }
 
 

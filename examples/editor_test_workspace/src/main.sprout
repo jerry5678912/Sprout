@@ -1,0 +1,9 @@
+import "player.sprout" as player_mod
+import "math_tools.sprout" as math_tools
+
+score = math_tools.add(2, 3)
+player = player_mod.spawn("Mina")
+
+say player.name
+say player.greet()
+say score

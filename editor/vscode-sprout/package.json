@@ -9,7 +9,11 @@
     "onLanguage:sprout",
     "onDebug:sprout",
     "onCommand:sprout.selectInterpreter",
-    "onCommand:sprout.runCurrentFile"
+    "onCommand:sprout.runCurrentFile",
+    "onCommand:sprout.showLanguageServerOutput",
+    "onCommand:sprout.restartLanguageServer",
+    "onCommand:sprout.showAnalysisStatus",
+    "onCommand:sprout.rebuildWorkspaceIndex"
   ],
   "engines": {
     "vscode": "^1.80.0"
@@ -30,6 +34,30 @@
         "title": "Run Current File",
         "category": "Sprout",
         "icon": "$(play)"
+      },
+      {
+        "command": "sprout.showLanguageServerOutput",
+        "title": "Show Language Server Output",
+        "category": "Sprout",
+        "icon": "$(output)"
+      },
+      {
+        "command": "sprout.restartLanguageServer",
+        "title": "Restart Language Server",
+        "category": "Sprout",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "sprout.showAnalysisStatus",
+        "title": "Show Analysis Status",
+        "category": "Sprout",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "sprout.rebuildWorkspaceIndex",
+        "title": "Rebuild Workspace Index",
+        "category": "Sprout",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -159,7 +187,10 @@
         ],
         "configurationDefaults": {
             "[sprout]": {
-                "editor.semanticHighlighting.enabled": true
+                "editor.semanticHighlighting.enabled": true,
+                "editor.wordBasedSuggestions": "off",
+                "editor.suggest.showWords": false,
+                "editor.snippetSuggestions": "none"
             },
             "editor.semanticTokenColorCustomizations": {
                 "rules": {
@@ -185,6 +216,91 @@
           "type": "boolean",
           "default": true,
           "description": "Show yellow Sprout style warnings for indentation issues and Python-style constants."
+        },
+        "sprout.diagnostics.visibleSquiggles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show diagnostics as visible squiggle underlines in editors."
+        },
+        "sprout.diagnostics.typoChecking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suggest corrections for mistyped Sprout keywords, built-ins, imports, and project symbols."
+        },
+        "sprout.analysis.typeCheckingMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "basic",
+            "standard",
+            "strict"
+          ],
+          "default": "basic",
+          "enumDescriptions": [
+            "Report syntax and import errors only.",
+            "Report practical semantic and type errors without requiring annotations.",
+            "Report broader semantic and type errors with stronger project-wide checking.",
+            "Enable the strongest checks, including missing annotations and stricter unknown-name/member errors."
+          ],
+          "description": "Controls Sprout semantic and type-checking diagnostics."
+        },
+        "sprout.analysis.diagnosticMode": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "openFilesOnly"
+          ],
+          "default": "workspace",
+          "description": "Choose whether Sprout analyzes the whole workspace graph or focuses on currently open files."
+        },
+        "sprout.analysis.indexing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable dependency-aware workspace indexing for Sprout IntelliSense."
+        },
+        "sprout.analysis.userFileIndexingLimit": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 1,
+          "description": "Maximum number of user Sprout files to index before the server throttles scanning."
+        },
+        "sprout.analysis.useLibraryCodeForTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Sprout library source when inferring types and symbols."
+        },
+        "sprout.analysis.exclude": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns excluded from Sprout workspace indexing."
+        },
+        "sprout.analysis.languageServerMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "light",
+            "off"
+          ],
+          "default": "default",
+          "description": "Tune Sprout language-server workload for full, lighter, or minimal analysis behavior."
+        },
+        "sprout.analysis.diagnosticSeverityOverrides": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "none",
+              "hint",
+              "information",
+              "warning",
+              "error"
+            ]
+          },
+          "description": "Override a Sprout diagnostic code, for example { \"SPROUT_UNUSED_IMPORT\": \"information\" }."
         },
         "sprout.pythonPath": {
           "type": "string",

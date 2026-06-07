@@ -47,11 +47,125 @@ def test_fmt_safe_output() -> None:
     assert result.stdout.endswith("\n")
 
 
+def test_check_json_import_and_unused_diagnostics() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("import totally_missing_module as m\n")
+        bad_import = fh.name
+    result = run("check", bad_import, "--json", "--warnings", check=False)
+    payload = json.loads(result.stdout)
+    codes = {item["code"] for item in payload["diagnostics"]}
+    assert "SPROUT_IMPORT" in codes
+    assert "SPROUT_UNUSED_IMPORT" not in codes
+    import_diag = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_IMPORT")
+    assert import_diag["line"] == 1
+    assert import_diag["col"] == 8
+
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("import pixelgarden as pix\n")
+        unused_import = fh.name
+    result = run("check", unused_import, "--json", "--warnings")
+    payload = json.loads(result.stdout)
+    unused = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_UNUSED_IMPORT")
+    assert unused["severity"] == "hint"
+    assert unused["line"] == 1
+    assert unused["col"] == 23
+
+
+def test_import_context_completion_suggests_modules() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("import pixel\n")
+        path = fh.name
+    result = run(
+        "intel",
+        path,
+        "--kind",
+        "completions",
+        "--line",
+        "1",
+        "--col",
+        "13",
+        "--source",
+        path,
+    )
+    payload = json.loads(result.stdout)
+    labels = {item["name"] for item in payload["items"]}
+    assert "pixelgarden" in labels
+
+
+def test_import_context_completion_does_not_fall_back_to_keywords() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("import ef\n")
+        path = fh.name
+    result = run(
+        "intel",
+        path,
+        "--kind",
+        "completions",
+        "--line",
+        "1",
+        "--col",
+        "10",
+        "--source",
+        path,
+    )
+    payload = json.loads(result.stdout)
+    labels = {item["name"] for item in payload["items"]}
+    assert "elif" not in labels
+    assert labels == set()
+
+
+def test_check_warnings_include_semantic_keyword_typos() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("impo\n")
+        path = fh.name
+    result = run("check", path, "--json", "--warnings")
+    payload = json.loads(result.stdout)
+    diagnostic = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_UNKNOWN_NAME")
+    assert diagnostic["line"] == 1
+    assert diagnostic["col"] == 1
+    assert "Did you mean 'import'?" in diagnostic["message"]
+
+
+def test_analysis_status_and_rebuild_index_commands() -> None:
+    result = run("analysis-status", "examples/editor_test_workspace", "--json")
+    payload = json.loads(result.stdout)
+    assert payload["fileCount"] >= 1
+    assert payload["analysisCount"] >= 1
+    assert "lastBuildReason" in payload
+    assert "cacheHitRate" in payload
+    assert payload["lastBuildDurationMs"] >= 0
+    assert "effectiveSettings" in payload
+
+    rebuilt = run("rebuild-index", "examples/editor_test_workspace", "--json")
+    rebuilt_payload = json.loads(rebuilt.stdout)
+    assert rebuilt_payload["lastBuildReason"] == "manual-rebuild"
+    assert rebuilt_payload["lastReindexedFiles"]
+    assert rebuilt_payload["lastReindexedDurationMs"] >= 0
+
+
+def test_vscode_editor_behavior_script() -> None:
+    result = subprocess.run(
+        ["python3", str(ROOT / "tools" / "check_vscode_editor_behavior.py")],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "sprout vscode editor behavior check passed" in result.stdout
+
+
 def main() -> int:
     test_check_json_ok()
     test_check_json_error()
     test_project_run()
     test_fmt_safe_output()
+    test_check_json_import_and_unused_diagnostics()
+    test_import_context_completion_suggests_modules()
+    test_import_context_completion_does_not_fall_back_to_keywords()
+    test_check_warnings_include_semantic_keyword_typos()
+    test_analysis_status_and_rebuild_index_commands()
+    test_vscode_editor_behavior_script()
     print("sprout tooling tests passed")
     return 0
 

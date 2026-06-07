@@ -1,6 +1,6 @@
 # The Sprout Programming Language Manual
 
-Version: 0.3.3
+Version: 0.3.4
 Implementation: modular Python tree-walk interpreter in `sprout_core/`, launched by `sprout.py`  
 File extension: `.sprout`
 
@@ -1867,6 +1867,21 @@ Semantic names are bound through lexical scopes rather than text matching alone.
 The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 
+VS Code diagnostics have three analysis modes:
+
+- `off`: syntax and import errors only
+- `basic`: practical semantic and type checks without requiring annotations
+- `strict`: basic checks plus missing parameter/return annotations and stricter unknown-name/member errors
+
+Set the mode with `sprout.analysis.typeCheckingMode`. Individual rules can be
+changed with `sprout.analysis.diagnosticSeverityOverrides`, using `none`,
+`hint`, `information`, `warning`, or `error`. Unused imports, parameters, and
+variables are tagged as unnecessary so supporting VS Code themes can fade them.
+The checker reports syntax, imports, unknown names and members, call argument
+counts and names, assignment and return types, generics, interfaces, enum
+patterns, async/generator mistakes, unreachable code, shadowing, and style
+warnings where the analyzer has enough information.
+
 Editor-style JSON queries are available through `intel`:
 
 ```sh
@@ -2037,8 +2052,13 @@ It provides:
 - static fallback completions for the full current keyword set, all built-ins, dot methods, bundled Sprout modules, Sprout2D APIs, Sprout3D APIs, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D
 - hover help with symbol type, signature, `##` documentation, and source location
 - go-to definition, find references, rename symbol, and signature help foundations
-- red syntax diagnostics powered by `sprout.py check`
-- yellow style warnings for tabs and Python-style constants like `True` / `False` / `None`
+- red syntax, import, semantic, and type diagnostics
+- yellow warnings for unused symbols, unknown names/members in basic mode, and style issues
+- `off`, `basic`, `standard`, and `strict` type-checking modes with per-rule severity overrides
+- **Sprout: Show Language Server Output** for server startup, interpreter,
+  document sync, diagnostics, request, crash, and fallback logs
+- **Sprout: Restart Language Server** to restart editor services without
+  reloading VS Code
 
 Build and install the self-contained VSIX:
 
@@ -2048,6 +2068,40 @@ code --install-extension dist/sprout-language-0.3.3.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
+
+Sprout uses VS Code's native diagnostic rendering for red errors, yellow
+warnings, Problems panel entries, and faded unnecessary symbols. It does not
+draw a custom second squiggle layer. If diagnostics look wrong, run
+**Sprout: Show Language Server Output** first to check whether the language
+server is running or whether fallback mode is active.
+
+Current editor support is intentionally described as a working foundation, not
+Pylance/Pyright-grade analysis. The verified path covers syntax diagnostics,
+blank-document diagnostic clearing, typo quick fixes, symbol and member
+completions, hover, go to definition, references, rename, signature help,
+run-button support, interpreter detection, debugging, and Testing view
+integration. Type inference and unknown-member checks are practical and
+conservative rather than complete.
+
+Recent cross-surface integrations now reuse the same semantic engine for
+generated API docs, debugger frame labels and local-scope naming, and VS Code
+test metadata/tooltips from `##` doc comments.
+
+The repeatable editor behavior check is:
+
+```sh
+python3 tools/check_vscode_editor_behavior.py
+```
+
+It verifies diagnostics, quick fixes, member completions, hover, imported-module
+definitions, references, rename, signature help, and analysis-status payloads
+against the editor test workspace.
+
+The manual workspace is:
+
+```sh
+code examples/editor_test_workspace
+```
 
 For extension development:
 
@@ -2079,7 +2133,7 @@ Completion examples:
 - Type `player.` after `player = Player("Mina")` to complete fields and methods found from the `Player` class.
 - Hover names like `clamp`, `spawn`, `Player`, or `render_solid` for signature and documentation help.
 - Use VS Code's Go to Definition, Find References, Rename Symbol, and signature help commands for Sprout symbols when `sprout.py` is available.
-- Syntax errors appear as red VS Code diagnostics. Style warnings appear as yellow diagnostics. Set `sprout.runnerPath` if the extension cannot find `sprout.py`, `sprout.pythonPath` if your Python executable is not `python3`, `sprout.diagnostics.enabled` to `false` to disable checking, or `sprout.diagnostics.styleWarnings` to `false` to hide yellow warnings.
+- Errors appear as red VS Code diagnostics and warnings appear in yellow. Set `sprout.analysis.typeCheckingMode` to `off`, `basic`, `standard`, or `strict`, and use `sprout.analysis.diagnosticSeverityOverrides` for individual rules. Set `sprout.runnerPath` if the extension cannot find `sprout.py`, `sprout.pythonPath` if your Python executable is not `python3`, `sprout.diagnostics.enabled` to `false` to disable checking, or `sprout.diagnostics.styleWarnings` to `false` to hide style warnings.
 
 ## 29. Dogfooding Real Projects
 
@@ -2300,6 +2354,9 @@ python3 sprout.py docs . --html
 ```
 
 Output is written to `docs/API.md` and optionally `docs/API.html`.
+The generator uses the same semantic workspace analysis as Sprout's CLI and editor
+tooling, so signatures, class constructors, member docs, and source locations stay
+consistent across surfaces.
 
 Standard-library groups can be inspected with:
 
@@ -2437,7 +2494,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.3` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.4` must match the runtime version before the release workflow publishes artifacts.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 

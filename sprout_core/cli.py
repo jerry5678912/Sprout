@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from typing import Any
 
+from .analysis import build_workspace_index
 from .bytecode import BytecodeUnsupported, benchmark_file, compile_file as compile_bytecode_file, debug_file, disassemble, profile_file, run_file_vm
 from .lexer import Lexer
 from .model import SPROUT_VERSION, SproutError, SproutRaised
@@ -216,6 +218,45 @@ def main(argv: list[str]) -> int:
         elif argv[1] == "typecheck":
             target = positional_value(argv[2:], ".")
             return typecheck_path(target, json_mode="--json" in argv[2:])
+        elif argv[1] == "analysis-status":
+            target = positional_value(argv[2:], ".")
+            index = build_workspace_index(target)
+            status = index.status().to_json()
+            status["effectiveSettings"] = index.options.to_json()
+            if "--json" in argv[2:]:
+                print(json.dumps(status, indent=2))
+            else:
+                print(f"root: {status['root']}")
+                print(f"files: {status['fileCount']}")
+                print(f"dependency edges: {status['dependencyEdges']}")
+                print(f"analysis count: {status['analysisCount']}")
+                print(
+                    f"cache: hits={status['cacheHits']} misses={status['cacheMisses']} "
+                    f"hit-rate={status['cacheHitRate']:.2%}"
+                )
+                print(f"last build: {status['lastBuildReason']} -> {status['lastBuildTarget']}")
+                print(
+                    f"timing: build={status['lastBuildDurationMs']:.3f}ms "
+                    f"reindexed={status['lastReindexedDurationMs']:.3f}ms "
+                    f"refresh={status['lastRefreshImportsMs']:.3f}ms"
+                )
+                print(
+                    "effective: "
+                    f"diagnostic={status.get('effectiveSettings', {}).get('diagnosticMode', 'workspace')} "
+                    f"indexing={'on' if status.get('effectiveSettings', {}).get('indexing', True) else 'off'} "
+                    f"server={status.get('effectiveSettings', {}).get('languageServerMode', 'default')}"
+                )
+                print(f"last changed: {', '.join(status['lastChangedPaths']) or '(none)'}")
+                print(f"last reindexed: {', '.join(status['lastReindexedFiles']) or '(none)'}")
+        elif argv[1] == "rebuild-index":
+            target = positional_value(argv[2:], ".")
+            index = build_workspace_index(target, previous=None, reason="manual-rebuild")
+            status = index.status().to_json()
+            status["effectiveSettings"] = index.options.to_json()
+            if "--json" in argv[2:]:
+                print(json.dumps(status, indent=2))
+            else:
+                print(f"reindexed {len(status['lastReindexedFiles'])} files for {status['root']}")
         elif argv[1] == "docs":
             if any(value in {"--help", "-h"} for value in argv[2:]):
                 print(

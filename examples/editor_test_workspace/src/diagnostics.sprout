@@ -1,0 +1,7 @@
+import "player.sprout" as player_mod
+import pixelgarden as pix
+
+player = player_mod.spawn("Mina")
+say pix.vec22(1, 2)
+say unknown_name
+impo

@@ -52,7 +52,7 @@ def wait_for_event(adapter, name: str, start: int = 0, timeout: float = 2.0) -> 
 def test_breakpoint_stack_variables_and_continue() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         program = Path(tmp) / "main.sprout"
-        program.write_text("score = 1\nscore = score + 2\nsay score\n", encoding="utf-8")
+        program.write_text("def add(score):\n  score = score + 2\n  say score\n\nadd(1)\n", encoding="utf-8")
         adapter = DAP.SproutDebugAdapter(reader=io.BytesIO(), writer=io.BytesIO())
 
         initialized = request(adapter, 1, "initialize")
@@ -75,13 +75,16 @@ def test_breakpoint_stack_variables_and_continue() -> None:
 
         stack = request(adapter, 5, "stackTrace", {"threadId": 1})
         assert stack["body"]["stackFrames"][0]["line"] == 2
+        assert stack["body"]["stackFrames"][0]["name"] == "add(score)"
         frame_id = stack["body"]["stackFrames"][0]["id"]
 
         scopes = request(adapter, 6, "scopes", {"frameId": frame_id})
+        assert scopes["body"]["scopes"][0]["name"] == "Locals - add(score)"
         locals_ref = scopes["body"]["scopes"][0]["variablesReference"]
         variables = request(adapter, 7, "variables", {"variablesReference": locals_ref})
         score = next(item for item in variables["body"]["variables"] if item["name"] == "score")
         assert score["value"] == "1"
+        assert score["evaluateName"] == "score"
 
         evaluated = request(adapter, 8, "evaluate", {"frameId": frame_id, "expression": "score"})
         assert evaluated["body"]["result"] == "1"
@@ -145,6 +148,42 @@ def test_conditional_hit_breakpoint_and_expression_evaluation() -> None:
         wait_for_event(adapter, "terminated")
 
 
+def test_instance_fields_omit_bare_evaluate_name() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        program = Path(tmp) / "main.sprout"
+        program.write_text(
+            "class Player:\n"
+            "  def init(self, name):\n"
+            "    self.name = name\n\n"
+            "  def show(self):\n"
+            "    say self.name\n\n"
+            'player = Player("Mina")\n'
+            "player.show()\n",
+            encoding="utf-8",
+        )
+        adapter = DAP.SproutDebugAdapter(reader=io.BytesIO(), writer=io.BytesIO())
+        request(adapter, 1, "initialize")
+        request(adapter, 2, "launch", {"program": str(program)})
+        request(adapter, 3, "setBreakpoints", {
+            "source": {"path": str(program)},
+            "breakpoints": [{"line": 6}],
+        })
+        before_start = len(decode_messages(adapter.writer.getvalue()))
+        request(adapter, 4, "configurationDone")
+        wait_for_event(adapter, "stopped", before_start)
+        stack = request(adapter, 5, "stackTrace", {"threadId": 1})
+        frame_id = stack["body"]["stackFrames"][0]["id"]
+        scopes = request(adapter, 6, "scopes", {"frameId": frame_id})
+        locals_ref = scopes["body"]["scopes"][0]["variablesReference"]
+        variables = request(adapter, 7, "variables", {"variablesReference": locals_ref})
+        self_var = next(item for item in variables["body"]["variables"] if item["name"] == "self")
+        self_fields = request(adapter, 8, "variables", {"variablesReference": self_var["variablesReference"]})
+        name_field = next(item for item in self_fields["body"]["variables"] if item["name"] == "name")
+        assert "evaluateName" not in name_field
+        request(adapter, 9, "continue", {"threadId": 1})
+        wait_for_event(adapter, "terminated")
+
+
 def test_uncaught_exception_breakpoint() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         program = Path(tmp) / "main.sprout"
@@ -168,6 +207,7 @@ def main() -> int:
     test_breakpoint_stack_variables_and_continue()
     test_stop_on_entry_and_step()
     test_conditional_hit_breakpoint_and_expression_evaluation()
+    test_instance_fields_omit_bare_evaluate_name()
     test_uncaught_exception_breakpoint()
     print("sprout debug adapter tests passed")
     return 0

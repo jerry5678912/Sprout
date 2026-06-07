@@ -18,6 +18,15 @@ function testId(test) {
   return `${test.path}:${test.line}:${test.name}`;
 }
 
+function markdownTooltip(vscode, test) {
+  if (!test.docs) return undefined;
+  const markdown = new vscode.MarkdownString();
+  markdown.appendMarkdown(`${test.docs}\n\n`);
+  markdown.appendCodeblock(`${path.basename(test.path)}:${test.line}`, "text");
+  markdown.isTrusted = false;
+  return markdown;
+}
+
 async function createSproutTestController(vscode, context, runner, python) {
   if (!runner || !vscode.tests?.createTestController) return undefined;
   const controller = vscode.tests.createTestController("sproutTests", "Sprout Tests");
@@ -59,6 +68,7 @@ async function createSproutTestController(vscode, context, runner, python) {
       Math.max(1, Number(test.column || 1))
     );
     item.description = `${path.basename(test.path)}:${test.line}`;
+    item.tooltip = markdownTooltip(vscode, test);
     testsById.set(id, { item, test });
   }
 

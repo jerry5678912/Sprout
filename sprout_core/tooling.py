@@ -12,9 +12,78 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None
 
 from .lexer import Lexer
-from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS, resolve_module_file
+from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS, resolve_module_file, standard_library_paths
 from .parser import Parser
 from .runtime import Interpreter, attach_error_source, format_value, native_runtime_error
+
+IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
+IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
+
+
+def _levenshtein_distance(left: str, right: str) -> int:
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_char in enumerate(right, start=1):
+            current.append(
+                min(
+                    previous[right_index] + 1,
+                    current[right_index - 1] + 1,
+                    previous[right_index - 1] + (left_char != right_char),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def _best_name_suggestion(name: str, choices: set[str]) -> str | None:
+    if len(name) < 3:
+        return None
+    pool = sorted(choice for choice in choices if choice and choice != name)
+    prefixes = [choice for choice in pool if choice.startswith(name)]
+    if len(prefixes) == 1:
+        return prefixes[0]
+    matches = [
+        choice for choice in pool
+        if abs(len(choice) - len(name)) <= 2 and _levenshtein_distance(name, choice) <= 2
+    ]
+    return sorted(matches, key=lambda choice: (_levenshtein_distance(name, choice), len(choice), choice))[0] if matches else None
+
+
+def _module_names_from_root(root: str, recursive: bool = True) -> set[str]:
+    names: set[str] = set()
+    if not root or not os.path.isdir(root):
+        return names
+    if recursive:
+        walker = os.walk(root)
+        for current, _dirs, files in walker:
+            for filename in files:
+                if not filename.endswith(".sprout"):
+                    continue
+                full = os.path.join(current, filename)
+                relative = os.path.relpath(full, root)
+                without_ext = os.path.splitext(relative)[0]
+                names.add(without_ext.replace(os.sep, "."))
+                names.add(os.path.basename(without_ext))
+    else:
+        for filename in os.listdir(root):
+            if not filename.endswith(".sprout"):
+                continue
+            without_ext = os.path.splitext(filename)[0]
+            names.add(without_ext)
+    return names
+
+
+def available_module_names(path: str | None, project: SproutProject | None = None) -> set[str]:
+    base = os.path.dirname(path) if path else os.getcwd()
+    names: set[str] = set()
+    names.update(_module_names_from_root(base, recursive=bool(project)))
+    for root in module_search_paths_for(path, project):
+        names.update(_module_names_from_root(root, recursive=True))
+    for root in standard_library_paths():
+        names.update(_module_names_from_root(root, recursive=True))
+    return names
+
 
 def parse_error_location(message: str) -> tuple[str, int | None, int | None]:
     marker = " at "
@@ -199,7 +268,7 @@ def parse_source(source: str) -> list[Any]:
 
 def read_source_file(path: str) -> tuple[str, str]:
     resolved = os.path.realpath(os.path.abspath(path))
-    with open(resolved, "r", encoding="utf-8") as fh:
+    with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
         return fh.read(), resolved
 
 
@@ -224,18 +293,23 @@ def parse_file(path: str) -> tuple[list[Any], str, str]:
     return parse_source(source), source, resolved
 
 
-def check_path(path: str) -> tuple[str, list[Diagnostic], list[Symbol]]:
+def check_path(path: str, include_warnings: bool = False) -> tuple[str, list[Diagnostic], list[Symbol]]:
     target, _project = resolve_run_target(path) if os.path.isdir(path) else (path, project_for_path(path))
     try:
         program, source, resolved = parse_file(target)
     except SproutError as exc:
         resolved = os.path.abspath(target)
         return resolved, [diagnostic_from_error(exc, resolved)], []
-    return resolved, lint_source(source, resolved, program, syntax_only=True), collect_symbols(program, resolved)
+    if include_warnings:
+        from .analysis import analyze_source, apply_diagnostic_policy
+        diagnostics = apply_diagnostic_policy(analyze_source(source, resolved).diagnostics, "basic")
+    else:
+        diagnostics = lint_source(source, resolved, program, syntax_only=True)
+    return resolved, diagnostics, collect_symbols(program, resolved)
 
 
 def check_file(path: str, json_mode: bool = False, include_warnings: bool = False) -> int:
-    resolved, diagnostics, symbols = check_path(path)
+    resolved, diagnostics, symbols = check_path(path, include_warnings)
     if not include_warnings:
         diagnostics = [diag for diag in diagnostics if diag.severity == "error"]
     if json_mode:
@@ -278,7 +352,7 @@ def collect_symbols(program: list[Any], path: str | None = None) -> list[Symbol]
             symbols.append(Symbol(stmt[1], "type", path, stmt[4], stmt[5]))
             return
         elif kind == "import":
-            symbols.append(Symbol(stmt[2], "module", path, 1, 1))
+            symbols.append(Symbol(stmt[2], "module", path, stmt[3] if len(stmt) > 3 else 1, stmt[4] if len(stmt) > 4 else 1))
             children = []
         elif kind == "test":
             children = [stmt[2]]
@@ -341,12 +415,20 @@ def iter_statements(program: list[Any]) -> list[Any]:
 def lint_source(source: str, path: str | None = None, program: list[Any] | None = None, syntax_only: bool = False) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     lines = source.splitlines()
+    import_matches: list[tuple[re.Match[str], int]] = []
+    importpython_matches: list[tuple[re.Match[str], int]] = []
     for index, line in enumerate(lines, start=1):
         if "\t" in line:
             diagnostics.append(Diagnostic("warning", "Use spaces instead of tabs for indentation", path, index, line.index("\t") + 1, "SPROUT_TAB_INDENT"))
         alias_match = None if syntax_only else re.search(r"\b(True|False|None)\b", line)
         if alias_match:
             diagnostics.append(Diagnostic("warning", "Prefer Sprout-style true, false, or nil", path, index, alias_match.start() + 1, "SPROUT_PY_ALIAS"))
+        import_match = IMPORT_RE.match(line)
+        if import_match:
+            import_matches.append((import_match, index))
+        importpython_match = IMPORTPY_RE.match(line)
+        if importpython_match:
+            importpython_matches.append((importpython_match, index))
 
     if program is None:
         try:
@@ -356,8 +438,16 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
 
     seen_functions: set[str] = set()
     seen_classes: set[str] = set()
-    declared: dict[str, int] = {}
+    declared: dict[str, tuple[int, int]] = {}
     used: set[str] = set()
+    unused_candidates: set[str] = set()
+    import_index = 0
+    importpython_index = 0
+
+    def declare(name: str, line: int, col: int, track_unused: bool = False) -> None:
+        declared.setdefault(name, (line, col))
+        if track_unused:
+            unused_candidates.add(name)
 
     def scan_expr(expr: Any) -> None:
         if not isinstance(expr, tuple):
@@ -382,36 +472,84 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
             if stmt[1] in seen_functions:
                 diagnostics.append(Diagnostic("warning", f"Duplicate function name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_FUNCTION"))
             seen_functions.add(stmt[1])
-            declared.setdefault(stmt[1], stmt[4])
+            declare(stmt[1], stmt[4], stmt[5])
         elif kind == "class":
             if stmt[1] in seen_classes:
-                diagnostics.append(Diagnostic("warning", f"Duplicate class name '{stmt[1]}' in this scope", path, 1, 1, "SPROUT_DUP_CLASS"))
+                diagnostics.append(Diagnostic("warning", f"Duplicate class name '{stmt[1]}' in this scope", path, stmt[6], stmt[7], "SPROUT_DUP_CLASS"))
             seen_classes.add(stmt[1])
-            declared.setdefault(stmt[1], 1)
+            declare(stmt[1], stmt[6], stmt[7])
         elif kind == "enum":
             if stmt[1] in seen_classes:
                 diagnostics.append(Diagnostic("warning", f"Duplicate enum name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_ENUM"))
             seen_classes.add(stmt[1])
-            declared.setdefault(stmt[1], stmt[4])
+            declare(stmt[1], stmt[4], stmt[5])
         elif kind == "type_alias":
-            declared.setdefault(stmt[1], stmt[4])
+            declare(stmt[1], stmt[4], stmt[5])
             used.add(stmt[1])
         elif kind == "let":
-            declared.setdefault(stmt[1], 1)
+            declare(stmt[1], stmt[4], stmt[5], track_unused=True)
             scan_expr(stmt[2])
         elif kind == "taskgroup":
-            declared.setdefault(stmt[1], stmt[3])
+            declare(stmt[1], stmt[3], stmt[4], track_unused=True)
         elif kind == "assign" and stmt[1][0] == "var":
             if stmt[1][1] in declared:
-                diagnostics.append(Diagnostic("warning", f"Assignment shadows earlier name '{stmt[1][1]}'", path, 1, 1, "SPROUT_SHADOW"))
-            declared.setdefault(stmt[1][1], 1)
+                previous_line, previous_col = declared[stmt[1][1]]
+                diagnostics.append(Diagnostic("warning", f"Assignment shadows earlier name '{stmt[1][1]}'", path, previous_line, previous_col, "SPROUT_SHADOW"))
+            if stmt[1][1] not in declared:
+                declare(stmt[1][1], 1, 1, track_unused=True)
             scan_expr(stmt[2])
         elif kind == "import":
             import_path = stmt[1]
             base = os.path.dirname(path) if path else os.getcwd()
             project = project_for_path(path) if path else None
+            match, line = import_matches[import_index] if import_index < len(import_matches) else (None, stmt[3] if len(stmt) > 3 else 1)
+            import_index += 1
+            if match:
+                quoted_path, bare_name, explicit_alias = match.groups()
+                import_col = match.start(1 if quoted_path is not None else 2) + 1
+                if explicit_alias:
+                    col = match.start(3) + 1
+                elif quoted_path is not None:
+                    col = match.start(1) + 1
+                else:
+                    col = match.start(2) + 1
+            else:
+                import_col = stmt[4] if len(stmt) > 4 else 1
+                col = stmt[4] if len(stmt) > 4 else 1
             if resolve_module_file(import_path, base, module_search_paths_for(path, project)) is None:
-                diagnostics.append(Diagnostic("warning", f"Import path not found: {import_path}", path, 1, 1, "SPROUT_UNKNOWN_IMPORT"))
+                suggestion = _best_name_suggestion(import_path.replace(os.sep, "."), available_module_names(path, project))
+                message = (
+                    f"Could not resolve imported module '{import_path}'. Did you mean '{suggestion}'?"
+                    if suggestion else f"Could not resolve imported module '{import_path}'"
+                )
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        message,
+                        path,
+                        line,
+                        import_col,
+                        "SPROUT_IMPORT",
+                        None,
+                        {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
+                    )
+                )
+            else:
+                declare(stmt[2], line, col, track_unused=True)
+        elif kind == "importpython":
+            match, line = importpython_matches[importpython_index] if importpython_index < len(importpython_matches) else (None, stmt[3] if len(stmt) > 3 else 1)
+            importpython_index += 1
+            if match:
+                quoted_name, bare_name, explicit_alias = match.groups()
+                if explicit_alias:
+                    col = match.start(3) + 1
+                elif quoted_name is not None:
+                    col = match.start(1) + 1
+                else:
+                    col = match.start(2) + 1
+            else:
+                col = stmt[4] if len(stmt) > 4 else 1
+            declare(stmt[2], line, col, track_unused=True)
 
         if kind == "return":
             continue
@@ -438,11 +576,11 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
                 unreachable = True
 
     builtins = set(builtin_function_names()) | set(KEYWORDS) | {"argv", "self", "super"}
-    for name, line in declared.items():
+    for name, (line, col) in declared.items():
         if name.startswith("_"):
             continue
-        if name not in used and name not in builtins:
-            diagnostics.append(Diagnostic("warning", f"Name '{name}' is declared but not used", path, line, 1, "SPROUT_UNUSED_NAME"))
+        if name not in used and name not in builtins and name in unused_candidates:
+            diagnostics.append(Diagnostic("warning", f"Name '{name}' is declared but not used", path, line, col, "SPROUT_UNUSED_NAME"))
 
     return diagnostics
 
@@ -547,14 +685,213 @@ def dotted_base_before(source: str, line: int, col: int) -> str | None:
     return match.group(1) if match else None
 
 
+def completion_prefix_before(source: str, line: int, col: int) -> str:
+    lines = source.splitlines()
+    line_index = max(0, line - 1)
+    if line_index >= len(lines):
+        return ""
+    before = lines[line_index][: max(0, col - 1)]
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)$", before)
+    return match.group(1) if match else ""
+
+
+def member_completion_parts_before(source: str, line: int, col: int) -> tuple[str | None, str]:
+    lines = source.splitlines()
+    line_index = max(0, line - 1)
+    if line_index >= len(lines):
+        return (None, "")
+    before = lines[line_index][: max(0, col - 1)]
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$", before)
+    if not match:
+        return (None, "")
+    return (match.group(1), match.group(2))
+
+
+def import_completion_context(source: str, line: int, col: int) -> dict[str, str] | None:
+    lines = source.splitlines()
+    line_index = max(0, line - 1)
+    if line_index >= len(lines):
+        return None
+    before = lines[line_index][: max(0, col - 1)]
+    bare_match = re.match(r"^\s*(import|importpython)\s+([A-Za-z_][A-Za-z0-9_.]*)?$", before)
+    if bare_match:
+        return {
+            "kind": bare_match.group(1),
+            "quoted": "false",
+            "prefix": bare_match.group(2) or "",
+        }
+    quoted_match = re.match(r'^\s*(import|importpython)\s+"([^"]*)?$', before)
+    if quoted_match:
+        return {
+            "kind": quoted_match.group(1),
+            "quoted": "true",
+            "prefix": quoted_match.group(2) or "",
+        }
+    return None
+
+
+def import_completion_symbols(path: str, source: str, line: int, col: int) -> list[Any]:
+    from .analysis import Location, SemanticSymbol
+
+    context = import_completion_context(source, line, col)
+    if not context:
+        return []
+    if context["kind"] != "import":
+        return []
+    prefix = context["prefix"]
+    project = project_for_path(path)
+    choices = sorted(available_module_names(path, project))
+    if prefix:
+        lowered = prefix.lower()
+        filtered = [choice for choice in choices if choice.lower().startswith(lowered)]
+        if not filtered:
+            return []
+        choices = filtered
+    seen: set[str] = set()
+    items: list[SemanticSymbol] = []
+    for name in choices:
+        if name in seen:
+            continue
+        seen.add(name)
+        import_path = name.replace(".", os.sep)
+        target = resolve_module_file(import_path, os.path.dirname(path), module_search_paths_for(path, project))
+        if target is None:
+            continue
+        items.append(
+            SemanticSymbol(
+                name,
+                "module",
+                Location(target, 1, 1),
+                documentation="Sprout module.",
+                module_path=target,
+            )
+        )
+    return items
+
+
+def is_import_context(source: str, line: int, col: int) -> bool:
+    return import_completion_context(source, line, col) is not None
+
+
+def completion_ready_source(source: str, line: int, col: int) -> str:
+    lines = source.splitlines()
+    line_index = max(0, line - 1)
+    if line_index >= len(lines):
+        return source
+    before = lines[line_index][: max(0, col - 1)]
+    if re.search(r"[A-Za-z_][A-Za-z0-9_]*\.$", before):
+        lines[line_index] = before + "__sprout_completion__"
+        return "\n".join(lines) + ("\n" if source.endswith("\n") else "")
+    return source
+
+
+def _scan_call_context(before: str) -> tuple[str, int] | None:
+    depth = 0
+    string_quote = ""
+    escaped = False
+    for index in range(len(before) - 1, -1, -1):
+        char = before[index]
+        if string_quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == string_quote:
+                string_quote = ""
+            continue
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char in ")]}":
+            depth += 1
+            continue
+        if char in "([{":
+            if depth > 0:
+                depth -= 1
+                continue
+            prefix = before[:index]
+            match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*$", prefix)
+            if not match:
+                return None
+            return match.group(1), _active_argument_index(before[index + 1:])
+    return None
+
+
+def _active_argument_index(arguments: str) -> int:
+    depth = 0
+    string_quote = ""
+    escaped = False
+    commas = 0
+    for char in arguments:
+        if string_quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == string_quote:
+                string_quote = ""
+            continue
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            commas += 1
+    return commas
+
+
+def signature_ready_source(source: str, line: int, col: int) -> str:
+    lines = source.splitlines()
+    line_index = max(0, line - 1)
+    if line_index >= len(lines):
+        return source
+    before = lines[line_index][: max(0, col - 1)]
+    if _scan_call_context(before) is None:
+        return source
+    suffix = []
+    depth = 0
+    string_quote = ""
+    escaped = False
+    for char in before:
+        if string_quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == string_quote:
+                string_quote = ""
+            continue
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char in "([{":
+            depth += 1
+            suffix.append({"(": ")", "[": "]", "{": "}"}[char])
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+            if suffix:
+                suffix.pop()
+    lines[line_index] = before + "__sprout_signature__" + "".join(reversed(suffix))
+    return "\n".join(lines) + ("\n" if source.endswith("\n") else "")
+
+
 def call_before(source: str, line: int, col: int) -> str | None:
     lines = source.splitlines()
     line_index = max(0, line - 1)
     if line_index >= len(lines):
         return None
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\([^()]*$", before)
-    return match.group(1) if match else None
+    context = _scan_call_context(before)
+    return context[0] if context else None
 
 
 def intelligence_file(path: str, kind: str, line: int, col: int, source_path: str | None = None) -> int:
@@ -572,13 +909,29 @@ def intelligence_file(path: str, kind: str, line: int, col: int, source_path: st
         source, _source_resolved = read_source_file(source_path)
     else:
         source, resolved = read_source_file(path)
-    root = find_project_root(resolved) or os.path.dirname(resolved) or os.getcwd()
-    index = build_workspace_index(root, {resolved: source})
+    if kind == "completions":
+        source = completion_ready_source(source, line, col)
+    elif kind == "signature":
+        source = signature_ready_source(source, line, col)
+    target = find_project_root(resolved) or resolved
+    index = build_workspace_index(target, {resolved: source})
     payload: dict[str, Any] = {"ok": True, "path": resolved, "kind": kind}
 
     if kind == "completions":
-        base = dotted_base_before(source, line, col)
-        symbols = member_completions(index, resolved, base) if base else top_level_completions(index, resolved, line)
+        import_symbols = import_completion_symbols(resolved, source, line, col)
+        base, member_prefix = member_completion_parts_before(source, line, col)
+        prefix = member_prefix if base else completion_prefix_before(source, line, col)
+        if is_import_context(source, line, col):
+            symbols = import_symbols
+            base = None
+        elif import_symbols:
+            symbols = import_symbols
+            base = None
+        else:
+            symbols = (
+                member_completions(index, resolved, base, member_prefix)
+                if base else top_level_completions(index, resolved, line, prefix)
+            )
         payload["base"] = base
         payload["items"] = [symbol.to_json() for symbol in symbols]
     elif kind == "hover":
@@ -607,7 +960,11 @@ def intelligence_file(path: str, kind: str, line: int, col: int, source_path: st
         payload["symbols"] = [symbol.to_json() for symbol in (file.symbols if file else [])]
     elif kind == "diagnostics":
         file = index.files.get(resolved)
-        payload["diagnostics"] = [diag.to_json() for diag in (file.diagnostics if file else [])]
+        from .analysis import apply_diagnostic_policy
+        payload["diagnostics"] = [
+            diag.to_json()
+            for diag in apply_diagnostic_policy(file.diagnostics if file else [], "basic")
+        ]
     else:
         payload = {"ok": False, "error": f"Unknown intelligence query kind: {kind}"}
 
@@ -674,6 +1031,10 @@ def print_help() -> None:
         "  python3 sprout.py lint FILE [--json]    Run syntax and style checks\n"
         "  python3 sprout.py fmt FILE [--write]    Safely format a file\n"
         "  python3 sprout.py intel FILE --kind K   Query semantic editor intelligence\n"
+        "  python3 sprout.py analysis-status [PATH] [--json]\n"
+        "                                         Show workspace analysis/index state\n"
+        "  python3 sprout.py rebuild-index [PATH] [--json]\n"
+        "                                         Force a fresh workspace index build\n"
         "  python3 sprout.py stdlib                List built-in functions\n"
         "  python3 sprout.py examples              List example programs\n"
         "  python3 sprout.py version               Print version\n"

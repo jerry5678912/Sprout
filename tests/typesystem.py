@@ -129,11 +129,52 @@ def test_editor_diagnostics_include_type_errors() -> None:
     assert any(item["code"] == "SPROUT_ASSIGNMENT_TYPE" for item in payload["diagnostics"])
 
 
+def test_keyword_argument_diagnostics() -> None:
+    result = run_source(
+        "def spawn(name: String, hp: Int = 10) -> String:\n"
+        "  return name\n\n"
+        'spawn(name="Mina", health=10)\n'
+        'spawn("Mina", name="Ada")\n'
+        "spawn()\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    codes = [item["code"] for item in payload["diagnostics"]]
+    assert result.returncode == 1
+    assert "SPROUT_UNKNOWN_ARGUMENT" in codes
+    assert "SPROUT_DUPLICATE_ARGUMENT" in codes
+    assert "SPROUT_ARGUMENT_COUNT" in codes
+
+
+def test_override_and_unreachable_diagnostics() -> None:
+    result = run_source(
+        "class Base:\n"
+        "  def value(self, amount: Int) -> Int:\n"
+        "    return amount\n\n"
+        "class Child extends Base:\n"
+        "  def value(self, amount: String) -> String:\n"
+        "    return amount\n\n"
+        "def early() -> Int:\n"
+        "  return 1\n"
+        "  say 2\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    codes = [item["code"] for item in payload["diagnostics"]]
+    assert result.returncode == 1
+    assert "SPROUT_OVERRIDE_SIGNATURE" in codes
+    assert "SPROUT_UNREACHABLE" in codes
+
+
 def main() -> int:
     test_typed_program_runs_in_both_engines()
     test_assignment_return_and_argument_errors()
     test_interfaces_generics_and_unknown_types()
     test_editor_diagnostics_include_type_errors()
+    test_keyword_argument_diagnostics()
+    test_override_and_unreachable_diagnostics()
     print("sprout type system tests passed")
     return 0
 

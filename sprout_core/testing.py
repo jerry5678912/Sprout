@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from .analysis import line_docs
 from .model import SproutError, SproutRaised
 from .runtime import Env, Interpreter, format_error, format_value
 from .tooling import load_project, module_search_paths_for, parse_file, project_for_path
@@ -19,6 +20,7 @@ class TestCase:
     path: str
     line: int
     col: int
+    docs: str = ""
 
 
 @dataclass
@@ -61,9 +63,10 @@ def discover_test_files(path: str | None = None) -> list[str]:
 def discover_test_cases(path: str | None = None) -> list[TestCase]:
     cases: list[TestCase] = []
     for file_path in discover_test_files(path):
-        program, _source, resolved = parse_file(file_path)
+        program, source, resolved = parse_file(file_path)
+        lines = source.splitlines()
         cases.extend(
-            TestCase(stmt[1], stmt[2], resolved, stmt[3], stmt[4])
+            TestCase(stmt[1], stmt[2], resolved, stmt[3], stmt[4], line_docs(lines, stmt[3] - 1))
             for stmt in program
             if stmt[0] == "test"
         )
@@ -76,13 +79,14 @@ def run_test_file_results(
     capture_output: bool = False,
 ) -> list[TestResult]:
     program, _source, resolved = parse_file(path)
+    lines = _source.splitlines()
     project = project_for_path(resolved)
     interpreter = Interpreter(
         source_path=resolved,
         module_search_paths=module_search_paths_for(resolved, project),
     )
     tests = [
-        TestCase(stmt[1], stmt[2], resolved, stmt[3], stmt[4])
+        TestCase(stmt[1], stmt[2], resolved, stmt[3], stmt[4], line_docs(lines, stmt[3] - 1))
         for stmt in program
         if stmt[0] == "test" and (name_filter is None or stmt[1] == name_filter)
     ]
@@ -174,6 +178,7 @@ def run_tests(
                     "path": case.path,
                     "line": case.line,
                     "column": case.col,
+                    "docs": case.docs,
                 }
                 for case in cases
             ]
