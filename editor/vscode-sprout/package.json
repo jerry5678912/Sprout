@@ -4,6 +4,11 @@
   "description": "Syntax highlighting, snippets, completions, and editor basics for the Sprout programming language.",
   "version": "0.3.3",
   "publisher": "jerry5678912",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jerry5678912/Sprout.git"
+  },
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:sprout",
