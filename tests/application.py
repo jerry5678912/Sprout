@@ -48,6 +48,7 @@ def test_structured_test_discovery_and_filtering() -> None:
     manifest = json.loads(listed.stdout)
     assert len(manifest["tests"]) == 6
     assert manifest["tests"][0]["name"] == "expectation helpers"
+    assert manifest["tests"][0]["docs"] == ""
     filtered = run([
         "test",
         "tests/application_test.sprout",
@@ -58,6 +59,20 @@ def test_structured_test_discovery_and_filtering() -> None:
     report = json.loads(filtered.stdout)
     assert report["summary"] == {"total": 1, "passed": 1, "failed": 0}
     assert report["tests"][0]["status"] == "passed"
+
+
+def test_structured_test_discovery_includes_doc_comments() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "example_test.sprout"
+        path.write_text(
+            '## Checks that math works.\n'
+            'test "addition":\n'
+            "  expect(2 + 3).to_equal(5)\n",
+            encoding="utf-8",
+        )
+        listed = run(["test", str(path), "--list", "--json"])
+        manifest = json.loads(listed.stdout)
+        assert manifest["tests"][0]["docs"] == "Checks that math works."
 
 
 def test_application_examples() -> None:
@@ -77,13 +92,31 @@ def test_docs_command() -> None:
             encoding="utf-8",
         )
         (project / "src/main.sprout").write_text(
-            "## Returns a greeting.\ndef greet(name):\n  return \"hello \" + name\n",
+            "## Returns a greeting.\n"
+            "def greet(name):\n"
+            "  return \"hello \" + name\n\n"
+            "## Represents a player.\n"
+            "class Player:\n"
+            "  def init(self, name):\n"
+            "    self.name = name\n\n"
+            "  ## Greets a target.\n"
+            "  def greet(self, target):\n"
+            "    return self.name + target\n",
             encoding="utf-8",
         )
         run(["docs", str(project), "--html"])
         markdown = (project / "docs/API.md").read_text(encoding="utf-8")
+        html = (project / "docs/API.html").read_text(encoding="utf-8")
         assert "Returns a greeting." in markdown
         assert "`greet(name)`" in markdown
+        assert "`Player(name)`" in markdown
+        assert "Represents a player." in markdown
+        assert "`greet(self, target)`" in markdown
+        assert "Greets a target." in markdown
+        assert "Defined at `src/main.sprout:11`." in markdown
+        assert "<li>`greet(self, target)`" in html
+        assert "<br>Greets a target." in html
+        assert "<br>Defined at `src/main.sprout:11`." in html
         assert (project / "docs/API.html").exists()
 
 
@@ -136,6 +169,7 @@ def main() -> int:
     test_language_tests()
     test_failure_exit_code()
     test_structured_test_discovery_and_filtering()
+    test_structured_test_discovery_includes_doc_comments()
     test_application_examples()
     test_docs_command()
     test_docs_help_does_not_generate_files()

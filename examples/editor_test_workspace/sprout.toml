@@ -1,0 +1,10 @@
+[project]
+name = "editor_test_workspace"
+version = "0.1.0"
+main = "src/main.sprout"
+description = "Small workspace used to verify Sprout VS Code editor behavior."
+license = "Apache-2.0"
+
+[paths]
+source = ["src"]
+modules = ["src"]

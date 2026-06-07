@@ -22,6 +22,7 @@ from sprout_core.bytecode import (  # noqa: E402
     VMInstance,
     compile_file,
 )
+from sprout_core.analysis import build_workspace_index, normalize_path, scope_for_line, resolve_in_scope  # noqa: E402
 from sprout_core.model import SproutError, SproutRaised  # noqa: E402
 from sprout_core.runtime import Builtin, Env, Interpreter, format_error, format_value, truthy, type_name  # noqa: E402
 from sprout_core.tooling import parse_source  # noqa: E402
@@ -156,6 +157,7 @@ class SproutDebugAdapter:
         self.controller = DebugController(self.stopped)
         self.worker: threading.Thread | None = None
         self.vm: BytecodeVM | None = None
+        self.workspace_index = None
         self.frame_handles: dict[int, DebugFrame] = {}
         self.variable_handles: dict[int, Any] = {}
         self.next_handle = 1
@@ -223,6 +225,7 @@ class SproutDebugAdapter:
         self.args = [str(item) for item in arguments.get("args", [])]
         self.controller.stop_on_entry = bool(arguments.get("stopOnEntry", False))
         self.code = compile_file(self.program)
+        self.workspace_index = build_workspace_index(self.program, reason="debug-launch")
 
     def start_program(self) -> None:
         if self.worker and self.worker.is_alive():
@@ -263,20 +266,60 @@ class SproutDebugAdapter:
         self.variable_handles[handle] = value
         return handle
 
-    def variable(self, name: str, value: Any) -> dict[str, Any]:
+    def variable(self, name: str, value: Any, *, include_evaluate_name: bool = True) -> dict[str, Any]:
         expandable = isinstance(value, (list, dict, Env, VMInstance))
-        return {
+        result = {
             "name": name,
             "value": format_value(value),
             "type": type_name(value),
             "variablesReference": self.add_handle(value) if expandable else 0,
         }
+        if include_evaluate_name and name:
+            result["evaluateName"] = name
+        return result
 
-    def variables_for(self, value: Any) -> list[dict[str, Any]]:
+    def semantic_symbol_for_frame_name(self, frame: DebugFrame, name: str):
+        instr = frame.instruction
+        if not self.workspace_index or not instr or not instr.source:
+            return None
+        path = normalize_path(instr.source)
+        analysis = self.workspace_index.files.get(path)
+        if not analysis:
+            return None
+        scope = scope_for_line(analysis.scopes, instr.line or 1)
+        symbol = resolve_in_scope(analysis, name, instr.line or 1, scope)
+        if symbol:
+            return symbol
+        return self.workspace_index.find_symbol(name, path)
+
+    def frame_display_name(self, frame: DebugFrame) -> str:
+        name = frame.code.name or "<module>"
+        symbol = self.semantic_symbol_for_frame_name(frame, name)
+        if symbol and symbol.signature:
+            return symbol.signature
+        return name
+
+    def variable_entry(self, frame: DebugFrame | None, name: str, value: Any) -> dict[str, Any]:
+        entry = self.variable(name, value)
+        symbol = self.semantic_symbol_for_frame_name(frame, name) if frame and name else None
+        if symbol:
+            hint_kind = {
+                "parameter": "data",
+                "variable": "data",
+                "field": "property",
+                "method": "method",
+                "function": "function",
+                "class": "class",
+            }.get(symbol.kind)
+            if hint_kind:
+                entry["presentationHint"] = {"kind": hint_kind}
+        return entry
+
+    def variables_for(self, value: Any, frame: DebugFrame | None = None) -> list[dict[str, Any]]:
         if isinstance(value, Env):
-            return [self.variable(name, item) for name, item in sorted(value.values.items())]
+            return [self.variable_entry(frame, name, item) for name, item in sorted(value.values.items())]
         if isinstance(value, VMInstance):
-            return [self.variable(name, item) for name, item in sorted(value.fields.items())]
+            return [self.variable(name, item, include_evaluate_name=False) for name, item in sorted(value.fields.items())]
         if isinstance(value, list):
             return [self.variable(str(index), item) for index, item in enumerate(value)]
         if isinstance(value, dict):
@@ -285,6 +328,12 @@ class SproutDebugAdapter:
 
     def current_frames(self) -> list[DebugFrame]:
         return list(reversed(self.vm.debug_frames if self.vm else []))
+
+    def frame_for_scope_handle(self, handle: int) -> DebugFrame | None:
+        value = self.variable_handles.get(handle)
+        if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], DebugFrame):
+            return value[1]
+        return None
 
     def handle(self, request: dict[str, Any]) -> bool:
         command = request.get("command", "")
@@ -353,7 +402,7 @@ class SproutDebugAdapter:
                 instr = frame.instruction
                 frames.append({
                     "id": index,
-                    "name": frame.code.name,
+                    "name": self.frame_display_name(frame),
                     "line": instr.line if instr and instr.line else 1,
                     "column": instr.col if instr and instr.col else 1,
                     "source": {"name": os.path.basename(instr.source), "path": instr.source} if instr and instr.source else None,
@@ -364,7 +413,11 @@ class SproutDebugAdapter:
             scopes = []
             if frame:
                 scopes = [
-                    {"name": "Locals", "variablesReference": self.add_handle(frame.env), "expensive": False},
+                    {
+                        "name": f"Locals - {self.frame_display_name(frame)}",
+                        "variablesReference": self.add_handle((frame.env, frame)),
+                        "expensive": False,
+                    },
                     {"name": "Value Stack", "variablesReference": self.add_handle(list(self.vm.stack if self.vm else [])), "expensive": False},
                 ]
                 if self.vm:
@@ -372,7 +425,10 @@ class SproutDebugAdapter:
             self.response(request, {"scopes": scopes})
         elif command == "variables":
             value = self.variable_handles.get(int(arguments.get("variablesReference", 0)))
-            self.response(request, {"variables": self.variables_for(value)})
+            frame = self.frame_for_scope_handle(int(arguments.get("variablesReference", 0)))
+            if isinstance(value, tuple) and len(value) == 2:
+                value = value[0]
+            self.response(request, {"variables": self.variables_for(value, frame)})
         elif command == "evaluate":
             frame = self.frame_handles.get(int(arguments.get("frameId", 0)))
             expression = str(arguments.get("expression", "")).strip()

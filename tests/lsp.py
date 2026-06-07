@@ -63,6 +63,33 @@ def encode_message(message: dict) -> bytes:
     return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
+class FragmentedReader:
+    def __init__(self, data: bytes, chunk_size: int = 2):
+        self.data = data
+        self.chunk_size = chunk_size
+        self.offset = 0
+
+    def readline(self) -> bytes:
+        if self.offset >= len(self.data):
+            return b""
+        newline = self.data.find(b"\n", self.offset)
+        if newline == -1:
+            end = len(self.data)
+        else:
+            end = newline + 1
+        line = self.data[self.offset:end]
+        self.offset = end
+        return line
+
+    def read(self, length: int) -> bytes:
+        if self.offset >= len(self.data):
+            return b""
+        end = min(len(self.data), self.offset + min(length, self.chunk_size))
+        chunk = self.data[self.offset:end]
+        self.offset = end
+        return chunk
+
+
 def request(server, request_id: int, method: str, params: dict) -> dict:
     before = len(server.writer.getvalue())
     server.process_message({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
@@ -128,8 +155,28 @@ def test_protocol_lifecycle_and_incremental_sync() -> None:
         })
         assert "greet" in hover["result"]["contents"]["value"]
 
+        completion = request(server, 22, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 3, "character": 7},
+        })
+        assert isinstance(completion["result"]["items"], list)
+
         symbols = request(server, 3, "workspace/symbol", {"query": "greet"})
         assert any(item["name"] == "greet" for item in symbols["result"])
+
+        status = request(server, 30, "sprout/analysisStatus", {"uri": uri})
+        assert status["result"]["fileCount"] >= 1
+        assert status["result"]["settings"]["typeCheckingMode"] == "basic"
+        assert status["result"]["lastBuildDurationMs"] >= 0
+        assert "cacheHitRate" in status["result"]
+        assert status["result"]["operations"]["hover"]["count"] >= 1
+        assert status["result"]["operations"]["completion"]["count"] >= 1
+        assert status["result"]["operations"]["workspaceSymbol"]["count"] >= 1
+
+        rebuilt = request(server, 31, "sprout/rebuildWorkspaceIndex", {"uri": uri})
+        assert rebuilt["result"]["lastBuildReason"] == "manual-rebuild"
+        assert rebuilt["result"]["lastReindexedFiles"]
+        assert rebuilt["result"]["lastReindexedDurationMs"] >= 0
 
         shutdown = request(server, 4, "shutdown", {})
         assert shutdown["result"] is None
@@ -188,6 +235,103 @@ def test_references_rename_and_protocol_errors() -> None:
         assert cancelled["error"]["code"] == LSP.LSP_REQUEST_CANCELLED
 
 
+def test_prepare_rename_refuses_module_aliases() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        path = root / "main.sprout"
+        helper.write_text("def greet():\n  return 1\n", encoding="utf-8")
+        source = 'import "helper.sprout" as helper\nsay helper.greet()\n'
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "version": 1, "text": source}},
+        })
+        prepared = request(server, 2, "textDocument/prepareRename", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 6},
+        })
+        assert prepared["error"]["code"] == LSP.JSONRPC_INVALID_REQUEST
+
+
+def test_definition_resolves_imported_module_aliases_and_members() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        path = root / "main.sprout"
+        helper.write_text("## Friendly helper\n\ndef greet(name):\n  return name\n", encoding="utf-8")
+        source = 'import "helper.sprout" as helper\nsay helper.greet("Ada")\n'
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "version": 1, "text": source}},
+        })
+
+        alias_definition = request(server, 2, "textDocument/definition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 6},
+        })
+        assert alias_definition["result"][0]["uri"] == helper.resolve().as_uri()
+        assert alias_definition["result"][0]["range"]["start"]["line"] == 2
+
+        member_definition = request(server, 3, "textDocument/definition", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 13},
+        })
+        assert member_definition["result"][0]["uri"] == helper.resolve().as_uri()
+        assert member_definition["result"][0]["range"]["start"]["line"] == 2
+
+        hover = request(server, 4, "textDocument/hover", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 13},
+        })
+        value = hover["result"]["contents"]["value"]
+        assert "```sprout" in value
+        assert "Kind: `function`" in value
+        assert "Defined at" in value
+
+
+def test_signature_help_tracks_nested_arguments() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = (
+            "def pair(left, right, label=\"ok\"):\n"
+            "  return left\n\n"
+            "def wrap(value):\n"
+            "  return value\n\n"
+            "say pair(wrap(1), [2, 3], \n"
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "version": 1, "text": source}},
+        })
+        signature = request(server, 2, "textDocument/signatureHelp", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 6, "character": 26},
+        })
+        result = signature["result"]
+        assert result["activeParameter"] == 2
+        assert result["signatures"][0]["label"] == "pair(left, right, label=...)"
+        assert len(result["signatures"][0]["parameters"]) == 3
+
+
 def test_safe_code_actions() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -227,6 +371,361 @@ def test_safe_code_actions() -> None:
         assert actions[1]["edit"]["changes"][uri][0]["newText"] == "true"
 
 
+def test_typo_diagnostics_and_quick_fixes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "impo\n"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        diagnostic = published["params"]["diagnostics"][0]
+        assert diagnostic["code"] == "SPROUT_UNKNOWN_NAME"
+        assert diagnostic["range"]["end"]["character"] == 4
+        assert diagnostic["data"]["replacement"] == "import"
+
+        response = request(server, 2, "textDocument/codeAction", {
+            "textDocument": {"uri": uri},
+            "range": diagnostic["range"],
+            "context": {"diagnostics": [diagnostic]},
+        })
+        action = response["result"][0]
+        assert action["title"] == "Replace with 'import'"
+        assert action["edit"]["changes"][uri][0]["newText"] == "import"
+
+
+def test_protocol_reader_handles_fragmented_utf8_messages() -> None:
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"rootUri": None},
+        },
+        {
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": "file:///tmp/nonascii.sprout",
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": 'say "π λ Ω"\nimpo\n',
+                }
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/completion",
+            "params": {
+                "textDocument": {"uri": "file:///tmp/nonascii.sprout"},
+                "position": {"line": 1, "character": 2},
+            },
+        },
+    ]
+    stream = b"".join(encode_message(message) for message in messages)
+    server = LSP.SproutLanguageServer(reader=FragmentedReader(stream, chunk_size=1), writer=io.BytesIO())
+
+    first = server.read_message()
+    second = server.read_message()
+    third = server.read_message()
+
+    assert first["method"] == "initialize"
+    assert second["params"]["textDocument"]["text"].startswith('say "π')
+    assert third["method"] == "textDocument/completion"
+
+
+def test_standalone_file_does_not_scan_entire_parent_folder() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        extension_root = root / "fake-extension"
+        extension_root.mkdir()
+        home_like = root / "home"
+        home_like.mkdir()
+        main = home_like / "main.sprout"
+        bad = home_like / "bad_encoding.sprout"
+        main.write_text("say impo\n", encoding="utf-8")
+        bad.write_bytes(b"\xce\xce\xce")
+        uri = main.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+
+        request(server, 1, "initialize", {
+            "workspaceFolders": [{"uri": extension_root.resolve().as_uri(), "name": "extension"}],
+        })
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": "say impo\n"}},
+        })
+
+        index = server.index_for_uri(uri, rebuild=False)
+        assert str(main.resolve()) in index.files
+        assert str(bad.resolve()) not in index.files
+        messages = decode_messages(output.getvalue())
+        published = [message for message in messages if message.get("method") == "textDocument/publishDiagnostics"]
+        assert published
+
+
+def test_completion_recovers_for_incomplete_module_member_access() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "import pixelgarden as pix\npix.\n"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 5},
+        })
+        labels = {item["label"] for item in completion["result"]["items"]}
+        assert {"vec2", "sprite_asset", "animation"}.issubset(labels)
+
+
+def test_import_context_completion_suggests_module_names() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "import pixel"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": 12},
+        })
+        labels = {item["label"] for item in completion["result"]["items"]}
+        assert "pixelgarden" in labels
+
+
+def test_import_context_completion_does_not_offer_keywords() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "import ef"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": 9},
+        })
+        labels = {item["label"] for item in completion["result"]["items"]}
+        assert "elif" not in labels
+        assert labels == set()
+
+
+def test_completion_ranking_prefers_local_symbols() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        path = root / "main.sprout"
+        helper.write_text("def spawn_enemy():\n  return 1\n", encoding="utf-8")
+        source = (
+            'import "helper.sprout" as helper\n'
+            "def spawn():\n"
+            "  return 1\n\n"
+            "def scope():\n"
+            "  speed = 2\n"
+            "  sp\n"
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 6, "character": 4},
+        })
+        labels = [item["label"] for item in completion["result"]["items"][:3]]
+        assert labels[0] == "speed"
+        assert "spawn" in labels[:3]
+
+
+def test_blank_document_has_no_diagnostics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "blank.sprout"
+        source = ""
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        assert published["params"]["diagnostics"] == []
+
+
+def test_diagnostic_modes_overrides_and_unused_tags() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "import pixelgarden as pix\ndef greet(name):\n  return \"hello\"\n"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(
+            server,
+            1,
+            "initialize",
+            {
+                "rootUri": root.resolve().as_uri(),
+                "initializationOptions": {
+                    "sprout": {
+                        "analysis": {
+                            "typeCheckingMode": "strict",
+                            "diagnosticSeverityOverrides": {
+                                "SPROUT_MISSING_RETURN_TYPE": "none",
+                            },
+                        }
+                    }
+                },
+            },
+        )
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        diagnostics = published["params"]["diagnostics"]
+        by_code = {item["code"]: item for item in diagnostics}
+        assert by_code["SPROUT_UNUSED_IMPORT"]["tags"] == [1]
+        assert by_code["SPROUT_UNUSED_IMPORT"]["severity"] == 4
+        assert by_code["SPROUT_MISSING_PARAMETER_TYPE"]["severity"] == 2
+        assert "SPROUT_MISSING_RETURN_TYPE" not in by_code
+
+        status = request(server, 20, "sprout/analysisStatus", {"uri": uri})
+        assert status["result"]["settings"]["diagnosticMode"] == "workspace"
+        assert status["result"]["settings"]["indexing"] is True
+
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "workspace/didChangeConfiguration",
+            "params": {
+                "settings": {
+                    "sprout": {
+                        "analysis": {
+                            "typeCheckingMode": "off",
+                            "diagnosticMode": "openFilesOnly",
+                            "indexing": False,
+                            "languageServerMode": "light",
+                        }
+                    }
+                }
+            },
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        assert published["params"]["diagnostics"] == []
+        updated = request(server, 21, "sprout/analysisStatus", {"uri": uri})
+        assert updated["result"]["settings"]["diagnosticMode"] == "openFilesOnly"
+        assert updated["result"]["settings"]["indexing"] is False
+        assert updated["result"]["effectiveSettings"]["diagnosticMode"] == "openFilesOnly"
+        assert updated["result"]["effectiveSettings"]["indexing"] is False
+        assert updated["result"]["effectiveSettings"]["languageServerMode"] == "light"
+        assert updated["result"]["effectiveSettings"]["useLibraryCodeForTypes"] is False
+        assert updated["result"]["effectiveSettings"]["userFileIndexingLimit"] == 200
+
+
+def test_open_files_only_limits_workspace_scope() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        extra = root / "extra.sprout"
+        path = root / "main.sprout"
+        helper.write_text("def greet():\n  return 1\n", encoding="utf-8")
+        extra.write_text("def unused():\n  return 2\n", encoding="utf-8")
+        source = 'import "helper.sprout" as helper\nsay helper.greet()\n'
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(
+            server,
+            1,
+            "initialize",
+            {
+                "rootUri": root.resolve().as_uri(),
+                "initializationOptions": {
+                    "sprout": {
+                        "analysis": {
+                            "diagnosticMode": "openFilesOnly",
+                            "languageServerMode": "light",
+                        }
+                    }
+                },
+            },
+        )
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        status = request(server, 22, "sprout/analysisStatus", {"uri": uri})
+        indexed_paths = set(server.index_for_uri(uri, rebuild=False).files)
+        assert str(path.resolve()) in indexed_paths
+        assert str(helper.resolve()) in indexed_paths
+        assert str(extra.resolve()) not in indexed_paths
+        assert status["result"]["fileCount"] == 2
+        assert status["result"]["effectiveSettings"]["diagnosticMode"] == "openFilesOnly"
+        assert status["result"]["effectiveSettings"]["languageServerMode"] == "light"
+        assert status["result"]["effectiveSettings"]["userFileIndexingLimit"] == 200
+
+
 def test_stdio_process_lifecycle() -> None:
     messages = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": ROOT.resolve().as_uri()}},
@@ -250,7 +749,18 @@ def main() -> int:
     test_incremental_rebuild_and_navigation()
     test_protocol_lifecycle_and_incremental_sync()
     test_references_rename_and_protocol_errors()
+    test_prepare_rename_refuses_module_aliases()
+    test_definition_resolves_imported_module_aliases_and_members()
+    test_signature_help_tracks_nested_arguments()
     test_safe_code_actions()
+    test_typo_diagnostics_and_quick_fixes()
+    test_completion_recovers_for_incomplete_module_member_access()
+    test_import_context_completion_suggests_module_names()
+    test_import_context_completion_does_not_offer_keywords()
+    test_completion_ranking_prefers_local_symbols()
+    test_blank_document_has_no_diagnostics()
+    test_diagnostic_modes_overrides_and_unused_tags()
+    test_open_files_only_limits_workspace_scope()
     test_stdio_process_lifecycle()
     print("sprout lsp tests passed")
     return 0

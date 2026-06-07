@@ -1,0 +1,19 @@
+## A tiny player object for editor tooling tests.
+class Player:
+  ## Create a player with a visible name field.
+  def init(self, name):
+    self.name = name
+    self.hp = 10
+
+  ## Return a greeting for the player.
+  def greet(self):
+    return "hello " + self.name
+
+  ## Damage the player and return the new hp.
+  def hurt(self, amount):
+    self.hp = self.hp - amount
+    return self.hp
+
+## Create a player for callers.
+def spawn(name):
+  return Player(name)

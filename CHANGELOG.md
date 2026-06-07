@@ -1,7 +1,78 @@
 # Changelog
 
+## Unreleased
+
+- Made `sprout docs` reuse semantic workspace analysis instead of a separate
+  regex-only scanner, so generated API docs stay aligned with Sprout
+  signatures, class constructors, member docs, and source locations.
+- Added test-doc metadata to structured `sprout test --list --json` output and
+  surfaced it as VS Code Testing view tooltips.
+- Reused semantic signatures in the debug adapter so Sprout stack frames and
+  local scopes show friendlier function labels when symbol resolution is known.
+- Updated README, manual, and extension docs to reflect current `standard`
+  analysis mode support and the latest verified editor/runtime integrations.
+
+## 0.3.4
+
+- Added a VS Code **Sprout: Show Language Server Output** command with clear
+  language-server startup, interpreter, document, diagnostic, and request logs.
+- Added a VS Code **Sprout: Restart Language Server** command for recovering
+  IntelliSense without reloading the whole editor.
+- Tightened VS Code/LSP document lifecycle handling so open documents are
+  tracked, duplicate `didOpen` notifications are avoided, blank documents clear
+  diagnostics immediately, and stale fallback diagnostics are ignored.
+- Added server-side LSP stderr logging for document sync, diagnostics,
+  completions, hover, navigation, rename, and code actions.
+- Added an editor test workspace and an automated editor-behavior check for
+  diagnostics, completion, hover, definition, references, rename, and quick
+  fixes.
+- Updated editor documentation to describe tested, partial, fallback, and
+  experimental behavior more honestly.
+
+## Dev History
+
+### Completion Label Cleanup
+
+- Fixed VS Code completion kind mapping so Sprout LSP keywords, interfaces,
+  enums, modules, and type parameters display with the right IntelliSense
+  labels instead of misleading class/variable labels.
+
+### Diagnostic Freshness
+
+- Made VS Code diagnostics clear immediately when a Sprout document becomes
+  blank.
+- Ignored stale LSP and command fallback diagnostics when the editor document
+  has changed since the check started.
+- Reduced the editor diagnostic debounce so warnings update faster while typing.
+
+### Native Diagnostic Rendering
+
+- Removed the custom VS Code squiggle overlay so Sprout diagnostics render like
+  Pylance through VS Code's native diagnostic system only.
+- Kept code-word typo diagnostics yellow when a clear replacement is available,
+  even in strict mode.
+- Cleared diagnostics for blank Sprout documents so empty editors do not show
+  stale red underlines.
+
+### Earlier Diagnostic Expansion
+
+- Added strong VS Code diagnostic decorations so Sprout errors, warnings, hints,
+  and unused symbols are visibly underlined/faded even when a theme makes native
+  squiggles subtle.
+- Expanded code-word typo suggestions for keywords, built-ins, imports, local
+  symbols, and module/class members.
+- Added quick-fix data and LSP code actions for typo replacement, unused import
+  removal, and safe unused-name prefixing.
+- Improved fallback editor diagnostics to underline full words instead of one
+  character.
+
 ## 0.3.3
 
+- Added Pylance-style `off`, `basic`, and `strict` editor checking modes,
+  per-rule severity overrides, live LSP reconfiguration, and unnecessary-symbol
+  tags for faded unused imports, parameters, and variables.
+- Added unknown-member, missing-annotation, keyword-argument, duplicate
+  argument, and more precise import diagnostics.
 - Added a VS Code interpreter selector, interpreter status item, validation,
   and an integrated-terminal command for running the current Sprout file.
 - Published `sprout-language` 0.3.0 on PyPI and updated installation

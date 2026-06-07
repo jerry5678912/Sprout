@@ -35,6 +35,7 @@ class ClassType:
     name: str
     methods: dict[str, FunctionType] = field(default_factory=dict)
     type_params: list[str] = field(default_factory=list)
+    superclass: str | None = None
     interfaces: list[str] = field(default_factory=list)
     line: int = 1
     col: int = 1
@@ -202,7 +203,10 @@ class TypeChecker:
                     for method in stmt[3]
                 }
                 self.classes[stmt[1]] = ClassType(
-                    stmt[1], methods, stmt[4] if len(stmt) > 4 else [],
+                    stmt[1],
+                    methods,
+                    stmt[4] if len(stmt) > 4 else [],
+                    stmt[2],
                     stmt[5] if len(stmt) > 5 else [],
                     stmt[6] if len(stmt) > 6 else 1,
                     stmt[7] if len(stmt) > 7 else 1,
@@ -224,9 +228,9 @@ class TypeChecker:
             elif kind == "type_alias":
                 self.aliases[stmt[1]] = AliasType(stmt[1], stmt[2], stmt[3], stmt[4], stmt[5])
             elif kind == "import":
-                self.collect_import(stmt[1], stmt[2])
+                self.collect_import(stmt[1], stmt[2], stmt[3] if len(stmt) > 3 else 1, stmt[4] if len(stmt) > 4 else 1)
 
-    def collect_import(self, import_path: str, alias: str) -> None:
+    def collect_import(self, import_path: str, alias: str, line: int = 1, col: int = 1) -> None:
         try:
             from .tooling import module_search_paths_for
             search_paths = module_search_paths_for(self.path)
@@ -234,7 +238,7 @@ class TypeChecker:
             search_paths = []
         resolved = resolve_module_file(import_path, os.path.dirname(os.path.abspath(self.path)), search_paths)
         if resolved is None:
-            self.error(f"Could not resolve imported module '{import_path}'", code="SPROUT_IMPORT")
+            self.error(f"Could not resolve imported module '{import_path}'", line, col, "SPROUT_IMPORT")
             return
         checker = self.module_cache.get(resolved)
         if checker is None:
@@ -242,7 +246,7 @@ class TypeChecker:
                 source = Path(resolved).read_text(encoding="utf-8")
                 program = Parser(Lexer(source).tokenize()).parse()
             except (OSError, SproutError) as exc:
-                self.error(f"Could not analyze imported module '{import_path}': {exc}", code="SPROUT_IMPORT")
+                self.error(f"Could not analyze imported module '{import_path}': {exc}", line, col, "SPROUT_IMPORT")
                 return
             checker = TypeChecker(resolved, self.module_cache)
             checker.collect(program)
@@ -378,10 +382,15 @@ class TypeChecker:
         if kind == "call":
             callee = expr[1]
             args = [self.infer(part[1], env) for part in expr[2] if part[0] == "value"]
+            kwargs = {
+                part[1]: self.infer(part[2], env)
+                for part in expr[3]
+                if part[0] == "pair"
+            }
             if callee[0] == "var":
                 name = callee[1]
                 if name in self.functions:
-                    return self.check_call(self.functions[name], args, expr[4], expr[5])
+                    return self.check_call(self.functions[name], args, expr[4], expr[5], kwargs)
                 if name in self.classes:
                     klass = self.classes[name]
                     initializer = klass.methods.get("init")
@@ -398,10 +407,10 @@ class TypeChecker:
                             initializer.line,
                             initializer.col,
                         )
-                        self.check_call(constructor, args, expr[4], expr[5])
-                    elif args:
+                        self.check_call(constructor, args, expr[4], expr[5], kwargs)
+                    elif args or kwargs:
                         self.error(
-                            f"{name} expects 0 argument(s), got {len(args)}",
+                            f"{name} expects 0 argument(s), got {len(args) + len(kwargs)}",
                             expr[4], expr[5], "SPROUT_ARGUMENT_COUNT",
                         )
                     return (
@@ -435,14 +444,14 @@ class TypeChecker:
                             expr[4],
                             expr[5],
                         )
-                        return self.check_call(synthetic, args, expr[4], expr[5])
+                        return self.check_call(synthetic, args, expr[4], expr[5], kwargs)
                 module = self.modules.get(owner_name)
                 if module:
-                    return self.infer_module_call(module, member_name, args, expr[4], expr[5])
+                    return self.infer_module_call(module, member_name, args, expr[4], expr[5], kwargs)
             if callee[0] == "get":
                 owner = self.infer(callee[1], env)
                 if isinstance(owner, ModuleType):
-                    return self.infer_module_call(owner, callee[2], args, expr[4], expr[5])
+                    return self.infer_module_call(owner, callee[2], args, expr[4], expr[5], kwargs)
                 klass = self.classes.get(owner[1])
                 method = klass.methods.get(callee[2]) if klass else None
                 if method:
@@ -460,7 +469,7 @@ class TypeChecker:
                         method.col,
                         method.async_function,
                     )
-                    return self.check_call(bound, args, expr[4], expr[5])
+                    return self.check_call(bound, args, expr[4], expr[5], kwargs)
             return ANY
         if kind == "get":
             if expr[1][0] == "var" and expr[1][1] in self.enums:
@@ -502,9 +511,16 @@ class TypeChecker:
             return ("type", name, [], 0, 0)
         return ANY
 
-    def infer_export_call(self, name: str, args: list[Any], line: int, col: int) -> Any:
+    def infer_export_call(
+        self,
+        name: str,
+        args: list[Any],
+        line: int,
+        col: int,
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
         if name in self.functions:
-            return self.check_call(self.functions[name], args, line, col)
+            return self.check_call(self.functions[name], args, line, col, kwargs)
         if name in self.classes:
             return ("type", name, [], 0, 0)
         return ANY
@@ -516,9 +532,10 @@ class TypeChecker:
         args: list[Any],
         line: int,
         col: int,
+        kwargs: dict[str, Any] | None = None,
     ) -> Any:
         before = len(module.checker.diagnostics)
-        result = module.checker.infer_export_call(name, args, line, col)
+        result = module.checker.infer_export_call(name, args, line, col, kwargs)
         for diagnostic in module.checker.diagnostics[before:]:
             self.diagnostics.append(
                 Diagnostic(
@@ -547,15 +564,52 @@ class TypeChecker:
         self.global_env = env
         return env
 
-    def check_call(self, function: FunctionType, args: list[Any], line: int, col: int) -> Any:
+    def check_call(
+        self,
+        function: FunctionType,
+        args: list[Any],
+        line: int,
+        col: int,
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
         metadata = function.metadata or {}
         annotations = metadata.get("parameter_types", {})
         fixed = [param for param in function.params if not param[2] and not param[3]]
-        required = sum(1 for _name, default, _var, _kw in fixed if default is None)
+        keyword_args = kwargs or {}
+        fixed_names = [param[0] for param in fixed]
+        positional_names = set(fixed_names[:len(args)])
+        required_names = {
+            name for name, default, _var, _kw in fixed
+            if default is None
+        }
         has_rest = any(param[2] for param in function.params)
-        if len(args) < required or (not has_rest and len(args) > len(fixed)):
+        has_keyword_rest = any(param[3] for param in function.params)
+        unknown_keywords = sorted(set(keyword_args) - set(fixed_names))
+        if unknown_keywords and not has_keyword_rest:
             self.error(
-                f"{function.name} expects {required}..{len(fixed)} argument(s), got {len(args)}",
+                f"{function.name} has no parameter named '{unknown_keywords[0]}'",
+                line,
+                col,
+                "SPROUT_UNKNOWN_ARGUMENT",
+            )
+        duplicate_keywords = sorted(positional_names & set(keyword_args))
+        if duplicate_keywords:
+            self.error(
+                f"{function.name} got multiple values for '{duplicate_keywords[0]}'",
+                line,
+                col,
+                "SPROUT_DUPLICATE_ARGUMENT",
+            )
+        supplied_names = positional_names | set(keyword_args)
+        missing = sorted(required_names - supplied_names)
+        if missing:
+            self.error(
+                f"{function.name} is missing required argument '{missing[0]}'",
+                line, col, "SPROUT_ARGUMENT_COUNT",
+            )
+        if not has_rest and len(args) > len(fixed):
+            self.error(
+                f"{function.name} expects at most {len(fixed)} positional argument(s), got {len(args)}",
                 line, col, "SPROUT_ARGUMENT_COUNT",
             )
         substitutions: dict[str, Any] = {
@@ -566,6 +620,17 @@ class TypeChecker:
             if expected is not None and not self.is_compatible(actual, expected, substitutions):
                 self.error(
                     f"Argument '{param[0]}' expects {type_name(expected)}, got {type_name(actual)}",
+                    line, col, "SPROUT_ARGUMENT_TYPE",
+                )
+        fixed_by_name = {param[0]: param for param in fixed}
+        for name, actual in keyword_args.items():
+            param = fixed_by_name.get(name)
+            if param is None:
+                continue
+            expected = annotations.get(name)
+            if expected is not None and not self.is_compatible(actual, expected, substitutions):
+                self.error(
+                    f"Argument '{name}' expects {type_name(expected)}, got {type_name(actual)}",
                     line, col, "SPROUT_ARGUMENT_TYPE",
                 )
         result = metadata.get("return_type") or ANY
@@ -625,8 +690,68 @@ class TypeChecker:
         finally:
             self.yield_types.pop()
 
+    def statement_location(self, stmt: Any) -> tuple[int, int]:
+        if not isinstance(stmt, tuple):
+            return (1, 1)
+        kind = stmt[0]
+        mapping = {
+            "let": (4, 5),
+            "type_alias": (4, 5),
+            "importpython": (3, 4),
+            "import": (3, 4),
+            "test": (3, 4),
+            "fn": (4, 5),
+            "async_fn": (4, 5),
+            "taskgroup": (3, 4),
+            "class": (6, 7),
+            "enum": (4, 5),
+            "interface": (4, 5),
+            "match": (3, 4),
+            "yield": (2, 3),
+        }
+        line_index, col_index = mapping.get(kind, (None, None))
+        if line_index is not None and len(stmt) > col_index:
+            return int(stmt[line_index]), int(stmt[col_index])
+        if kind in {"return", "raise", "expr"} and len(stmt) > 1 and isinstance(stmt[1], tuple):
+            expr = stmt[1]
+            if len(expr) > 3 and isinstance(expr[-2], int) and isinstance(expr[-1], int):
+                return int(expr[-2]), int(expr[-1])
+        if kind == "assign" and len(stmt) > 1 and isinstance(stmt[1], tuple):
+            target = stmt[1]
+            if target and target[0] == "var":
+                return (1, 1)
+        return (1, 1)
+
+    def statement_terminates(self, stmt: Any) -> bool:
+        if not isinstance(stmt, tuple):
+            return False
+        kind = stmt[0]
+        if kind in {"return", "raise", "break", "continue"}:
+            return True
+        if kind == "if":
+            return bool(stmt[2]) and bool(stmt[3]) and self.block_terminates(stmt[2]) and self.block_terminates(stmt[3])
+        if kind == "match":
+            cases = stmt[2]
+            return bool(cases) and all(self.block_terminates(case[2]) for case in cases)
+        if kind == "try":
+            return self.block_terminates(stmt[1]) and self.block_terminates(stmt[3])
+        return False
+
+    def block_terminates(self, statements: list[Any]) -> bool:
+        return bool(statements) and self.statement_terminates(statements[-1])
+
     def check_statements(self, statements: list[Any], env: dict[str, Any], expected_return: Any = None) -> None:
+        terminated = False
         for stmt in statements:
+            if terminated:
+                line, col = self.statement_location(stmt)
+                self.warning(
+                    "Unreachable code",
+                    line,
+                    col,
+                    "SPROUT_UNREACHABLE",
+                )
+                continue
             kind = stmt[0]
             if kind == "let":
                 actual = self.infer(stmt[2], env)
@@ -655,6 +780,10 @@ class TypeChecker:
                         f"Return expects {type_name(expected_return)}, got {type_name(actual)}",
                         code="SPROUT_RETURN_TYPE",
                     )
+                terminated = True
+            elif kind == "raise":
+                self.infer(stmt[1], env)
+                terminated = True
             elif kind == "expr":
                 self.infer(stmt[1], env)
             elif kind == "say":
@@ -737,6 +866,8 @@ class TypeChecker:
                         stmt[3],
                         "SPROUT_YIELD_TYPE",
                     )
+            if not terminated and self.statement_terminates(stmt):
+                terminated = True
 
     def apply_narrowing(self, condition: Any, then_env: dict[str, Any], else_env: dict[str, Any]) -> None:
         if not isinstance(condition, tuple) or condition[0] != "is_type":
@@ -805,6 +936,51 @@ class TypeChecker:
     def check_interfaces(self) -> None:
         for klass in self.classes.values():
             type_params = set(klass.type_params)
+            if klass.superclass:
+                parent = self.classes.get(klass.superclass)
+                if parent is None:
+                    self.error(
+                        f"Class '{klass.name}' extends unknown superclass '{klass.superclass}'",
+                        klass.line,
+                        klass.col,
+                        "SPROUT_UNKNOWN_SUPERCLASS",
+                    )
+                else:
+                    for name, actual in klass.methods.items():
+                        parent_method = parent.methods.get(name)
+                        if parent_method is None:
+                            continue
+                        if len(actual.params) != len(parent_method.params):
+                            self.error(
+                                f"Method '{klass.name}.{name}' does not match superclass parameter count",
+                                actual.line,
+                                actual.col,
+                                "SPROUT_OVERRIDE_SIGNATURE",
+                            )
+                            continue
+                        parent_types = parent_method.metadata.get("parameter_types", {})
+                        actual_types = actual.metadata.get("parameter_types", {})
+                        for parent_param, actual_param in zip(parent_method.params, actual.params):
+                            parent_annotation = parent_types.get(parent_param[0])
+                            actual_annotation = actual_types.get(actual_param[0])
+                            if not same_type(parent_annotation or ANY, actual_annotation or ANY):
+                                self.error(
+                                    f"Method '{klass.name}.{name}' parameter '{actual_param[0]}' "
+                                    f"must be {type_name(parent_annotation)}, got {type_name(actual_annotation)}",
+                                    actual.line,
+                                    actual.col,
+                                    "SPROUT_OVERRIDE_SIGNATURE",
+                                )
+                        parent_return = parent_method.metadata.get("return_type")
+                        actual_return = actual.metadata.get("return_type")
+                        if not same_type(parent_return or ANY, actual_return or ANY):
+                            self.error(
+                                f"Method '{klass.name}.{name}' must return {type_name(parent_return)}, "
+                                f"got {type_name(actual_return)}",
+                                actual.line,
+                                actual.col,
+                                "SPROUT_OVERRIDE_SIGNATURE",
+                            )
             for interface_name in klass.interfaces:
                 interface = self.interfaces.get(interface_name)
                 if interface is None:

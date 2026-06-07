@@ -8,6 +8,15 @@ const { createSproutTestController } = require("./test-controller");
 
 let languageClient;
 let interpreterStatus;
+let lspOutputChannel;
+
+const DIAGNOSTIC_DEBOUNCE_MS = 220;
+const DIAGNOSTIC_CLEAR_DEBOUNCE_MS = 120;
+const IMPORT_COMPLETION_CACHE_MS = 10_000;
+const IMPORT_PATH_COMPLETION_CACHE_MS = 1500;
+const IMPORT_ALIAS_DEFAULT_KIND = "sprout";
+const importedModuleSymbolCache = new Map();
+const importPathCandidateCache = new Map();
 
 function findDebugAdapter(context, runner) {
   const candidates = [
@@ -625,6 +634,83 @@ function completion(label, docs, insertText, kind = vscode.CompletionItemKind.Fu
   return item;
 }
 
+function identifierContext(lineText, character) {
+  const text = String(lineText || "");
+  const safeCharacter = Math.max(0, Math.min(Number.isFinite(character) ? character : 0, text.length));
+  let start = safeCharacter;
+  let end = safeCharacter;
+  while (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1])) {
+    start -= 1;
+  }
+  while (end < text.length && /[A-Za-z0-9_]/.test(text[end])) {
+    end += 1;
+  }
+  const word = start < end ? text.slice(start, end) : "";
+  return {
+    word,
+    start,
+    end,
+    insideWord: Boolean(word) && safeCharacter >= start && safeCharacter <= end
+  };
+}
+
+function finalizeCompletionEntries(entries, lineText, character, options = {}) {
+  const deduped = dedupeCompletionEntries(entries);
+  if (options.allowExactWord) {
+    return deduped;
+  }
+  const current = identifierContext(lineText, character);
+  if (!current.insideWord || !current.word) {
+    return deduped;
+  }
+  const filtered = deduped.filter((entry) => entry?.label !== current.word);
+  return filtered.length > 0 ? filtered : deduped;
+}
+
+function importCompletionContext(lineText, character) {
+  const before = lineText.slice(0, character);
+  const rawPrefixMatch = before.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(.*)?$/);
+  if (rawPrefixMatch) {
+    const raw = rawPrefixMatch[1];
+    const trailing = rawPrefixMatch[2] || "";
+    const importLike = new Set([
+      "import",
+      "importpython",
+      "im",
+      "imp",
+      "impo",
+      "impor",
+      "importp",
+      "importpy",
+      "importpyth",
+      "importpytho"
+    ]);
+    if (importLike.has(raw)) {
+      const kind = raw.startsWith("importpython") || raw.startsWith("importpy")
+        ? "importpython"
+        : "import";
+      const stripped = String(trailing).trimStart();
+      const bare = stripped.match(/^([A-Za-z0-9_./-]*)$/);
+      if (bare) {
+        return { kind, prefix: bare[1] || "", quoted: false, partialKeyword: raw !== "import" && raw !== "importpython" };
+      }
+      const quoted = stripped.match(/^"([^"]*)?$/) || stripped.match(/^'([^']*)?$/);
+      if (quoted) {
+        return { kind, prefix: quoted[1] || "", quoted: true, partialKeyword: raw !== "import" && raw !== "importpython" };
+      }
+    }
+  }
+  const bare = before.match(/^\s*(import|importpython)\s+([A-Za-z0-9_./]*)$/);
+  if (bare) {
+    return { kind: bare[1], prefix: bare[2] || "", quoted: false, partialKeyword: false };
+  }
+  const quoted = before.match(/^\s*(import|importpython)\s+"([^"]*)?$/);
+  if (quoted) {
+    return { kind: quoted[1], prefix: quoted[2] || "", quoted: true, partialKeyword: false };
+  }
+  return null;
+}
+
 function findUp(startPath, filename) {
   let current = startPath;
   while (current && current !== path.dirname(current)) {
@@ -715,6 +801,364 @@ function validateRunner(runner) {
 function activeSproutDocument() {
   const document = vscode.window.activeTextEditor?.document;
   return document?.languageId === "sprout" ? document : undefined;
+}
+
+function formatAnalysisStatus(status) {
+  if (!status || typeof status !== "object") return "Sprout analysis status unavailable.";
+  const settings = status.settings || {};
+  const effective = status.effectiveSettings || {};
+  const operations = status.operations || {};
+  const hotOperations = Object.entries(operations)
+    .sort((left, right) => (right[1]?.avgMs || 0) - (left[1]?.avgMs || 0))
+    .slice(0, 4)
+    .map(([name, item]) => `${name}: avg=${item.avgMs ?? 0}ms max=${item.maxMs ?? 0}ms count=${item.count ?? 0}`);
+  return [
+    `root: ${status.root || "(unknown)"}`,
+    `files: ${status.fileCount ?? 0}`,
+    `dependency edges: ${status.dependencyEdges ?? 0}`,
+    `analysis count: ${status.analysisCount ?? 0}`,
+    `cache: hits=${status.cacheHits ?? 0} misses=${status.cacheMisses ?? 0} hit-rate=${((status.cacheHitRate ?? 0) * 100).toFixed(1)}%`,
+    `last build: ${(status.lastBuildReason || "unknown")} -> ${(status.lastBuildTarget || "(unknown)")}`,
+    `timing: build=${status.lastBuildDurationMs ?? 0}ms reindexed=${status.lastReindexedDurationMs ?? 0}ms refresh=${status.lastRefreshImportsMs ?? 0}ms`,
+    `last changed: ${(status.lastChangedPaths || []).join(", ") || "(none)"}`,
+    `last reindexed: ${(status.lastReindexedFiles || []).join(", ") || "(none)"}`,
+    `settings: mode=${settings.typeCheckingMode || "basic"} diagnostic=${settings.diagnosticMode || "workspace"} indexing=${settings.indexing === false ? "off" : "on"} server=${settings.languageServerMode || "default"}`,
+    `effective: diagnostic=${effective.diagnosticMode || "workspace"} indexing=${effective.indexing === false ? "off" : "on"} limit=${effective.userFileIndexingLimit ?? 0} libraryTypes=${effective.useLibraryCodeForTypes === false ? "off" : "on"} server=${effective.languageServerMode || "default"}`,
+    `operations: ${hotOperations.join(" | ") || "(none)"}`
+  ].join("\n");
+}
+
+function usingLanguageServer() {
+  return Boolean(languageClient?.ready || languageClient?.starting);
+}
+
+function diagnosticsEnabled() {
+  return Boolean(vscode.workspace.getConfiguration("sprout").get("diagnostics.enabled"));
+}
+
+function diagnosticsVisible() {
+  return Boolean(vscode.workspace.getConfiguration("sprout").get("diagnostics.visibleSquiggles", true));
+}
+
+function cleanIdentifier(value) {
+  return value.replace(/\W+/g, "").replace(/^\d+/, "");
+}
+
+function extractWorkspaceFolders() {
+  return (vscode.workspace.workspaceFolders || []).map((folder) => folder.uri.fsPath);
+}
+
+function parseImportPath(rawPath) {
+  return String(rawPath || "").trim().replace(/["']/g, "");
+}
+
+function collectImportedAliases(documentText, documentUri) {
+  const aliases = new Map();
+  if (!documentText) return aliases;
+  const documentDir = documentUri?.fsPath ? path.dirname(documentUri.fsPath) : null;
+  for (const line of documentText.split(/\r?\n/)) {
+    const stripped = line.split(/\s+#/, 2)[0];
+    const match = stripped.match(/^\s*(import|importpython)\s+(?:(["'])([^"']+)\2|([^\s]+))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?/);
+    if (!match) continue;
+    const importKind = match[1];
+    const modulePath = parseImportPath(match[3] || match[4] || "");
+    const explicitAlias = match[5];
+    const base = modulePath.split(/[\\/]/).pop().replace(/\.sprout$/, "");
+    const alias = explicitAlias || cleanIdentifier(base);
+    if (!alias || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) continue;
+    aliases.set(alias, {
+      path: modulePath,
+      alias,
+      module: base || alias,
+      pathHint: documentDir ? path.resolve(documentDir, modulePath) : modulePath,
+      kind: importKind,
+      explicit: Boolean(explicitAlias)
+    });
+  }
+  return aliases;
+}
+
+function resolveModuleCandidates(moduleName, documentUri) {
+  const rootPaths = [];
+  const trimmed = parseImportPath(moduleName);
+  if (!trimmed) return rootPaths;
+  const baseDir = documentUri?.fsPath ? path.dirname(documentUri.fsPath) : null;
+
+  const candidates = [];
+  const normalized = trimmed.replace(/\\/g, "/");
+  if (path.isAbsolute(normalized)) {
+    candidates.push(normalized);
+  } else {
+    if (baseDir) {
+      candidates.push(path.join(baseDir, normalized));
+    }
+    for (const folder of extractWorkspaceFolders()) {
+      candidates.push(path.join(folder, normalized));
+      candidates.push(path.join(folder, "src", normalized));
+      candidates.push(path.join(folder, "modules", normalized));
+    }
+    for (const folder of extractWorkspaceFolders()) {
+      const sproutToml = path.join(folder, "sprout.toml");
+      if (fs.existsSync(sproutToml)) {
+        candidates.push(path.join(folder, "build", normalized));
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    const direct = candidate.endsWith(".sprout") ? candidate : `${candidate}.sprout`;
+    const directNoExt = candidate;
+    const addFile = (filePath) => {
+      if (!filePath) return;
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) rootPaths.push(filePath);
+      } catch (_error) {
+        // ignore missing or unreadable files
+      }
+    };
+    addFile(direct);
+    if (directNoExt !== direct) {
+      addFile(directNoExt);
+    }
+  }
+
+  return Array.from(new Set(rootPaths)).filter(Boolean);
+}
+
+function parseImportedModuleSymbols(moduleText) {
+  const names = [];
+  const seen = new Set();
+  for (const line of moduleText.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    let match = trimmed.match(/^def\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    if (match) {
+      const name = match[1];
+      if (!seen.has(name)) {
+        seen.add(name);
+        names.push([name, "Imported Sprout function", `${name}($\{1:value\})`]);
+      }
+      continue;
+    }
+    match = trimmed.match(/^class\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    if (match) {
+      const name = match[1];
+      if (!seen.has(name)) {
+        seen.add(name);
+        names.push([name, "Imported Sprout class", `${name}`]);
+      }
+      continue;
+    }
+    match = trimmed.match(/^(?:let\s+|sprout\s+|const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\b)/);
+    if (match && !/^(?:if|elif|else|for|while|def|class|import|importpython|return|break|continue)$/.test(match[1])) {
+      const name = match[1];
+      if (!seen.has(name)) {
+        seen.add(name);
+        names.push([name, "Imported Sprout symbol", name]);
+      }
+    }
+  }
+  return names;
+}
+
+async function resolveImportedModuleSymbols(filePaths, documentUri) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) return [];
+  const allSymbols = [];
+  for (const filePath of filePaths) {
+    if (!filePath) continue;
+    try {
+      const stat = fs.statSync(filePath);
+      const cacheEntry = importedModuleSymbolCache.get(filePath);
+      if (cacheEntry && cacheEntry.mtimeMs === stat.mtimeMs) {
+        allSymbols.push(...cacheEntry.symbols);
+        continue;
+      }
+      const text = fs.readFileSync(filePath, "utf8");
+      const symbols = parseImportedModuleSymbols(text);
+      importedModuleSymbolCache.set(filePath, {
+        mtimeMs: stat.mtimeMs,
+        expiresAt: Date.now() + IMPORT_COMPLETION_CACHE_MS,
+        symbols,
+        uri: filePath
+      });
+      allSymbols.push(...symbols);
+    } catch (_error) {
+      continue;
+    }
+  }
+  return allSymbols;
+}
+
+function collectImportPathCandidates(basePaths, prefix) {
+  const raw = String(prefix || "").replace(/\\/g, "/");
+  const normalizedBasePaths = Array.from(new Set(basePaths.map((item) => path.resolve(item)))).sort();
+  const cacheKey = `${raw}|${normalizedBasePaths.join("|")}`;
+  const cached = importPathCandidateCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.names;
+  }
+  const normalized = raw.startsWith("/") ? raw.slice(1) : raw;
+  const parts = normalized.split("/").filter(Boolean);
+  const baseName = parts.length ? parts[parts.length - 1] : "";
+  const parentPath = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+  const candidates = [];
+
+  for (const base of normalizedBasePaths) {
+    const cwd = parentPath ? path.join(base, parentPath) : base;
+    let stat;
+    try {
+      stat = fs.statSync(cwd);
+    } catch (_error) {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    let entries;
+    try {
+      entries = fs.readdirSync(cwd, { withFileTypes: true });
+    } catch (_error) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith(".") || entry.name === "__pycache__") continue;
+        if (!baseName || entry.name.startsWith(baseName)) {
+          const candidate = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+          candidates.push(candidate);
+        }
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith(".sprout")) continue;
+      const stem = entry.name.slice(0, -7);
+      if (!baseName || stem.startsWith(baseName)) {
+        const candidate = parentPath ? `${parentPath}/${stem}` : stem;
+        candidates.push(candidate);
+      }
+    }
+  }
+  const names = Array.from(new Set(candidates))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 120);
+  importPathCandidateCache.set(cacheKey, {
+    names,
+    expiresAt: Date.now() + IMPORT_PATH_COMPLETION_CACHE_MS
+  });
+  return names;
+}
+
+function collectImportCompletions(documentUri, importContext) {
+  const prefix = importContext?.prefix || "";
+  const workspaceRoots = extractWorkspaceFolders();
+  const docDir = documentUri?.fsPath ? path.dirname(documentUri.fsPath) : null;
+  const basePaths = [];
+  if (docDir) basePaths.push(docDir, path.join(docDir, "src"), path.join(docDir, "modules"));
+  for (const root of workspaceRoots) {
+    basePaths.push(root);
+    basePaths.push(path.join(root, "src"));
+    basePaths.push(path.join(root, "modules"));
+  }
+
+  const uniqueBasePaths = Array.from(new Set(basePaths.map((item) => path.resolve(item)))).filter((item) => {
+    try {
+      return fs.statSync(item).isDirectory();
+    } catch (_error) {
+      return false;
+    }
+  });
+
+  const names = collectImportPathCandidates(uniqueBasePaths, prefix);
+  return names
+    .filter((candidate) => !prefix || candidate.startsWith(prefix))
+    .map((candidate) => {
+      const item = completion(candidate, "Sprout module path", candidate, vscode.CompletionItemKind.Module);
+      if (importContext?.quoted) {
+        item.insertText = candidate.replace(/^\"|\"$/g, "");
+      } else {
+        item.insertText = candidate;
+      }
+      return item;
+    });
+}
+
+function cleanupImportSymbolCache() {
+  const now = Date.now();
+  for (const [key, value] of importedModuleSymbolCache.entries()) {
+    if (value.expiresAt && value.expiresAt < now) {
+      importedModuleSymbolCache.delete(key);
+    }
+  }
+}
+
+async function importAliasCompletions(alias, documentText, documentUri) {
+  const aliasName = String(alias || "").trim();
+  if (!aliasName) return [];
+  const moduleAliasMap = {
+    engine3d: completeEngineEntries,
+    s3d: completeEngineEntries,
+    starbloom3d: completeStarBloomEntries,
+    star: completeStarBloomEntries,
+    p3d: completePandaEntries,
+    panda3d: completePandaEntries,
+    panda3d_window: completePandaEntries,
+    window2d: completeWindow2dEntries,
+    w2d: completeWindow2dEntries,
+    pixelgarden: completePixelGardenEntries,
+    pix: completePixelGardenEntries,
+    geom2d: completeGeometryEntries,
+    g2d: completeGeometryEntries,
+    canvas2d: completeCanvasEntries,
+    c2d: completeCanvasEntries,
+    gamekit: completeGameEntries,
+    game: completeGameEntries,
+    engineering: completeEngineeringEntries,
+    eng: completeEngineeringEntries,
+    appgame: completeAppGameEntries,
+    app: completeAppGameEntries,
+    engine: completeEngineEntries,
+    s2d: completeGeometryEntries
+  };
+  const aliases = collectImportedAliases(documentText, documentUri);
+  const info = aliases.get(aliasName);
+  if (!info) return [];
+
+  const entries = moduleAliasMap[info.module] || moduleAliasMap[info.alias];
+  if (entries) {
+    return entries.map(([label, docs, insert]) => completion(label, docs, insert));
+  }
+
+  if (info.kind === "importpython") {
+    return [];
+  }
+
+  cleanupImportSymbolCache();
+  const candidates = resolveModuleCandidates(info.path, documentUri);
+  if (candidates.length === 0) return [];
+  const symbols = await resolveImportedModuleSymbols(candidates, documentUri);
+  if (!symbols.length) return [];
+
+  const seen = new Set();
+  return symbols
+    .filter(([name]) => {
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    })
+    .map(([name, docs, insert]) => completion(name, docs || `From ${info.module}.`, insert));
+
+}
+
+function dedupeCompletionEntries(entries) {
+  const seen = new Set();
+  const merged = [];
+  for (const entry of entries) {
+    if (!entry?.label) continue;
+    const key = `${entry.kind || ""}:${entry.label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+  return merged;
+
 }
 
 async function updateInterpreterStatus(context) {
@@ -845,36 +1289,198 @@ async function runCurrentFile(context) {
   );
 }
 
+function normalizeLineColumn(document, line, column) {
+  const lineCount = document.lineCount;
+  const safeLine = Math.max(0, Math.min(lineCount - 1, Number.isFinite(line) ? Math.floor(line) : 0));
+  const lineText = document.lineAt(safeLine).text;
+  let safeColumn = Number.isFinite(column) ? Math.floor(column) : 0;
+  safeColumn = Math.max(0, Math.min(safeColumn, lineText.length));
+  return { line: safeLine, column: safeColumn, lineText };
+}
+
+function inferDiagnosticRange(document, line, character) {
+  const normalized = normalizeLineColumn(document, line, character);
+  const { line: safeLine, column, lineText } = normalized;
+  if (lineText.length === 0) {
+    return new vscode.Range(safeLine, 0, safeLine, 0);
+  }
+  const before = lineText.slice(0, Math.max(0, column));
+  const after = lineText.slice(Math.max(0, column));
+  let start = Math.max(0, Math.min(column, lineText.length - 1));
+  const beforeMatch = before.match(/([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (beforeMatch) {
+    start = before.length - beforeMatch[1].length;
+  } else if (/^[A-Za-z_][A-Za-z0-9_]*/.test(after)) {
+    start = column;
+  }
+  const first = lineText[start] || "";
+  let length = 1;
+  if (/[A-Za-z_]/.test(first)) {
+    let end = start + 1;
+    while (end < lineText.length && /[A-Za-z0-9_]/.test(lineText[end])) {
+      end += 1;
+    }
+    length = Math.max(1, end - start);
+  }
+  return new vscode.Range(safeLine, start, safeLine, Math.min(lineText.length, start + length));
+}
+
+function dedupeDiagnostics(items) {
+  const seen = new Set();
+  const deduped = [];
+  for (const item of items) {
+    if (!item || !item.range) continue;
+    const key = [
+      item.range.start.line,
+      item.range.start.character,
+      item.range.end.line,
+      item.range.end.character,
+      item.severity,
+      item.code || "",
+      item.message || "",
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function mergeDiagnostics(items) {
+  const bucket = new Map();
+  for (const item of items) {
+    if (!item || !item.range) continue;
+    const key = [
+      item.range.start.line,
+      item.range.start.character,
+      item.range.end.line,
+      item.range.end.character,
+      item.severity,
+      item.code
+    ].join("|");
+    const existing = bucket.get(key);
+    if (!existing) {
+      bucket.set(key, item);
+      continue;
+    }
+    if (item.severity === vscode.DiagnosticSeverity.Error && existing.severity !== vscode.DiagnosticSeverity.Error) {
+      bucket.set(key, item);
+      continue;
+    }
+    if (item.message && existing.message !== item.message) {
+      existing.message = `${existing.message} • ${item.message}`;
+    }
+    if (Array.isArray(existing.tags) && item.tags) {
+      existing.tags = Array.from(new Set(existing.tags.concat(item.tags)));
+    }
+  }
+  return Array.from(bucket.values());
+}
+
 function diagnosticFromOutput(text, document) {
   const message = text.replace(/^error:\s*/, "").trim() || "Sprout check failed";
-  const match = message.match(/ at (\d+):(\d+)$/);
-  let line = 0;
-  let character = 0;
-  if (match) {
-    line = Math.max(0, Number(match[1]) - 1);
-    character = Math.max(0, Number(match[2]) - 1);
-  }
-  const lineText = document.lineAt(Math.min(line, document.lineCount - 1)).text;
-  const end = Math.min(lineText.length, character + 1);
-  const range = new vscode.Range(line, character, line, end);
+  const match = message.match(/ at (\d+):(\d+)(?:\s|$)/) || message.match(/line (\d+),\s*col (\d+)/i);
+  const line = match ? Math.max(0, Number(match[1]) - 1) : 0;
+  const character = match ? Math.max(0, Number(match[2]) - 1) : 0;
+  const range = inferDiagnosticRange(document, line, character);
   return new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
 }
 
 function diagnosticFromJson(item, document) {
-  const line = Math.max(0, Number(item.line || 1) - 1);
-  const character = Math.max(0, Number(item.col || 1) - 1);
-  const lineText = document.lineAt(Math.min(line, document.lineCount - 1)).text;
-  const end = Math.min(lineText.length, character + 1);
-  const severity = item.severity === "warning" ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error;
-  const diagnostic = new vscode.Diagnostic(new vscode.Range(line, character, line, end), item.message || "Sprout diagnostic", severity);
+  let range = null;
+  if (item?.range?.start && item?.range?.end) {
+    const start = normalizeLineColumn(
+      document,
+      Number(item.range.start.line || 0),
+      Number(item.range.start.character || 0)
+    );
+    const end = normalizeLineColumn(
+      document,
+      Number(item.range.end.line || 0),
+      Number(item.range.end.character || 0)
+    );
+    range = new vscode.Range(start.line, start.column, end.line, end.column);
+  } else {
+    const line = Math.max(0, Number(item.line || 1) - 1);
+    const character = Math.max(0, Number(item.col || 1) - 1);
+    range = inferDiagnosticRange(document, line, character);
+  }
+  if (range.end.line === range.start.line && range.end.character <= range.start.character) {
+    let lineText = "";
+    try {
+      lineText = document.lineAt(range.start.line).text;
+    } catch (_error) {
+      return null;
+    }
+    if (lineText.length === 0) {
+      return null;
+    }
+    const startCharacter = Math.max(0, Math.min(range.start.character, lineText.length - 1));
+    range = new vscode.Range(
+      range.start.line,
+      startCharacter,
+      range.start.line,
+      Math.min(lineText.length, startCharacter + 1)
+    );
+  }
+  const severity = ({
+    error: vscode.DiagnosticSeverity.Error,
+    warning: vscode.DiagnosticSeverity.Warning,
+    information: vscode.DiagnosticSeverity.Information,
+    hint: vscode.DiagnosticSeverity.Hint
+  })[item.severity] || vscode.DiagnosticSeverity.Warning;
+  const diagnostic = new vscode.Diagnostic(range, item.message || "Sprout diagnostic", severity);
   diagnostic.code = item.code;
   diagnostic.source = "sprout";
+  diagnostic.data = item.data || {};
+  diagnostic.tags = (item.tags || []).map((tag) => {
+    if (tag === 1 || tag === "unnecessary") return vscode.DiagnosticTag.Unnecessary;
+    if (tag === 2 || tag === "deprecated") return vscode.DiagnosticTag.Deprecated;
+    return undefined;
+  }).filter(Boolean);
   return diagnostic;
+}
+
+function fallbackQuickFixes(document, diagnostics) {
+  const actions = [];
+  for (const diagnostic of diagnostics) {
+    const replacement = diagnostic.data?.replacement || diagnostic.data?.suggestion;
+    let title;
+    let range = diagnostic.range;
+    let newText = replacement;
+    if (replacement && ["SPROUT_UNKNOWN_NAME", "SPROUT_UNKNOWN_MEMBER", "SPROUT_IMPORT"].includes(String(diagnostic.code))) {
+      title = `Replace with '${replacement}'`;
+    } else if (diagnostic.code === "SPROUT_UNUSED_IMPORT") {
+      title = "Remove unused import";
+      const line = diagnostic.range.start.line;
+      range = line + 1 < document.lineCount
+        ? new vscode.Range(line, 0, line + 1, 0)
+        : new vscode.Range(line, 0, line, document.lineAt(line).text.length);
+      newText = "";
+    } else if (diagnostic.code === "SPROUT_UNUSED_NAME" || diagnostic.code === "SPROUT_UNUSED_PARAMETER") {
+      const wordRange = document.getWordRangeAtPosition(diagnostic.range.start);
+      const word = wordRange ? document.getText(wordRange) : "";
+      if (word && !word.startsWith("_")) {
+        title = `Rename unused ${diagnostic.code === "SPROUT_UNUSED_PARAMETER" ? "parameter" : "name"} to _${word}`;
+        range = wordRange;
+        newText = `_${word}`;
+      }
+    }
+    if (!title || newText === undefined) continue;
+    const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+    action.isPreferred = Boolean(replacement);
+    action.diagnostics = [diagnostic];
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(document.uri, range, String(newText));
+    action.edit = edit;
+    actions.push(action);
+  }
+  return actions;
 }
 
 function rangeForMatch(document, line, start, length) {
   const lineText = document.lineAt(line).text;
-  const safeStart = Math.min(start, lineText.length);
+  const safeStart = Math.max(0, Math.min(start, lineText.length));
   const safeEnd = Math.min(lineText.length, safeStart + Math.max(1, length));
   return new vscode.Range(line, safeStart, line, safeEnd);
 }
@@ -915,15 +1521,23 @@ function styleDiagnostics(document) {
   return warnings;
 }
 
-function checkDocument(context, diagnostics, document) {
+  function checkDocument(context, diagnostics, document) {
   if (document.languageId !== "sprout") return;
-  if (!vscode.workspace.getConfiguration("sprout").get("diagnostics.enabled")) {
+  if (usingLanguageServer()) return;
+  if (!document.getText().trim()) {
+    lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback diagnostics cleared for blank document ${document.uri.toString()}`);
     diagnostics.delete(document.uri);
     return;
   }
+  if (!diagnosticsEnabled() || !diagnosticsVisible()) {
+    diagnostics.delete(document.uri);
+    return;
+  }
+  const requestedVersion = document.version;
 
   const runner = findRunner(context, document);
   if (!runner) {
+    lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback diagnostics: no runner found for ${document.uri.toString()}`);
     diagnostics.set(document.uri, [
       new vscode.Diagnostic(
         new vscode.Range(0, 0, 0, 1),
@@ -942,8 +1556,32 @@ function checkDocument(context, diagnostics, document) {
       return;
     }
 
-    childProcess.execFile(pythonPath, [runner, "check", tempPath, "--json"], { timeout: 5000 }, (error, stdout, stderr) => {
+    const targetPath = document.uri.scheme === "file" ? document.uri.fsPath : tempPath;
+    const args = [
+      runner,
+      "intel",
+      targetPath,
+      "--kind",
+      "diagnostics",
+      "--line",
+      "1",
+      "--col",
+      "1",
+      "--source",
+      tempPath
+    ];
+
+    childProcess.execFile(pythonPath, args, { timeout: 5000 }, (error, stdout, stderr) => {
       fs.unlink(tempPath, () => {});
+      if (document.version !== requestedVersion) {
+        lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Ignored stale fallback diagnostics for ${document.uri.toString()} requested=${requestedVersion} editor=${document.version}`);
+        return;
+      }
+      if (!document.getText().trim()) {
+        lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback diagnostics cleared after document became blank ${document.uri.toString()}`);
+        diagnostics.delete(document.uri);
+        return;
+      }
       let parsed;
       try {
         parsed = JSON.parse(stdout || "{}");
@@ -951,22 +1589,29 @@ function checkDocument(context, diagnostics, document) {
         parsed = undefined;
       }
       if (parsed && Array.isArray(parsed.diagnostics)) {
-        const parsedDiagnostics = parsed.diagnostics.map((diag) => diagnosticFromJson(diag, document));
-        const warnings = styleDiagnostics(document);
-        const allDiagnostics = parsedDiagnostics.concat(error ? [] : warnings);
+        const typoChecking = vscode.workspace.getConfiguration("sprout").get("diagnostics.typoChecking", true);
+        const parsedDiagnostics = mergeDiagnostics(dedupeDiagnostics(parsed.diagnostics
+          .filter((diag) => typoChecking || !(diag.data || {}).suggestion)
+          .map((diag) => diagnosticFromJson(diag, document))
+          .filter(Boolean)));
+        const warnings = diagnosticsEnabled() && diagnosticsVisible() ? styleDiagnostics(document) : [];
+        const allDiagnostics = mergeDiagnostics(dedupeDiagnostics(parsedDiagnostics.concat(warnings)));
         if (allDiagnostics.length > 0) {
           diagnostics.set(document.uri, allDiagnostics);
         } else {
           diagnostics.delete(document.uri);
         }
+        lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback diagnostics for ${document.uri.toString()}: ${allDiagnostics.length}`);
         return;
       }
       if (!error) {
-        const warnings = styleDiagnostics(document);
-        if (warnings.length > 0) diagnostics.set(document.uri, warnings);
+        const warningDiagnostics = styleDiagnostics(document);
+        if (warningDiagnostics.length > 0) diagnostics.set(document.uri, mergeDiagnostics(warningDiagnostics));
         else diagnostics.delete(document.uri);
+        lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback style diagnostics for ${document.uri.toString()}: ${warningDiagnostics.length}`);
         return;
       }
+      lspOutputChannel?.appendLine(`[${new Date().toISOString()}] Fallback diagnostic command failed for ${document.uri.toString()}: ${String(stderr || stdout || error).trim()}`);
       diagnostics.set(document.uri, [diagnosticFromOutput(stderr || stdout || String(error), document)]);
     });
   });
@@ -994,16 +1639,12 @@ function runIntelQuery(context, document, position, kind) {
             ok: true,
             items: items.map((item) => ({
               name: item.label,
-              kind: ({
-                2: "method",
-                3: "function",
-                5: "field",
-                6: "variable",
-                7: "class",
-                9: "module"
-              })[item.kind] || "variable",
+              kind: semanticKindNameFromLsp(item.kind),
               signature: item.detail,
+              detail: item.detail,
               qualifiedName: item.label,
+              insertText: item.insertText,
+              insertTextFormat: item.insertTextFormat,
               documentation: typeof item.documentation === "string"
                 ? item.documentation
                 : item.documentation?.value || ""
@@ -1063,6 +1704,7 @@ function runIntelQuery(context, document, position, kind) {
 
 function semanticKind(kind) {
   const map = {
+    "keyword": vscode.CompletionItemKind.Keyword,
     "function": vscode.CompletionItemKind.Function,
     "builtin": vscode.CompletionItemKind.Function,
     "method": vscode.CompletionItemKind.Method,
@@ -1079,10 +1721,33 @@ function semanticKind(kind) {
   return map[kind] || vscode.CompletionItemKind.Variable;
 }
 
+function semanticKindNameFromLsp(kind) {
+  const map = {
+    2: "method",
+    3: "function",
+    5: "field",
+    6: "variable",
+    7: "class",
+    8: "interface",
+    9: "module",
+    10: "field",
+    13: "enum",
+    14: "keyword",
+    20: "enum-member",
+    25: "type"
+  };
+  return map[kind] || "variable";
+}
+
 function semanticCompletion(symbol) {
   const item = new vscode.CompletionItem(symbol.name, semanticKind(symbol.kind));
-  item.detail = symbol.signature || symbol.qualifiedName || `Sprout ${symbol.kind}`;
+  item.detail = symbol.signature || symbol.detail || symbol.qualifiedName || `Sprout ${symbol.kind}`;
   item.documentation = new vscode.MarkdownString(symbol.documentation || `Sprout ${symbol.kind}.`);
+  if (symbol.insertText) {
+    item.insertText = symbol.insertTextFormat === 2
+      ? new vscode.SnippetString(symbol.insertText)
+      : symbol.insertText;
+  }
   if ((symbol.kind === "function" || symbol.kind === "builtin" || symbol.kind === "method") && symbol.signature) {
     item.insertText = new vscode.SnippetString(`${symbol.name}($1)`);
   }
@@ -1279,17 +1944,97 @@ async function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("sprout");
   const timers = new Map();
   const runner = findRunner(context);
+  lspOutputChannel = vscode.window.createOutputChannel("Sprout Language Server");
+  lspOutputChannel.appendLine(`[${new Date().toISOString()}] Sprout extension activating`);
   interpreterStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   interpreterStatus.command = "sprout.selectInterpreter";
   interpreterStatus.name = "Sprout Interpreter";
   context.subscriptions.push(
     interpreterStatus,
+    lspOutputChannel,
     vscode.commands.registerCommand("sprout.selectInterpreter", () => selectInterpreter(context)),
     vscode.commands.registerCommand("sprout.runCurrentFile", () => runCurrentFile(context)),
-    vscode.window.onDidChangeActiveTextEditor(() => updateInterpreterStatus(context)),
+    vscode.commands.registerCommand("sprout.showLanguageServerOutput", () => lspOutputChannel.show()),
+    vscode.commands.registerCommand("sprout.restartLanguageServer", async () => {
+      lspOutputChannel.show(true);
+      lspOutputChannel.appendLine(`[${new Date().toISOString()}] Restart requested`);
+      if (languageClient) {
+        await languageClient.stop();
+        languageClient = undefined;
+      }
+      const currentRunner = findRunner(context, activeSproutDocument());
+      const lspEnabledNow = vscode.workspace.getConfiguration("sprout").get("languageServer.enabled");
+      if (!currentRunner || lspEnabledNow === false) {
+        lspOutputChannel.appendLine(`[${new Date().toISOString()}] Restart skipped: ${currentRunner ? "language server disabled" : "no Sprout interpreter found"}`);
+        for (const document of vscode.workspace.textDocuments) scheduleCheck(document, { forceFallback: true });
+        return;
+      }
+      const client = new SproutLanguageClient(
+        vscode,
+        pythonExecutable(),
+        currentRunner,
+        context.extensionPath,
+        diagnostics,
+        lspOutputChannel
+      );
+      try {
+      if (await client.start()) {
+          languageClient = client;
+          diagnostics.clear();
+          for (const document of vscode.workspace.textDocuments) client.open(document);
+        }
+      } catch (error) {
+        lspOutputChannel.appendLine(`[${new Date().toISOString()}] Restart failed; using fallback providers: ${error}`);
+      }
+    }),
+    vscode.commands.registerCommand("sprout.showAnalysisStatus", async () => {
+      const document = activeSproutDocument();
+      if (!languageClient?.ready) {
+        vscode.window.showWarningMessage("Sprout language server is not running.");
+        return;
+      }
+      try {
+        const status = await languageClient.analysisStatus(document);
+        lspOutputChannel.show(true);
+        lspOutputChannel.appendLine(`[${new Date().toISOString()}] Analysis status requested`);
+        lspOutputChannel.appendLine(formatAnalysisStatus(status));
+        vscode.window.showInformationMessage("Sprout analysis status written to the Sprout Language Server output.");
+      } catch (error) {
+        vscode.window.showErrorMessage(`Sprout analysis status failed: ${error.message || error}`);
+      }
+    }),
+    vscode.commands.registerCommand("sprout.rebuildWorkspaceIndex", async () => {
+      const document = activeSproutDocument();
+      if (!languageClient?.ready) {
+        vscode.window.showWarningMessage("Sprout language server is not running.");
+        return;
+      }
+      try {
+        const status = await languageClient.rebuildWorkspaceIndex(document);
+        lspOutputChannel.show(true);
+        lspOutputChannel.appendLine(`[${new Date().toISOString()}] Workspace index rebuild requested`);
+        lspOutputChannel.appendLine(formatAnalysisStatus(status));
+        vscode.window.showInformationMessage(`Sprout rebuilt ${status?.lastReindexedFiles?.length || 0} indexed files.`);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Sprout workspace rebuild failed: ${error.message || error}`);
+      }
+    }),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      updateInterpreterStatus(context);
+      ensureVisibleSproutDiagnostics();
+    }),
+    vscode.window.onDidChangeVisibleTextEditors(() => ensureVisibleSproutDiagnostics()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("sprout.runnerPath") || event.affectsConfiguration("sprout.pythonPath")) {
         updateInterpreterStatus(context);
+      }
+      if (
+        event.affectsConfiguration("sprout.diagnostics")
+        || event.affectsConfiguration("sprout.analysis")
+      ) {
+        languageClient?.configure();
+        for (const document of vscode.workspace.textDocuments) scheduleCheck(document);
+        ensureVisibleSproutDiagnostics();
       }
     })
   );
@@ -1297,16 +2042,26 @@ async function activate(context) {
   await createSproutTestController(vscode, context, runner, pythonExecutable());
   const lspEnabled = vscode.workspace.getConfiguration("sprout").get("languageServer.enabled");
   if (runner && lspEnabled !== false) {
-    const client = new SproutLanguageClient(vscode, pythonExecutable(), runner, context.extensionPath, diagnostics);
+    const client = new SproutLanguageClient(
+      vscode,
+      pythonExecutable(),
+      runner,
+      context.extensionPath,
+      diagnostics,
+      lspOutputChannel
+    );
     try {
       if (await client.start()) {
         languageClient = client;
+        diagnostics.clear();
         context.subscriptions.push({ dispose: () => client.stop() });
         for (const document of vscode.workspace.textDocuments) client.open(document);
       }
     } catch (error) {
-      console.warn(`[Sprout LSP] Falling back to command-based tooling: ${error}`);
+      lspOutputChannel.appendLine(`[${new Date().toISOString()}] Falling back to command-based tooling: ${error}`);
     }
+  } else {
+    lspOutputChannel.appendLine(`[${new Date().toISOString()}] Language server not started: ${runner ? "disabled by setting" : "no runner found"}`);
   }
 
   const debugAdapter = findDebugAdapter(context, runner);
@@ -1338,62 +2093,143 @@ async function activate(context) {
     );
   }
 
-  function scheduleCheck(document) {
+  function scheduleCheck(document, options = {}) {
     if (document.languageId !== "sprout") return;
-    if (languageClient?.ready) return;
+    if (usingLanguageServer() && !options.forceFallback) return;
     const key = document.uri.toString();
     clearTimeout(timers.get(key));
-    timers.set(key, setTimeout(() => checkDocument(context, diagnostics, document), 350));
+    timers.set(key, setTimeout(() => {
+      checkDocument(
+        context,
+        diagnostics,
+        document
+      );
+    }, DIAGNOSTIC_DEBOUNCE_MS));
+  }
+
+  function ensureVisibleSproutDiagnostics() {
+    const diagEnabled = diagnosticsEnabled();
+    const visible = diagnosticsVisible();
+    for (const editor of vscode.window.visibleTextEditors) {
+      const document = editor.document;
+      if (document.languageId !== "sprout") continue;
+      languageClient?.open(document);
+      if (!diagEnabled || !visible) {
+        diagnostics.delete(document.uri);
+        clearTimeout(timers.get(document.uri.toString()));
+        continue;
+      }
+      if (!document.getText().trim()) {
+        diagnostics.delete(document.uri);
+        clearTimeout(timers.get(document.uri.toString()));
+      } else if (!usingLanguageServer() && (diagnostics.get(document.uri) || []).length === 0) {
+        scheduleCheck(document, { forceFallback: true });
+      }
+    }
   }
 
   const provider = vscode.languages.registerCompletionItemProvider(
     "sprout",
     {
-      provideCompletionItems(document, position) {
-        return runIntelQuery(context, document, position, "completions").then((semantic) => {
-          if (semantic && Array.isArray(semantic.items) && semantic.items.length > 0) {
-            return semantic.items.map(semanticCompletion);
-          }
+      async provideCompletionItems(document, position, _token, context) {
+        const lineText = document.lineAt(position).text;
+        const before = lineText.slice(0, position.character);
+        const trigger = context?.triggerCharacter;
+        const importContext = importCompletionContext(lineText, position.character);
+        const usingLsp = Boolean(languageClient?.ready);
+        const previousChar = before.slice(-1);
+        const isAfterImportDot = before.endsWith(".");
+        const aliasMatch = isAfterImportDot ? before.match(/([A-Za-z_][A-Za-z0-9_]*)\.\s*$/) : null;
+        const shouldSkipSpace = trigger === " " && !importContext && !isAfterImportDot && previousChar.trim().length === 0;
+        if (shouldSkipSpace) {
+          return [];
+        }
 
-        const before = document.lineAt(position).text.slice(0, position.character);
+        if (importContext) {
+          const contextCompletions = collectImportCompletions(document.uri, importContext);
+          const aliases = collectImportedAliases(document.getText(), document.uri);
+          const aliasCompletions = Array.from(aliases.keys())
+            .filter((alias) => alias.startsWith(importContext.prefix))
+            .map((alias) => completion(alias, `Imported module alias`, alias, vscode.CompletionItemKind.Variable));
+          if (contextCompletions.length === 0 && aliasCompletions.length === 0 && usingLsp) {
+            return [];
+          }
+          return finalizeCompletionEntries(contextCompletions.concat(aliasCompletions), lineText, position.character, { allowExactWord: true });
+        }
+
+        if (isAfterImportDot) {
+          const imported = aliasMatch ? await importAliasCompletions(aliasMatch[1], document.getText(), document.uri) : null;
+          if (imported && imported.length > 0) {
+            let lspItems = [];
+            if (usingLsp) {
+              const semantic = await runIntelQuery(context, document, position, "completions");
+              lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
+            }
+            return finalizeCompletionEntries(imported.concat(lspItems), lineText, position.character, { allowExactWord: true });
+          }
+          if (aliasMatch) {
+            if (!usingLsp) {
+              return [];
+            }
+            const semantic = await runIntelQuery(context, document, position, "completions");
+            const lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
+            return finalizeCompletionEntries(lspItems, lineText, position.character, { allowExactWord: true });
+          }
+          if (usingLsp) {
+            return [];
+          }
+        }
+
+        let lspItems = [];
+        if (usingLsp) {
+          const semantic = await runIntelQuery(context, document, position, "completions");
+          lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
+        }
+
+        if (lspItems.length > 0) {
+          return finalizeCompletionEntries(lspItems, lineText, position.character);
+        }
+        if (usingLsp) {
+          return [];
+        }
+
         if (before.endsWith("s3d.")) {
-          return completeEngineEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeEngineEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("star.")) {
-          return completeStarBloomEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeStarBloomEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("g2d.")) {
-          return completeGeometryEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeGeometryEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("c2d.")) {
-          return completeCanvasEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeCanvasEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("pix.")) {
-          return completePixelGardenEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completePixelGardenEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("w2d.")) {
-          return completeWindow2dEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeWindow2dEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("p3d.")) {
-          return completePandaEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completePandaEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("game.")) {
-          return completeGameEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeGameEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("eng.")) {
-          return completeEngineeringEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeEngineeringEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
         if (before.endsWith("app.")) {
-          return completeAppGameEntries.map(([label, docs, insert]) => completion(label, docs, insert));
+          return finalizeCompletionEntries(completeAppGameEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
-        if (before.endsWith(".")) {
-          return methodEntries.map(([label, docs, insert]) => completion(label, docs, insert, vscode.CompletionItemKind.Method));
-        }
-        return completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind));
-        });
+          return finalizeCompletionEntries(completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)), lineText, position.character);
       }
     },
-    "."
+    ".",
+    " ",
+    "\"",
+    "/"
   );
 
   const hover = vscode.languages.registerHoverProvider("sprout", {
@@ -1547,7 +2383,7 @@ async function activate(context) {
     "sprout",
     {
       provideCodeActions(document, range, context, token) {
-        if (!languageClient?.ready) return [];
+        if (!languageClient?.ready) return fallbackQuickFixes(document, context.diagnostics);
         const diagnosticsPayload = context.diagnostics.map((diagnostic) => ({
           range: {
             start: { line: diagnostic.range.start.line, character: diagnostic.range.start.character },
@@ -1556,7 +2392,8 @@ async function activate(context) {
           severity: diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 2 : 1,
           code: diagnostic.code,
           source: diagnostic.source || "sprout",
-          message: diagnostic.message
+          message: diagnostic.message,
+          data: diagnostic.data || {}
         }));
         return languageClient.request("textDocument/codeAction", {
           textDocument: { uri: document.uri.toString() },
@@ -1616,15 +2453,25 @@ async function activate(context) {
     diagnostics,
     vscode.workspace.onDidOpenTextDocument((document) => {
       languageClient?.open(document);
-      scheduleCheck(document);
+      if (!usingLanguageServer()) {
+        scheduleCheck(document);
+      }
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       languageClient?.save(document);
-      scheduleCheck(document);
+      if (!usingLanguageServer()) {
+        scheduleCheck(document);
+      }
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       languageClient?.change(event);
-      scheduleCheck(event.document);
+      if (event.document.languageId === "sprout") {
+        clearTimeout(timers.get(event.document.uri.toString()));
+        if (!usingLanguageServer()) {
+          scheduleCheck(event.document);
+        }
+        return;
+      }
     }),
     vscode.workspace.onDidCloseTextDocument((document) => {
       languageClient?.close(document);
@@ -1633,7 +2480,9 @@ async function activate(context) {
   );
 
   for (const document of vscode.workspace.textDocuments) {
-    scheduleCheck(document);
+    if (!usingLanguageServer()) {
+      scheduleCheck(document);
+    }
   }
 }
 
