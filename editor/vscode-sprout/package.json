@@ -63,6 +63,18 @@
         "title": "Rebuild Workspace Index",
         "category": "Sprout",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sprout.smartEnter",
+        "title": "Smart Enter",
+        "category": "Sprout"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sprout.smartEnter",
+        "key": "enter",
+        "when": "editorTextFocus && editorLangId == sprout && !editorReadonly && !suggestWidgetVisible && !inSnippetMode && !renameInputVisible"
       }
     ],
     "menus": {

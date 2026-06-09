@@ -1,0 +1,41 @@
+def hello(times):
+  for i in range(times):
+    say "Hello"
+
+k = 3
+
+def classify(times):
+  if times < 0:
+    return "Negative times not allowed"
+  elif times == 0:
+    return "Hello!"
+  else:
+    return "Hello! " * times
+
+value = classify(2)
+
+def garden(times) bloom
+  if times > 0 bloom
+    say times
+  end
+end
+
+garden_value = 1
+
+def braces(times) {
+  if times > 0 {
+    say times
+  }
+}
+
+brace_value = 2
+
+# comment between blocks
+
+def mixed(times):
+  if times > 1:
+    say "many"
+
+  say "done"
+
+after_mixed = 4

@@ -132,7 +132,7 @@ def test_cross_module_types_unions_and_narrowing() -> None:
         assert payload["diagnostics"] == []
         assert_parity(main, ["4 3"])
 
-        main.write_text(main.read_text(encoding="utf-8") + "models.make(true)\n", encoding="utf-8")
+        main.write_text(main.read_text(encoding="utf-8") + "models.make(True)\n", encoding="utf-8")
         invalid = subprocess.run(
             [sys.executable, str(ROOT / "sprout.py"), "typecheck", str(root), "--json"],
             cwd=ROOT,
@@ -214,7 +214,35 @@ def test_async_http_file_stream_and_cancellation() -> None:
             '  say error.contains("cancel")\n'
             "",
         )
-        assert_parity(path, ["200 42", "sprout", "true"])
+        assert_parity(path, ["200 42", "sprout", "True"])
+
+
+def test_string_slice_assignment() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write(
+            Path(tmp),
+            "string_slice.sprout",
+            'phrase = "abcdef"\n'
+            'phrase[1:4] = "XYZ"\n'
+            "say phrase\n",
+        )
+        assert_parity(path, ["aXYZef"])
+
+
+def test_dict_method_name_collision_error_is_clear() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write(
+            Path(tmp),
+            "dict_collision.sprout",
+            "state = {}\n"
+            "say state.keys.left\n",
+        )
+        stable = run(path)
+        vm = run(path, vm=True)
+        assert stable.returncode == 1, stable.stdout + stable.stderr
+        assert vm.returncode == 1, vm.stdout + vm.stderr
+        assert "Dictionary has no key 'keys'" in stable.stderr
+        assert "Dictionary has no key 'keys'" in vm.stderr
 
 
 def test_vm_compiles_imported_module_bodies() -> None:
@@ -250,6 +278,8 @@ def main() -> int:
     test_exhaustiveness_diagnostics()
     test_generator_diagnostics()
     test_async_http_file_stream_and_cancellation()
+    test_string_slice_assignment()
+    test_dict_method_name_collision_error_is_clear()
     test_vm_compiles_imported_module_bodies()
     print("sprout advanced language tests passed")
     return 0

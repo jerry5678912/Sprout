@@ -4,6 +4,6 @@ numbers[1] = 42;
 
 let i = 0;
 while i < len(numbers) {
-  print("item", i, "=", numbers[i]);
+  say "item", i, "=", numbers[i];
   i = i + 1;
 }

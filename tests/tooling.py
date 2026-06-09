@@ -126,6 +126,54 @@ def test_check_warnings_include_semantic_keyword_typos() -> None:
     assert "Did you mean 'import'?" in diagnostic["message"]
 
 
+def test_assignment_shadow_points_to_real_assignment_location() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("def bump():\n  score = 1\n  score = 2\n")
+        path = fh.name
+    result = run("lint", path, "--json")
+    payload = json.loads(result.stdout)
+    shadow = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_SHADOW")
+    assert shadow["line"] == 2
+    assert shadow["col"] == 3
+
+
+def test_trailing_whitespace_warning_is_reported() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write('say "hi"   \n')
+        path = fh.name
+    result = run("lint", path, "--json")
+    payload = json.loads(result.stdout)
+    trailing = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_TRAILING_WHITESPACE")
+    assert trailing["severity"] == "warning"
+    assert trailing["line"] == 1
+    assert trailing["col"] == len('say "hi"') + 1
+
+
+def test_blank_indented_line_has_no_style_warning() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("def hello():\n  say 1\n  \nhello()\n")
+        path = fh.name
+    result = run("lint", path, "--json")
+    payload = json.loads(result.stdout)
+    codes = {item["code"] for item in payload["diagnostics"]}
+    assert "SPROUT_TRAILING_WHITESPACE" not in codes
+    assert "SPROUT_TAB_INDENT" not in codes
+
+
+def test_pasted_indented_snippet_runs_cleanly() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write(
+            "    def hello(count):\n"
+            "      for i in range(count):\n"
+            '        say "sprout is good"\n'
+            "\n"
+            "    hello(2)\n"
+        )
+        path = fh.name
+    result = run("run", path)
+    assert result.stdout.splitlines() == ["sprout is good", "sprout is good"]
+
+
 def test_analysis_status_and_rebuild_index_commands() -> None:
     result = run("analysis-status", "examples/editor_test_workspace", "--json")
     payload = json.loads(result.stdout)
@@ -164,6 +212,10 @@ def main() -> int:
     test_import_context_completion_suggests_modules()
     test_import_context_completion_does_not_fall_back_to_keywords()
     test_check_warnings_include_semantic_keyword_typos()
+    test_assignment_shadow_points_to_real_assignment_location()
+    test_trailing_whitespace_warning_is_reported()
+    test_blank_indented_line_has_no_style_warning()
+    test_pasted_indented_snippet_runs_cleanly()
     test_analysis_status_and_rebuild_index_commands()
     test_vscode_editor_behavior_script()
     print("sprout tooling tests passed")

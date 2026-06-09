@@ -133,7 +133,7 @@ grep -q "sqrt: 9.0" /tmp/sprout_pythonlibs.out
 grep -q "wave: 1.0" /tmp/sprout_pythonlibs.out
 grep -q "lucky: 6" /tmp/sprout_pythonlibs.out
 grep -q "module type: python-module" /tmp/sprout_pythonlibs.out
-grep -q "dynamic import: true 4.0" /tmp/sprout_pythonlibs.out
+grep -q "dynamic import: True 4.0" /tmp/sprout_pythonlibs.out
 grep -q "date: 2026-06-04 2026" /tmp/sprout_pythonlibs.out
 grep -q "date type: python-object" /tmp/sprout_pythonlibs.out
 grep -q "turn 5" /tmp/sprout_minigame.out

@@ -5,6 +5,10 @@ const os = require("os");
 const path = require("path");
 const { SproutLanguageClient } = require("./lsp-client");
 const { createSproutTestController } = require("./test-controller");
+const {
+  computeSproutFoldingRanges,
+  computeSproutFoldingRangesFromLines,
+} = require("./folding");
 
 let languageClient;
 let interpreterStatus;
@@ -12,11 +16,13 @@ let lspOutputChannel;
 
 const DIAGNOSTIC_DEBOUNCE_MS = 220;
 const DIAGNOSTIC_CLEAR_DEBOUNCE_MS = 120;
+const LSP_HEARTBEAT_MS = 2500;
 const IMPORT_COMPLETION_CACHE_MS = 10_000;
 const IMPORT_PATH_COMPLETION_CACHE_MS = 1500;
 const IMPORT_ALIAS_DEFAULT_KIND = "sprout";
 const importedModuleSymbolCache = new Map();
 const importPathCandidateCache = new Map();
+const installedRunnerCache = new Map();
 
 function findDebugAdapter(context, runner) {
   const candidates = [
@@ -24,6 +30,90 @@ function findDebugAdapter(context, runner) {
     runner ? path.join(path.dirname(runner), "tools", "sprout_dap.py") : ""
   ];
   return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+}
+
+function whitespaceOnlyWithIndent(text) {
+  return typeof text === "string" && text.trim() === "" && /^[ \t]+$/.test(text);
+}
+
+function sproutIndentLog(message) {
+  if (!lspOutputChannel) return;
+  lspOutputChannel.appendLine(`[${new Date().toISOString()}] [Sprout Indent] ${message}`);
+}
+
+function previousNonEmptyLine(document, lineNumber) {
+  for (let line = lineNumber - 1; line >= 0; line -= 1) {
+    const text = document.lineAt(line).text;
+    if (text.trim() !== "") return { line, text };
+  }
+  return null;
+}
+
+function sproutIndentUnit(editor) {
+  const size = Number(editor?.options?.tabSize) || 2;
+  const useSpaces = editor?.options?.insertSpaces !== false;
+  return useSpaces ? " ".repeat(Math.max(1, size)) : "\t";
+}
+
+function leadingWhitespace(text) {
+  return String(text || "").match(/^\s*/)?.[0] || "";
+}
+
+function opensSproutBlock(text) {
+  return /^.*(\{|:|\bbloom)\s*$/.test(String(text || "").trimEnd());
+}
+
+async function handleSproutSmartEnter() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "sprout") return false;
+  if (editor.selections.length !== 1 || !editor.selection.isEmpty) return false;
+  const position = editor.selection.active;
+  const line = editor.document.lineAt(position.line);
+  const beforeCursor = line.text.slice(0, position.character);
+  const currentIndent = leadingWhitespace(line.text);
+  const indentUnit = sproutIndentUnit(editor);
+  let insertText = "\n";
+  let targetColumn = 0;
+  const blankLine = line.text.trim() === "";
+  const blankPrefix = beforeCursor.trim() === "";
+  const previous = previousNonEmptyLine(editor.document, position.line);
+  const previousIndent = previous ? leadingWhitespace(previous.text).length : 0;
+
+  if (blankLine && blankPrefix && previousIndent > 0) {
+    sproutIndentLog(`Smart enter escaping blank line ${position.line + 1}; cursor=${position.character + 1}; line=${JSON.stringify(line.text)} prevNonEmpty=${JSON.stringify(previous.text)}`);
+    const edited = await editor.edit((editBuilder) => {
+      editBuilder.replace(new vscode.Range(position.line, 0, position.line, line.text.length), "\n");
+    }, { undoStopBefore: true, undoStopAfter: true });
+    if (!edited) {
+      sproutIndentLog("Smart enter failed to escape blank line");
+      return true;
+    }
+    const target = new vscode.Position(position.line + 1, 0);
+    editor.selection = new vscode.Selection(target, target);
+    editor.revealRange(new vscode.Range(target, target));
+    return true;
+  }
+
+  if (opensSproutBlock(beforeCursor)) {
+    insertText += currentIndent + indentUnit;
+    targetColumn = (currentIndent + indentUnit).length;
+  } else {
+    insertText += currentIndent;
+    targetColumn = currentIndent.length;
+  }
+
+  sproutIndentLog(`Smart enter inserting at line ${position.line + 1}, col ${position.character + 1}; before=${JSON.stringify(beforeCursor)} nextIndent=${JSON.stringify(insertText.slice(1))}`);
+  const edited = await editor.edit((editBuilder) => {
+    editBuilder.insert(position, insertText);
+  }, { undoStopBefore: true, undoStopAfter: true });
+  if (!edited) {
+    sproutIndentLog("Smart enter insertion failed");
+    return true;
+  }
+  const target = new vscode.Position(position.line + 1, targetColumn);
+  editor.selection = new vscode.Selection(target, target);
+  editor.revealRange(new vscode.Range(target, target));
+  return true;
 }
 
 const semanticTokenTypes = [
@@ -66,7 +156,7 @@ const entries = [
   ["return", "Return a value from a function.", "return ${1:value}"],
   ["pluck", "Sprout-flavored return.", "pluck ${1:value}"],
   ["end", "End a garden-style bloom block."],
-  ["true", "Boolean true."],
+  ["True", "Boolean true."],
   ["false", "Boolean false."],
   ["nil", "No value."],
   ["len", "Return the length of an array, string, or dictionary.", "len(${1:value})"],
@@ -198,13 +288,10 @@ const keywordEntries = [
   ["not", "Boolean not operator.", "not ${1:value}"],
   ["in", "Membership operator.", "in ${1:values}"],
   ["end", "End a garden-style bloom block.", "end"],
-  ["true", "Boolean true.", "true"],
+  ["True", "Boolean true.", "True"],
   ["false", "Boolean false.", "false"],
   ["nil", "No value.", "nil"],
-  ["none", "No value alias.", "none"],
-  ["True", "Python-style true alias.", "True"],
-  ["False", "Python-style false alias.", "False"],
-  ["None", "Python-style nil alias.", "None"]
+  ["none", "No value alias.", "none"]
 ];
 
 const methodEntries = [
@@ -382,7 +469,7 @@ const allBuiltinNames = [
   "is_even", "is_function", "is_instance", "is_nil", "is_number", "is_odd", "is_string", "isdir", "isfile", "items",
   "join", "joinpath", "json_parse", "json_stringify", "keys", "last", "len", "lerp", "lines", "listdir", "log", "log10",
   "lower", "ltrim", "max", "median", "merge", "methods", "min", "mirror", "mkdir", "now", "num", "omit", "padleft",
-  "padright", "pick", "plant", "pow", "print", "prune", "push", "py_available", "py_import", "radians", "rand", "randint", "range", "readfile",
+  "padright", "pick", "plant", "pow", "prune", "push", "py_available", "py_import", "radians", "rand", "randint", "range", "readfile",
   "readjson", "remove", "repeat", "replace", "rest", "reverse", "round", "rtrim", "sample", "say", "seed", "shout",
   "shuffle", "sign", "sin", "sleep", "slice", "sort", "sparkle", "sprinkle", "sqrt", "startswith", "str", "substr",
   "sum", "take", "tan", "title", "trim", "type", "unique", "upper", "values", "weave", "whisper", "words", "wrap",
@@ -532,7 +619,6 @@ const builtinArities = {
   "pick": 2,
   "plant": 3,
   "pow": 2,
-  "print": null,
   "prune": 2,
   "push": 2,
   "py_available": 1,
@@ -623,7 +709,6 @@ const completePandaEntries = completeNamedSet(allPandaNames, pandaEntries, "Pand
 const completeGameEntries = completeNamedSet(allGameNames, gameEntries, "Gamekit API");
 const completeEngineeringEntries = engineeringEntries;
 const completeAppGameEntries = appGameEntries;
-
 function completion(label, docs, insertText, kind = vscode.CompletionItemKind.Function) {
   const item = new vscode.CompletionItem(label, kind);
   item.detail = "Sprout";
@@ -734,8 +819,48 @@ function uniquePaths(paths) {
   });
 }
 
+function installedModuleRunner(pythonPath) {
+  const key = String(pythonPath || "");
+  const cached = installedRunnerCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  try {
+    const probe = [
+      "-c",
+      [
+        "import importlib.util",
+        "import os",
+        "spec = importlib.util.find_spec('sprout')",
+        "origin = spec.origin if spec and spec.origin else ''",
+        "print(origin if origin and os.path.isfile(origin) else '')"
+      ].join("; ")
+    ];
+    const result = childProcess.execFileSync(pythonPath, probe, {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    const resolved = result && fs.existsSync(result) ? result : "";
+    installedRunnerCache.set(key, resolved);
+    return resolved;
+  } catch (_error) {
+    installedRunnerCache.set(key, "");
+    return "";
+  }
+}
+
 function runnerCandidates(context, document) {
-  const candidates = [
+  const candidates = [];
+  const installedRunner = installedModuleRunner(pythonExecutable());
+  if (installedRunner) {
+    candidates.push({
+      path: installedRunner,
+      label: "Installed Sprout",
+      description: installedRunner
+    });
+  }
+  candidates.push(
     {
       path: path.join(context.extensionPath, "sprout.py"),
       label: "Bundled Sprout",
@@ -746,7 +871,7 @@ function runnerCandidates(context, document) {
       label: "Sprout source checkout",
       description: "Development interpreter"
     }
-  ];
+  );
 
   if (document?.uri.scheme === "file") {
     const runner = findUp(path.dirname(document.uri.fsPath), "sprout.py");
@@ -878,7 +1003,25 @@ function collectImportedAliases(documentText, documentUri) {
   return aliases;
 }
 
-function resolveModuleCandidates(moduleName, documentUri) {
+function standardLibraryRoots(context) {
+  const roots = [];
+  const extensionStdlib = path.join(context.extensionPath, "sprout_core", "stdlib");
+  roots.push(extensionStdlib);
+  const activeDocument = activeSproutDocument();
+  const runner = findRunner(context, activeDocument || { uri: undefined, languageId: "sprout" });
+  if (runner) {
+    roots.push(path.join(path.dirname(runner), "sprout_core", "stdlib"));
+  }
+  return Array.from(new Set(roots)).filter((candidate) => {
+    try {
+      return fs.statSync(candidate).isDirectory();
+    } catch (_error) {
+      return false;
+    }
+  });
+}
+
+function resolveModuleCandidates(context, moduleName, documentUri) {
   const rootPaths = [];
   const trimmed = parseImportPath(moduleName);
   if (!trimmed) return rootPaths;
@@ -902,6 +1045,9 @@ function resolveModuleCandidates(moduleName, documentUri) {
       if (fs.existsSync(sproutToml)) {
         candidates.push(path.join(folder, "build", normalized));
       }
+    }
+    for (const folder of standardLibraryRoots(context)) {
+      candidates.push(path.join(folder, normalized));
     }
   }
 
@@ -962,7 +1108,44 @@ function parseImportedModuleSymbols(moduleText) {
   return names;
 }
 
-async function resolveImportedModuleSymbols(filePaths, documentUri) {
+function importedSymbolEntry(symbol) {
+  const name = String(symbol?.name || "").trim();
+  if (!name) return null;
+  const kind = String(symbol?.kind || "");
+  const docs = symbol?.documentation || `Imported Sprout ${kind || "symbol"}`;
+  if (kind === "function" || kind === "method") {
+    return [name, docs, `${name}($\{1:value\})`];
+  }
+  if (kind === "class" || kind === "interface" || kind === "enum") {
+    return [name, docs, `${name}`];
+  }
+  return [name, docs, name];
+}
+
+function loadImportedModuleSymbolsFromRunner(context, filePath, documentUri) {
+  const runner = findRunner(context, { uri: documentUri, languageId: "sprout" });
+  if (!runner) {
+    return Promise.resolve([]);
+  }
+  return new Promise((resolve) => {
+    childProcess.execFile(
+      pythonExecutable(),
+      [runner, "intel", filePath, "--kind", "symbols", "--line", "1", "--col", "1"],
+      { timeout: 5000 },
+      (_error, stdout) => {
+        try {
+          const payload = JSON.parse(stdout || "{}");
+          const symbols = Array.isArray(payload?.symbols) ? payload.symbols : [];
+          resolve(symbols.map(importedSymbolEntry).filter(Boolean));
+        } catch (_jsonError) {
+          resolve([]);
+        }
+      }
+    );
+  });
+}
+
+async function resolveImportedModuleSymbols(context, filePaths, documentUri) {
   if (!Array.isArray(filePaths) || filePaths.length === 0) return [];
   const allSymbols = [];
   for (const filePath of filePaths) {
@@ -974,8 +1157,11 @@ async function resolveImportedModuleSymbols(filePaths, documentUri) {
         allSymbols.push(...cacheEntry.symbols);
         continue;
       }
-      const text = fs.readFileSync(filePath, "utf8");
-      const symbols = parseImportedModuleSymbols(text);
+      let symbols = await loadImportedModuleSymbolsFromRunner(context, filePath, documentUri);
+      if (!symbols.length) {
+        const text = fs.readFileSync(filePath, "utf8");
+        symbols = parseImportedModuleSymbols(text);
+      }
       importedModuleSymbolCache.set(filePath, {
         mtimeMs: stat.mtimeMs,
         expiresAt: Date.now() + IMPORT_COMPLETION_CACHE_MS,
@@ -1046,7 +1232,7 @@ function collectImportPathCandidates(basePaths, prefix) {
   return names;
 }
 
-function collectImportCompletions(documentUri, importContext) {
+function collectImportCompletions(context, documentUri, importContext) {
   const prefix = importContext?.prefix || "";
   const workspaceRoots = extractWorkspaceFolders();
   const docDir = documentUri?.fsPath ? path.dirname(documentUri.fsPath) : null;
@@ -1057,6 +1243,7 @@ function collectImportCompletions(documentUri, importContext) {
     basePaths.push(path.join(root, "src"));
     basePaths.push(path.join(root, "modules"));
   }
+  basePaths.push(...standardLibraryRoots(context));
 
   const uniqueBasePaths = Array.from(new Set(basePaths.map((item) => path.resolve(item)))).filter((item) => {
     try {
@@ -1065,6 +1252,17 @@ function collectImportCompletions(documentUri, importContext) {
       return false;
     }
   });
+
+  if (!importContext?.quoted) {
+    const names = new Set();
+    for (const candidate of collectImportPathCandidates(uniqueBasePaths, prefix)) {
+      if (resolveModuleCandidates(context, candidate, documentUri).length === 0) continue;
+      names.add(candidate.replace(/\//g, "."));
+    }
+    return Array.from(names)
+      .sort((a, b) => a.localeCompare(b))
+      .map((candidate) => completion(candidate, "Sprout module", candidate, vscode.CompletionItemKind.Module));
+  }
 
   const names = collectImportPathCandidates(uniqueBasePaths, prefix);
   return names
@@ -1089,61 +1287,33 @@ function cleanupImportSymbolCache() {
   }
 }
 
-async function importAliasCompletions(alias, documentText, documentUri) {
+async function importAliasCompletions(context, alias, documentText, documentUri) {
   const aliasName = String(alias || "").trim();
   if (!aliasName) return [];
-  const moduleAliasMap = {
-    engine3d: completeEngineEntries,
-    s3d: completeEngineEntries,
-    starbloom3d: completeStarBloomEntries,
-    star: completeStarBloomEntries,
-    p3d: completePandaEntries,
-    panda3d: completePandaEntries,
-    panda3d_window: completePandaEntries,
-    window2d: completeWindow2dEntries,
-    w2d: completeWindow2dEntries,
-    pixelgarden: completePixelGardenEntries,
-    pix: completePixelGardenEntries,
-    geom2d: completeGeometryEntries,
-    g2d: completeGeometryEntries,
-    canvas2d: completeCanvasEntries,
-    c2d: completeCanvasEntries,
-    gamekit: completeGameEntries,
-    game: completeGameEntries,
-    engineering: completeEngineeringEntries,
-    eng: completeEngineeringEntries,
-    appgame: completeAppGameEntries,
-    app: completeAppGameEntries,
-    engine: completeEngineEntries,
-    s2d: completeGeometryEntries
-  };
   const aliases = collectImportedAliases(documentText, documentUri);
   const info = aliases.get(aliasName);
   if (!info) return [];
-
-  const entries = moduleAliasMap[info.module] || moduleAliasMap[info.alias];
-  if (entries) {
-    return entries.map(([label, docs, insert]) => completion(label, docs, insert));
-  }
 
   if (info.kind === "importpython") {
     return [];
   }
 
   cleanupImportSymbolCache();
-  const candidates = resolveModuleCandidates(info.path, documentUri);
+  const candidates = resolveModuleCandidates(context, info.path, documentUri);
   if (candidates.length === 0) return [];
-  const symbols = await resolveImportedModuleSymbols(candidates, documentUri);
-  if (!symbols.length) return [];
+  const symbols = await resolveImportedModuleSymbols(context, candidates, documentUri);
+  if (symbols.length) {
+    const seen = new Set();
+    return symbols
+      .filter(([name]) => {
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      })
+      .map(([name, docs, insert]) => completion(name, docs || `From ${info.module}.`, insert));
+  }
 
-  const seen = new Set();
-  return symbols
-    .filter(([name]) => {
-      if (seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    })
-    .map(([name, docs, insert]) => completion(name, docs || `From ${info.module}.`, insert));
+  return [];
 
 }
 
@@ -1190,7 +1360,7 @@ async function selectInterpreter(context) {
       {
         label: "$(wand) Auto Detect",
         description: current ? "Clear the current selection" : "Currently selected",
-        detail: "Prefer the bundled interpreter, then discover a workspace sprout.py.",
+        detail: "Prefer the selected Python's installed Sprout, then the bundled interpreter, then project sprout.py files.",
         action: "auto"
       },
       ...candidates.map((candidate) => ({
@@ -1423,12 +1593,15 @@ function diagnosticFromJson(item, document) {
       Math.min(lineText.length, startCharacter + 1)
     );
   }
-  const severity = ({
+  let severity = ({
     error: vscode.DiagnosticSeverity.Error,
     warning: vscode.DiagnosticSeverity.Warning,
     information: vscode.DiagnosticSeverity.Information,
     hint: vscode.DiagnosticSeverity.Hint
   })[item.severity] || vscode.DiagnosticSeverity.Warning;
+  if (["SPROUT_ERROR", "SPROUT_SYNTAX", "SPROUT_IMPORT"].includes(String(item.code || ""))) {
+    severity = vscode.DiagnosticSeverity.Error;
+  }
   const diagnostic = new vscode.Diagnostic(range, item.message || "Sprout diagnostic", severity);
   diagnostic.code = item.code;
   diagnostic.source = "sprout";
@@ -1450,6 +1623,19 @@ function fallbackQuickFixes(document, diagnostics) {
     let newText = replacement;
     if (replacement && ["SPROUT_UNKNOWN_NAME", "SPROUT_UNKNOWN_MEMBER", "SPROUT_IMPORT"].includes(String(diagnostic.code))) {
       title = `Replace with '${replacement}'`;
+    } else if (replacement && diagnostic.code === "SPROUT_UNKNOWN_ARGUMENT" && diagnostic.data?.parameter) {
+      const line = document.lineAt(diagnostic.range.start.line).text;
+      const name = String(diagnostic.data.parameter);
+      const match = line.match(new RegExp(`\\b${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(?=\\s*=)`));
+      if (match && match.index !== undefined) {
+        title = `Rename argument to '${replacement}'`;
+        range = new vscode.Range(
+          diagnostic.range.start.line,
+          match.index,
+          diagnostic.range.start.line,
+          match.index + name.length
+        );
+      }
     } else if (diagnostic.code === "SPROUT_UNUSED_IMPORT") {
       title = "Remove unused import";
       const line = diagnostic.range.start.line;
@@ -1464,6 +1650,48 @@ function fallbackQuickFixes(document, diagnostics) {
         title = `Rename unused ${diagnostic.code === "SPROUT_UNUSED_PARAMETER" ? "parameter" : "name"} to _${word}`;
         range = wordRange;
         newText = `_${word}`;
+      }
+    } else if (diagnostic.code === "SPROUT_DUPLICATE_ARGUMENT" && diagnostic.data?.parameter) {
+      const line = document.lineAt(diagnostic.range.start.line).text;
+      const parameter = String(diagnostic.data.parameter);
+      const duplicate = duplicateArgumentEditRange(line, parameter);
+      if (duplicate) {
+        title = `Remove duplicate argument '${parameter}'`;
+        range = new vscode.Range(
+          diagnostic.range.start.line,
+          duplicate[0],
+          diagnostic.range.start.line,
+          duplicate[1]
+        );
+        newText = "";
+      }
+    } else if (diagnostic.code === "SPROUT_ARGUMENT_COUNT" && Array.isArray(diagnostic.data?.missing)) {
+      const line = document.lineAt(diagnostic.range.start.line).text;
+      const functionName = String(diagnostic.data?.function || "");
+      const missing = diagnostic.data.missing.filter(Boolean);
+      const nameIndex = functionName ? line.lastIndexOf(functionName, diagnostic.range.start.character) : -1;
+      const openIndex = nameIndex >= 0 ? line.indexOf("(", nameIndex + functionName.length) : -1;
+      const closeIndex = openIndex >= 0 ? line.indexOf(")", openIndex + 1) : -1;
+      if (openIndex >= 0 && closeIndex >= openIndex) {
+        const inner = line.slice(openIndex + 1, closeIndex);
+        title = missing.length === 1 ? `Add missing argument '${missing[0]}'` : "Add missing required arguments";
+        range = new vscode.Range(diagnostic.range.start.line, openIndex + 1, diagnostic.range.start.line, closeIndex);
+        newText = inner.trim()
+          ? `${inner.trimEnd()}, ${missing.map((name) => `${name}=nil`).join(", ")}`
+          : missing.map((name) => `${name}=nil`).join(", ");
+      }
+    } else if (diagnostic.code === "SPROUT_TRAILING_WHITESPACE") {
+      const line = document.lineAt(diagnostic.range.start.line).text;
+      const stripped = line.replace(/[\t ]+$/, "");
+      if (stripped !== line) {
+        title = "Remove trailing whitespace";
+        range = new vscode.Range(
+          diagnostic.range.start.line,
+          stripped.length,
+          diagnostic.range.start.line,
+          line.length
+        );
+        newText = "";
       }
     }
     if (!title || newText === undefined) continue;
@@ -1485,6 +1713,70 @@ function rangeForMatch(document, line, start, length) {
   return new vscode.Range(line, safeStart, line, safeEnd);
 }
 
+function argumentValueEnd(lineText, start) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < lineText.length; index += 1) {
+    const char = lineText[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+    } else if ("([{".includes(char)) {
+      depth += 1;
+    } else if (")]}".includes(char)) {
+      if (depth === 0 && char === ")") {
+        return index;
+      }
+      depth = Math.max(0, depth - 1);
+    } else if (char === "," && depth === 0) {
+      return index;
+    }
+  }
+  return lineText.length;
+}
+
+function duplicateArgumentEditRange(lineText, parameter) {
+  const escaped = parameter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = lineText.match(new RegExp(`\\b${escaped}\\s*=`));
+  if (!match || match.index === undefined) {
+    return null;
+  }
+  const start = match.index;
+  const end = argumentValueEnd(lineText, start + match[0].length);
+  let removeStart = start;
+  while (removeStart > 0 && /\s/.test(lineText[removeStart - 1])) {
+    removeStart -= 1;
+  }
+  if (removeStart > 0 && lineText[removeStart - 1] === ",") {
+    removeStart -= 1;
+    while (removeStart > 0 && /\s/.test(lineText[removeStart - 1])) {
+      removeStart -= 1;
+    }
+    return [removeStart, end];
+  }
+  let removeEnd = end;
+  while (removeEnd < lineText.length && /\s/.test(lineText[removeEnd])) {
+    removeEnd += 1;
+  }
+  if (removeEnd < lineText.length && lineText[removeEnd] === ",") {
+    removeEnd += 1;
+    while (removeEnd < lineText.length && /\s/.test(lineText[removeEnd])) {
+      removeEnd += 1;
+    }
+  }
+  return [start, removeEnd];
+}
+
 function styleDiagnostics(document) {
   if (!vscode.workspace.getConfiguration("sprout").get("diagnostics.styleWarnings")) {
     return [];
@@ -1498,24 +1790,27 @@ function styleDiagnostics(document) {
 
     const tabIndex = text.indexOf("\t");
     if (tabIndex !== -1) {
-      warnings.push(
-        new vscode.Diagnostic(
-          rangeForMatch(document, line, tabIndex, 1),
-          "Sprout style uses spaces for indentation.",
-          vscode.DiagnosticSeverity.Warning
-        )
+      const tabRun = text.slice(tabIndex).match(/^\t+/);
+      const diagnostic = new vscode.Diagnostic(
+        rangeForMatch(document, line, tabIndex, tabRun ? tabRun[0].length : 1),
+        "Sprout style uses spaces for indentation.",
+        vscode.DiagnosticSeverity.Warning
       );
+      diagnostic.code = "SPROUT_TAB_INDENT";
+      diagnostic.source = "sprout";
+      warnings.push(diagnostic);
     }
 
-    const pythonAlias = text.match(/\b(True|False|None)\b/);
-    if (pythonAlias) {
-      warnings.push(
-        new vscode.Diagnostic(
-          rangeForMatch(document, line, pythonAlias.index, pythonAlias[0].length),
-          "Sprout style usually uses true, false, or nil here.",
-          vscode.DiagnosticSeverity.Warning
-        )
+    const stripped = text.replace(/[\t ]+$/, "");
+    if (stripped !== text) {
+      const diagnostic = new vscode.Diagnostic(
+        new vscode.Range(line, stripped.length, line, text.length),
+        "Remove trailing whitespace",
+        vscode.DiagnosticSeverity.Warning
       );
+      diagnostic.code = "SPROUT_TRAILING_WHITESPACE";
+      diagnostic.source = "sprout";
+      warnings.push(diagnostic);
     }
   }
   return warnings;
@@ -1617,7 +1912,7 @@ function styleDiagnostics(document) {
   });
 }
 
-function runIntelQuery(context, document, position, kind) {
+function runIntelQuery(context, document, position, kind, token) {
   if (document.languageId !== "sprout") {
     return Promise.resolve(undefined);
   }
@@ -1632,23 +1927,12 @@ function runIntelQuery(context, document, position, kind) {
     const method = methods[kind];
     if (method) {
       const extra = kind === "references" ? { context: { includeDeclaration: true } } : {};
-      return languageClient.textRequest(method, document, position, extra).then((result) => {
+      return languageClient.textRequest(method, document, position, extra, token).then((result) => {
         if (kind === "completions") {
           const items = Array.isArray(result) ? result : (result?.items || []);
           return {
             ok: true,
-            items: items.map((item) => ({
-              name: item.label,
-              kind: semanticKindNameFromLsp(item.kind),
-              signature: item.detail,
-              detail: item.detail,
-              qualifiedName: item.label,
-              insertText: item.insertText,
-              insertTextFormat: item.insertTextFormat,
-              documentation: typeof item.documentation === "string"
-                ? item.documentation
-                : item.documentation?.value || ""
-            }))
+            items
           };
         }
         if (kind === "hover") return { ok: true, lspHover: result };
@@ -1661,6 +1945,9 @@ function runIntelQuery(context, document, position, kind) {
         return undefined;
       }).catch(() => undefined);
     }
+  }
+  if (languageClient?.starting) {
+    return Promise.resolve(undefined);
   }
   const runner = findRunner(context, document);
   if (!runner) {
@@ -1740,15 +2027,33 @@ function semanticKindNameFromLsp(kind) {
 }
 
 function semanticCompletion(symbol) {
-  const item = new vscode.CompletionItem(symbol.name, semanticKind(symbol.kind));
-  item.detail = symbol.signature || symbol.detail || symbol.qualifiedName || `Sprout ${symbol.kind}`;
-  item.documentation = new vscode.MarkdownString(symbol.documentation || `Sprout ${symbol.kind}.`);
+  const label = symbol.label || symbol.name;
+  const kind = typeof symbol.kind === "number" ? symbol.kind : semanticKind(symbol.kind);
+  const item = new vscode.CompletionItem(label, kind);
+  item.detail = symbol.signature || symbol.detail || symbol.qualifiedName || `Sprout ${symbol.kind || "symbol"}`;
+  const documentation = typeof symbol.documentation === "string"
+    ? symbol.documentation
+    : symbol.documentation?.value || `Sprout ${symbol.kind || "symbol"}.`;
+  item.documentation = new vscode.MarkdownString(documentation);
+  item.sortText = symbol.sortText;
+  item.filterText = symbol.filterText;
   if (symbol.insertText) {
     item.insertText = symbol.insertTextFormat === 2
       ? new vscode.SnippetString(symbol.insertText)
       : symbol.insertText;
   }
-  if ((symbol.kind === "function" || symbol.kind === "builtin" || symbol.kind === "method") && symbol.signature) {
+  if (symbol.textEdit?.range && symbol.textEdit.newText !== undefined) {
+    item.textEdit = new vscode.TextEdit(
+      new vscode.Range(
+        symbol.textEdit.range.start.line,
+        symbol.textEdit.range.start.character,
+        symbol.textEdit.range.end.line,
+        symbol.textEdit.range.end.character
+      ),
+      symbol.textEdit.newText
+    );
+  }
+  if (!symbol.label && (symbol.kind === "function" || symbol.kind === "builtin" || symbol.kind === "method") && symbol.signature) {
     item.insertText = new vscode.SnippetString(`${symbol.name}($1)`);
   }
   return item;
@@ -1773,177 +2078,11 @@ function locationFromLsp(location) {
   );
 }
 
-function ignoredRanges(text) {
-  const ranges = [];
-  let inString = false;
-  let start = -1;
-  let escape = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    if (inString) {
-      if (escape) {
-        escape = false;
-      } else if (ch === "\\") {
-        escape = true;
-      } else if (ch === "\"") {
-        ranges.push([start, i + 1]);
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === "#") {
-      ranges.push([i, text.length]);
-      break;
-    }
-    if (ch === "\"") {
-      inString = true;
-      start = i;
-    }
-  }
-  if (inString) {
-    ranges.push([start, text.length]);
-  }
-  return ranges;
-}
-
-function rangeContains(ranges, start, end) {
-  return ranges.some(([a, b]) => start < b && end > a);
-}
-
-function collectSemanticNames(document) {
-  const names = {
-    classes: new Set(),
-    functions: new Set(),
-    variables: new Set(),
-    parameters: new Set()
-  };
-  for (let line = 0; line < document.lineCount; line += 1) {
-    const text = document.lineAt(line).text;
-    const declaration = text.match(/\b(class|interface|(?:async\s+)?def|(?:async\s+)?fn|(?:async\s+)?bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
-    if (declaration) {
-      if (declaration[1] === "class" || declaration[1] === "interface") names.classes.add(declaration[2]);
-      else names.functions.add(declaration[2]);
-      const open = text.indexOf("(", declaration.index + declaration[0].length);
-      const close = open === -1 ? -1 : text.indexOf(")", open + 1);
-      if (open !== -1 && close !== -1) {
-        const params = text.slice(open + 1, close);
-        for (const match of params.matchAll(/\*{0,2}([A-Za-z_][A-Za-z0-9_]*)/g)) {
-          names.parameters.add(match[1]);
-        }
-      }
-    }
-    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?::[^=]+)?=)/);
-    if (assignment) {
-      names.variables.add(assignment[1]);
-    }
-    const loop = text.match(/^\s*(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/);
-    if (loop) {
-      names.variables.add(loop[1]);
-    }
-  }
-  return names;
-}
-
-function collectSemanticTokens(document) {
-  const tokenType = Object.fromEntries(semanticTokenTypes.map((name, index) => [name, index]));
-  const tokens = [];
-  const seen = new Set();
-  const known = collectSemanticNames(document);
-
-  function add(line, start, length, type) {
-    if (length <= 0 || !Number.isInteger(start)) return;
-    const key = `${line}:${start}:${length}:${type}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    tokens.push({ line, start, length, type: tokenType[type] });
-  }
-
-  for (let line = 0; line < document.lineCount; line += 1) {
-    const text = document.lineAt(line).text;
-    const ignored = ignoredRanges(text);
-    const declaration = text.match(/\b(class|interface|enum|def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)/);
-    if (declaration) {
-      const kind = declaration[1];
-      const name = declaration[2];
-      const nameStart = text.indexOf(name, declaration.index + declaration[0].indexOf(name));
-      add(line, nameStart, name.length, (kind === "class" || kind === "interface" || kind === "enum") ? "class" : "function");
-
-      const open = text.indexOf("(", nameStart + name.length);
-      const close = open === -1 ? -1 : text.indexOf(")", open + 1);
-      if (open !== -1 && close !== -1) {
-        const params = text.slice(open + 1, close);
-        const paramRegex = /\*{0,2}([A-Za-z_][A-Za-z0-9_]*)/g;
-        let match;
-        while ((match = paramRegex.exec(params))) {
-          const paramStart = open + 1 + match.index + match[0].lastIndexOf(match[1]);
-          add(line, paramStart, match[1].length, "parameter");
-        }
-      }
-    }
-
-    const assignment = text.match(/^\s*(?:let\s+|sprout\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\s*(?::[^=]+)?=)/);
-    if (assignment) {
-      const start = text.indexOf(assignment[1], assignment.index);
-      add(line, start, assignment[1].length, /^[A-Z]/.test(assignment[1]) ? "class" : "variable");
-    }
-
-    for (const match of text.matchAll(/\b([A-Z][A-Za-z0-9_]*)\b/g)) {
-      if (!rangeContains(ignored, match.index, match.index + match[1].length)) {
-        add(line, match.index, match[1].length, "class");
-      }
-    }
-
-    for (const match of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()/g)) {
-      const name = match[1];
-      if (["if", "elif", "while", "for", "catch", "case", "match", "class", "interface", "enum", "implements", "def", "fn", "bloom", "async", "await", "taskgroup"].includes(name)) continue;
-      if (!rangeContains(ignored, match.index, match.index + name.length)) {
-        add(line, match.index, name.length, /^[A-Z]/.test(name) ? "class" : "function");
-      }
-    }
-
-    for (const match of text.matchAll(/\bself\b/g)) {
-      if (!rangeContains(ignored, match.index, match.index + 4)) {
-        add(line, match.index, 4, "parameter");
-      }
-    }
-
-    for (const match of text.matchAll(/\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
-      const start = match.index + 1;
-      if (!rangeContains(ignored, start, start + match[1].length)) {
-        add(line, start, match[1].length, "property");
-      }
-    }
-
-    for (const match of text.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g)) {
-      const name = match[0];
-      const start = match.index;
-      const end = start + name.length;
-      if (rangeContains(ignored, start, end)) continue;
-      if (start > 0 && text[start - 1] === ".") continue;
-      if (known.parameters.has(name)) {
-        add(line, start, name.length, "parameter");
-      } else if (known.variables.has(name)) {
-        add(line, start, name.length, "variable");
-      } else if (known.functions.has(name)) {
-        add(line, start, name.length, "function");
-      } else if (known.classes.has(name)) {
-        add(line, start, name.length, "class");
-      }
-    }
-  }
-
-  tokens.sort((a, b) => (a.line - b.line) || (a.start - b.start) || (a.length - b.length));
-  const builder = new vscode.SemanticTokensBuilder(semanticLegend);
-  for (const token of tokens) {
-    builder.push(token.line, token.start, token.length, token.type, 0);
-  }
-  return builder.build();
-}
-
 async function activate(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection("sprout");
   const timers = new Map();
   const runner = findRunner(context);
+  let heartbeatTimer = null;
   lspOutputChannel = vscode.window.createOutputChannel("Sprout Language Server");
   lspOutputChannel.appendLine(`[${new Date().toISOString()}] Sprout extension activating`);
   interpreterStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -1952,6 +2091,10 @@ async function activate(context) {
   context.subscriptions.push(
     interpreterStatus,
     lspOutputChannel,
+    vscode.commands.registerCommand("sprout.smartEnter", async () => {
+      if (await handleSproutSmartEnter()) return;
+      await vscode.commands.executeCommand("default:type", { text: "\n" });
+    }),
     vscode.commands.registerCommand("sprout.selectInterpreter", () => selectInterpreter(context)),
     vscode.commands.registerCommand("sprout.runCurrentFile", () => runCurrentFile(context)),
     vscode.commands.registerCommand("sprout.showLanguageServerOutput", () => lspOutputChannel.show()),
@@ -1982,6 +2125,10 @@ async function activate(context) {
           languageClient = client;
           diagnostics.clear();
           for (const document of vscode.workspace.textDocuments) client.open(document);
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          heartbeatTimer = setInterval(() => {
+            languageClient?.heartbeat(vscode.workspace.textDocuments);
+          }, LSP_HEARTBEAT_MS);
         }
       } catch (error) {
         lspOutputChannel.appendLine(`[${new Date().toISOString()}] Restart failed; using fallback providers: ${error}`);
@@ -2026,6 +2173,9 @@ async function activate(context) {
     vscode.window.onDidChangeVisibleTextEditors(() => ensureVisibleSproutDiagnostics()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("sprout.runnerPath") || event.affectsConfiguration("sprout.pythonPath")) {
+        if (event.affectsConfiguration("sprout.pythonPath")) {
+          installedRunnerCache.clear();
+        }
         updateInterpreterStatus(context);
       }
       if (
@@ -2056,6 +2206,10 @@ async function activate(context) {
         diagnostics.clear();
         context.subscriptions.push({ dispose: () => client.stop() });
         for (const document of vscode.workspace.textDocuments) client.open(document);
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          languageClient?.heartbeat(vscode.workspace.textDocuments);
+        }, LSP_HEARTBEAT_MS);
       }
     } catch (error) {
       lspOutputChannel.appendLine(`[${new Date().toISOString()}] Falling back to command-based tooling: ${error}`);
@@ -2098,13 +2252,14 @@ async function activate(context) {
     if (usingLanguageServer() && !options.forceFallback) return;
     const key = document.uri.toString();
     clearTimeout(timers.get(key));
+    const delay = options.immediate ? 0 : DIAGNOSTIC_DEBOUNCE_MS;
     timers.set(key, setTimeout(() => {
       checkDocument(
         context,
         diagnostics,
         document
       );
-    }, DIAGNOSTIC_DEBOUNCE_MS));
+    }, delay));
   }
 
   function ensureVisibleSproutDiagnostics() {
@@ -2131,97 +2286,57 @@ async function activate(context) {
   const provider = vscode.languages.registerCompletionItemProvider(
     "sprout",
     {
-      async provideCompletionItems(document, position, _token, context) {
+      async provideCompletionItems(document, position, token, completionContext) {
         const lineText = document.lineAt(position).text;
         const before = lineText.slice(0, position.character);
-        const trigger = context?.triggerCharacter;
+        const exactImportKeyword = /^\s*(import|importpython)$/.test(before);
+        const trigger = completionContext?.triggerCharacter;
         const importContext = importCompletionContext(lineText, position.character);
-        const usingLsp = Boolean(languageClient?.ready);
+        const usingLsp = usingLanguageServer();
         const previousChar = before.slice(-1);
         const isAfterImportDot = before.endsWith(".");
         const aliasMatch = isAfterImportDot ? before.match(/([A-Za-z_][A-Za-z0-9_]*)\.\s*$/) : null;
         const shouldSkipSpace = trigger === " " && !importContext && !isAfterImportDot && previousChar.trim().length === 0;
-        if (shouldSkipSpace) {
+        if (shouldSkipSpace || exactImportKeyword) {
           return [];
         }
 
+        if (usingLsp) {
+          const semantic = await runIntelQuery(context, document, position, "completions", token);
+          const lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
+          return finalizeCompletionEntries(lspItems, lineText, position.character, {
+            allowExactWord: Boolean(importContext || isAfterImportDot)
+          });
+        }
+
+        const semantic = await runIntelQuery(context, document, position, "completions", token);
+        if (Array.isArray(semantic?.items) && semantic.items.length > 0) {
+          return finalizeCompletionEntries(
+            semantic.items.map(semanticCompletion),
+            lineText,
+            position.character,
+            { allowExactWord: Boolean(importContext || isAfterImportDot) }
+          );
+        }
+
         if (importContext) {
-          const contextCompletions = collectImportCompletions(document.uri, importContext);
+          const contextCompletions = collectImportCompletions(context, document.uri, importContext);
           const aliases = collectImportedAliases(document.getText(), document.uri);
           const aliasCompletions = Array.from(aliases.keys())
             .filter((alias) => alias.startsWith(importContext.prefix))
             .map((alias) => completion(alias, `Imported module alias`, alias, vscode.CompletionItemKind.Variable));
-          if (contextCompletions.length === 0 && aliasCompletions.length === 0 && usingLsp) {
-            return [];
-          }
-          return finalizeCompletionEntries(contextCompletions.concat(aliasCompletions), lineText, position.character, { allowExactWord: true });
+          const importItems = dedupeCompletionEntries(contextCompletions.concat(aliasCompletions));
+          return finalizeCompletionEntries(importItems, lineText, position.character, { allowExactWord: true });
         }
 
         if (isAfterImportDot) {
-          const imported = aliasMatch ? await importAliasCompletions(aliasMatch[1], document.getText(), document.uri) : null;
+          const imported = aliasMatch ? await importAliasCompletions(context, aliasMatch[1], document.getText(), document.uri) : null;
           if (imported && imported.length > 0) {
-            let lspItems = [];
-            if (usingLsp) {
-              const semantic = await runIntelQuery(context, document, position, "completions");
-              lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
-            }
-            return finalizeCompletionEntries(imported.concat(lspItems), lineText, position.character, { allowExactWord: true });
+            return finalizeCompletionEntries(imported, lineText, position.character, { allowExactWord: true });
           }
           if (aliasMatch) {
-            if (!usingLsp) {
-              return [];
-            }
-            const semantic = await runIntelQuery(context, document, position, "completions");
-            const lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
-            return finalizeCompletionEntries(lspItems, lineText, position.character, { allowExactWord: true });
-          }
-          if (usingLsp) {
             return [];
           }
-        }
-
-        let lspItems = [];
-        if (usingLsp) {
-          const semantic = await runIntelQuery(context, document, position, "completions");
-          lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
-        }
-
-        if (lspItems.length > 0) {
-          return finalizeCompletionEntries(lspItems, lineText, position.character);
-        }
-        if (usingLsp) {
-          return [];
-        }
-
-        if (before.endsWith("s3d.")) {
-          return finalizeCompletionEntries(completeEngineEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("star.")) {
-          return finalizeCompletionEntries(completeStarBloomEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("g2d.")) {
-          return finalizeCompletionEntries(completeGeometryEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("c2d.")) {
-          return finalizeCompletionEntries(completeCanvasEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("pix.")) {
-          return finalizeCompletionEntries(completePixelGardenEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("w2d.")) {
-          return finalizeCompletionEntries(completeWindow2dEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("p3d.")) {
-          return finalizeCompletionEntries(completePandaEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("game.")) {
-          return finalizeCompletionEntries(completeGameEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("eng.")) {
-          return finalizeCompletionEntries(completeEngineeringEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
-        }
-        if (before.endsWith("app.")) {
-          return finalizeCompletionEntries(completeAppGameEntries.map(([label, docs, insert]) => completion(label, docs, insert)), lineText, position.character, { allowExactWord: true });
         }
           return finalizeCompletionEntries(completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)), lineText, position.character);
       }
@@ -2233,13 +2348,14 @@ async function activate(context) {
   );
 
   const hover = vscode.languages.registerHoverProvider("sprout", {
-    provideHover(document, position) {
-      return runIntelQuery(context, document, position, "hover").then((semantic) => {
+    provideHover(document, position, token) {
+      return runIntelQuery(context, document, position, "hover", token).then((semantic) => {
         if (semantic?.lspHover?.contents) {
           const contents = semantic.lspHover.contents;
           const value = typeof contents === "string" ? contents : contents.value;
           return value ? new vscode.Hover(new vscode.MarkdownString(value)) : undefined;
         }
+        if (usingLanguageServer()) return undefined;
         if (semantic && semantic.symbol) {
           const symbol = semantic.symbol;
           const label = symbol.signature || symbol.qualifiedName || symbol.name;
@@ -2249,14 +2365,12 @@ async function activate(context) {
             : "";
           return new vscode.Hover(new vscode.MarkdownString(`**${label}**\n\n${docs}${defined}`));
         }
+        if (findRunner(context, document)) return undefined;
 
       const range = document.getWordRangeAtPosition(position);
       if (!range) return undefined;
       const word = document.getText(range);
-      const found = completeTopLevelEntries
-        .concat(methodEntries, completeEngineEntries, completeGeometryEntries, completeCanvasEntries)
-        .concat(completePixelGardenEntries, completeStarBloomEntries, completeWindow2dEntries, completePandaEntries, completeGameEntries)
-        .find(([label]) => label === word);
+      const found = completeTopLevelEntries.find(([label]) => label === word);
       if (!found) return undefined;
       return new vscode.Hover(new vscode.MarkdownString(`**${found[0]}**\n\n${found[1]}`), range);
       });
@@ -2264,16 +2378,16 @@ async function activate(context) {
   });
 
   const definition = vscode.languages.registerDefinitionProvider("sprout", {
-    provideDefinition(document, position) {
-      return runIntelQuery(context, document, position, "definition").then((semantic) => (
+    provideDefinition(document, position, token) {
+      return runIntelQuery(context, document, position, "definition", token).then((semantic) => (
         locationFromLsp(semantic?.lspDefinition) || locationFromJson(semantic && semantic.definition)
       ));
     }
   });
 
   const references = vscode.languages.registerReferenceProvider("sprout", {
-    provideReferences(document, position) {
-      return runIntelQuery(context, document, position, "references").then((semantic) => {
+    provideReferences(document, position, _context, token) {
+      return runIntelQuery(context, document, position, "references", token).then((semantic) => {
         if (semantic?.lspReferences) {
           return semantic.lspReferences.map(locationFromLsp).filter(Boolean);
         }
@@ -2284,9 +2398,12 @@ async function activate(context) {
   });
 
   const rename = vscode.languages.registerRenameProvider("sprout", {
-    prepareRename(document, position) {
-      if (!languageClient?.ready) return document.getWordRangeAtPosition(position);
-      return languageClient.textRequest("textDocument/prepareRename", document, position).then((result) => {
+    prepareRename(document, position, token) {
+      if (!languageClient?.ready) {
+        if (languageClient?.starting) return undefined;
+        return document.getWordRangeAtPosition(position);
+      }
+      return languageClient.textRequest("textDocument/prepareRename", document, position, {}, token).then((result) => {
         if (!result?.range) return undefined;
         return new vscode.Range(
           result.range.start.line,
@@ -2296,9 +2413,9 @@ async function activate(context) {
         );
       });
     },
-    provideRenameEdits(document, position, newName) {
+    provideRenameEdits(document, position, newName, token) {
       if (languageClient?.ready) {
-        return languageClient.textRequest("textDocument/rename", document, position, { newName }).then((result) => {
+        return languageClient.textRequest("textDocument/rename", document, position, { newName }, token).then((result) => {
           const edit = new vscode.WorkspaceEdit();
           for (const [uri, edits] of Object.entries(result?.changes || {})) {
             for (const item of edits) {
@@ -2317,7 +2434,7 @@ async function activate(context) {
           return edit;
         });
       }
-      return runIntelQuery(context, document, position, "references").then((semantic) => {
+      return runIntelQuery(context, document, position, "references", token).then((semantic) => {
         const edit = new vscode.WorkspaceEdit();
         if (semantic?.lspReferences) {
           const wordRange = document.getWordRangeAtPosition(position);
@@ -2345,19 +2462,35 @@ async function activate(context) {
   const signature = vscode.languages.registerSignatureHelpProvider(
     "sprout",
     {
-      provideSignatureHelp(document, position) {
-        return runIntelQuery(context, document, position, "signature").then((semantic) => {
+      provideSignatureHelp(document, position, token) {
+        return runIntelQuery(context, document, position, "signature", token).then((semantic) => {
           if (semantic?.lspSignature?.signatures?.length) {
             const result = semantic.lspSignature;
             const help = new vscode.SignatureHelp();
-            help.signatures = result.signatures.map((signature) => new vscode.SignatureInformation(
-              signature.label,
-              new vscode.MarkdownString(
-                typeof signature.documentation === "string"
-                  ? signature.documentation
-                  : signature.documentation?.value || ""
-              )
-            ));
+            help.signatures = result.signatures.map((signature) => {
+              const info = new vscode.SignatureInformation(
+                signature.label,
+                new vscode.MarkdownString(
+                  typeof signature.documentation === "string"
+                    ? signature.documentation
+                    : signature.documentation?.value || ""
+                )
+              );
+              info.parameters = (signature.parameters || []).map((parameter) => {
+                const label = Array.isArray(parameter.label)
+                  ? signature.label.slice(parameter.label[0], parameter.label[1])
+                  : parameter.label;
+                return new vscode.ParameterInformation(
+                  label,
+                  new vscode.MarkdownString(
+                    typeof parameter.documentation === "string"
+                      ? parameter.documentation
+                      : parameter.documentation?.value || ""
+                  )
+                );
+              });
+              return info;
+            });
             help.activeSignature = result.activeSignature || 0;
             help.activeParameter = result.activeParameter || 0;
             return help;
@@ -2383,7 +2516,10 @@ async function activate(context) {
     "sprout",
     {
       provideCodeActions(document, range, context, token) {
-        if (!languageClient?.ready) return fallbackQuickFixes(document, context.diagnostics);
+        if (!languageClient?.ready) {
+          if (languageClient?.starting) return [];
+          return fallbackQuickFixes(document, context.diagnostics);
+        }
         const diagnosticsPayload = context.diagnostics.map((diagnostic) => ({
           range: {
             start: { line: diagnostic.range.start.line, character: diagnostic.range.start.character },
@@ -2434,14 +2570,29 @@ async function activate(context) {
   const semanticTokens = vscode.languages.registerDocumentSemanticTokensProvider(
     { language: "sprout" },
     {
-      provideDocumentSemanticTokens(document) {
-        return collectSemanticTokens(document);
+      async provideDocumentSemanticTokens(document, token) {
+        if (languageClient?.ready) {
+          const payload = await languageClient.semanticTokens(document, token).catch(() => undefined);
+          if (payload && Array.isArray(payload.data)) {
+            return new vscode.SemanticTokens(new Uint32Array(payload.data), semanticLegend);
+          }
+        }
+        return new vscode.SemanticTokensBuilder(semanticLegend).build();
       }
     },
     semanticLegend
   );
 
+  const folding = vscode.languages.registerFoldingRangeProvider("sprout", {
+    provideFoldingRanges(document) {
+      return computeSproutFoldingRanges(document.getText()).map((range) => (
+        new vscode.FoldingRange(range.start, range.end, vscode.FoldingRangeKind.Region)
+      ));
+    }
+  });
+
   context.subscriptions.push(
+    { dispose: () => { if (heartbeatTimer) clearInterval(heartbeatTimer); } },
     provider,
     hover,
     definition,
@@ -2450,6 +2601,7 @@ async function activate(context) {
     signature,
     codeActions,
     semanticTokens,
+    folding,
     diagnostics,
     vscode.workspace.onDidOpenTextDocument((document) => {
       languageClient?.open(document);
@@ -2468,7 +2620,12 @@ async function activate(context) {
       if (event.document.languageId === "sprout") {
         clearTimeout(timers.get(event.document.uri.toString()));
         if (!usingLanguageServer()) {
-          scheduleCheck(event.document);
+          const immediate = event.contentChanges.some((change) => (
+            String(change.text || "").includes("\n")
+            || String(change.text || "").length >= 8
+            || Number(change.rangeLength || 0) > 1
+          ));
+          scheduleCheck(event.document, { immediate });
         }
         return;
       }
@@ -2491,4 +2648,9 @@ async function deactivate() {
   languageClient = undefined;
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+  activate,
+  deactivate,
+  computeSproutFoldingRanges,
+  computeSproutFoldingRangesFromLines,
+};

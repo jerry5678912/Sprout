@@ -13,7 +13,7 @@ def same_cell(cell, x, y):
 def has_cell(cells, x, y):
   for cell in cells:
     if same_cell(cell, x, y):
-      return true
+      return True
   return false
 
 def remove_cell(cells, x, y):
@@ -39,7 +39,7 @@ def step(world, direction):
   ny = world.player.y + dy
   blocked = nx < 1 or ny < 1 or nx >= world.width - 1 or ny >= world.height - 1
   if has_cell(world.walls, nx, ny):
-    blocked = true
+    blocked = True
 
   if not blocked:
     world.player.x = nx

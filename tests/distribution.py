@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tarfile
 import zipfile
 
 
@@ -120,6 +121,7 @@ def test_python_package_metadata() -> None:
     assert 'license = "Apache-2.0"' in metadata
     assert 'license-files = ["LICENSE", "NOTICE"]' in metadata
     assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
+    assert 'py-modules = ["sprout"]' in metadata
     assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]' in metadata
     module = subprocess.run(
         [sys.executable, "-m", "sprout_core", "version"],
@@ -129,6 +131,38 @@ def test_python_package_metadata() -> None:
         check=True,
     )
     assert module.stdout.strip() == f"Sprout {SPROUT_VERSION}"
+
+
+def test_python_package_build_includes_sprout_runner_module() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        dist = Path(tmp) / "dist"
+        subprocess.run(
+            [sys.executable, "setup.py", "sdist", "--dist-dir", str(dist)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", str(dist)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        wheel = dist / f"sprout_language-{SPROUT_VERSION}-py3-none-any.whl"
+        sdist = dist / f"sprout-language-{SPROUT_VERSION}.tar.gz"
+        assert wheel.exists()
+        assert sdist.exists()
+        with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+            assert "sprout.py" in names
+            assert "sprout_core/cli.py" in names
+        with tarfile.open(sdist, "r:gz") as archive:
+            names = set(archive.getnames())
+            root = f"sprout-language-{SPROUT_VERSION}"
+            assert f"{root}/sprout.py" in names
+            assert f"{root}/sprout_core/cli.py" in names
 
 
 def test_portable_release_suite_is_complete() -> None:
@@ -155,6 +189,7 @@ def main() -> int:
     test_release_archives()
     test_version_consistency()
     test_python_package_metadata()
+    test_python_package_build_includes_sprout_runner_module()
     test_portable_release_suite_is_complete()
     test_windows_launcher_uses_installed_module()
     print("sprout distribution tests passed")

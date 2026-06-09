@@ -21,7 +21,7 @@ while i < 3 {
   i = i + 1
 }
 
-if true {
+if True {
   block_value = "visible"
 }
 

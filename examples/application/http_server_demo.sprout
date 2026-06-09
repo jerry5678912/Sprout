@@ -1,6 +1,6 @@
 server = http_server({
   "/": "Sprout HTTP server",
-  "/health": {"body": {"ok": true, "language": "Sprout"}}
+  "/health": {"body": {"ok": True, "language": "Sprout"}}
 })
 
 server.start()

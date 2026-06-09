@@ -564,7 +564,7 @@ end
 
 ## Features
 
-- Numbers, strings, booleans, `nil` / `None`, and arrays
+- Numbers, strings, booleans, `nil`, and arrays
 - Dictionaries with string or number keys
 - Native classes, inheritance, instances, fields, constructors, and methods
 - Parent method calls with `super.method(...)`
@@ -595,7 +595,7 @@ end
 - File helpers: `readfile`, `writefile`, `appendfile`, `exists`, `isfile`, `isdir`, `listdir`, `mkdir`, `readjson`, `writejson`, `lines`
 - Operators: `+ - * / // %`, comparisons, equality, membership `in`, `and`, `or`, unary `!` / `not`
 - Array and string slicing with `items[1:4]`, `items[:2]`, and `items[2:]`
-- Built-ins: `say`, `print`, `len`, `push`, `range`, `str`, `int`, `num`, `type`, `keys`, `values`, `items`, `has`, `get`, `argv`, `ask`, `clear`, `ensure`, `fail`
+- Built-ins: `say`, `len`, `push`, `range`, `str`, `int`, `num`, `type`, `keys`, `values`, `items`, `has`, `get`, `argv`, `ask`, `clear`, `ensure`, `fail`
 - Special Sprout helpers: `sparkle`, `whisper`, `shout`, `mirror`, `chant`, `weave`, `grow`, `plant`, `harvest`, `prune`, `sprinkle`, `bundle`, `first`, `last`, `rest`, `unique`, `countby`, `zipbud`, `dice`
 - Game helpers: `choose`, `clamp`, `wrap`, `dist`, `sleep`, `now`
 - Expanded standard library with `functions()` reporting 183 callable global functions

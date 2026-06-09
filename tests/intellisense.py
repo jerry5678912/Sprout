@@ -128,15 +128,26 @@ def test_unknown_name_suggests_keyword_typo() -> None:
 
 
 def test_unknown_name_suggests_builtin_and_local_typos() -> None:
-    source = "times = 3\npritn(timse)\n"
+    source = "times = 3\nrnage(timse)\n"
     analysis = analyze_source(source, str(ROOT / "tmp_code_word_typos.sprout"))
     diagnostics = [item for item in analysis.diagnostics if item.code == "SPROUT_UNKNOWN_NAME"]
     by_message = {item.message: item for item in diagnostics}
-    assert any("Did you mean 'print'?" in message for message in by_message)
+    assert any("Did you mean 'range'?" in message for message in by_message)
     assert any("Did you mean 'times'?" in message for message in by_message)
-    assert {item.data.get("replacement") for item in diagnostics} >= {"print", "times"}
+    assert {item.data.get("replacement") for item in diagnostics} >= {"range", "times"}
     strict = apply_diagnostic_policy(diagnostics, "strict")
     assert {item.severity for item in strict} == {"warning"}
+
+
+def test_removed_python_aliases_suggest_sprout_replacements() -> None:
+    source = "value = None\nprint(value)\nflag = true\nother = False\n"
+    analysis = analyze_source(source, str(ROOT / "tmp_removed_aliases.sprout"))
+    diagnostics = [item for item in analysis.diagnostics if item.code == "SPROUT_UNKNOWN_NAME"]
+    replacements = {item.message: item.data.get("replacement") for item in diagnostics}
+    assert any(replacement == "nil" for replacement in replacements.values())
+    assert any(replacement == "say" for replacement in replacements.values())
+    assert any(replacement == "True" for replacement in replacements.values())
+    assert any(replacement == "false" for replacement in replacements.values())
 
 
 def test_import_and_member_typos_have_replacements() -> None:
@@ -162,6 +173,22 @@ def test_hover_and_signature_data() -> None:
     assert spawn.signature == "spawn(name, hp=...)"
     assert "Create a named player" in spawn.documentation
     assert signature_for(index, path, "spawn").signature == "spawn(name, hp=...)"
+
+
+def test_variable_reference_after_string_keeps_real_column() -> None:
+    source = (
+        "def hello(count, mood):\n"
+        "  for i in range(count):\n"
+        "    say(\"Hello! I'm feeling \" + mood + \" today!\")\n"
+    )
+    analysis = analyze_source(source, str(ROOT / "tmp_string_reference_columns.sprout"))
+    mood_ref = next(
+        item for item in analysis.references
+        if item.name == "mood" and item.role == "read"
+    )
+    expected_col = source.splitlines()[2].index("mood") + 1
+    assert mood_ref.location.line == 3
+    assert mood_ref.location.col == expected_col
 
 
 def test_references_and_rename_edits() -> None:
@@ -280,6 +307,272 @@ def test_member_completion_filters_by_prefix() -> None:
     assert "name" not in members
 
 
+def test_dynamic_state_member_inference() -> None:
+    source = (
+        "state = {}\n"
+        'state.keys = {"left": false, "right": false}\n'
+        "state.cam = {}\n"
+        "state.cam.yaw = 0\n"
+        "say state.keys.left, state.cam.yaw\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "state_shape.sprout"
+        path.write_text(source, encoding="utf-8")
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "state"))
+        assert {"keys", "cam"}.issubset(members)
+
+
+def test_wrapper_returned_dict_members_are_visible() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        main = root / "main.sprout"
+        helper.write_text(
+            "def window():\n"
+            '  return {"base": 1, "core": 2}\n',
+            encoding="utf-8",
+        )
+        main.write_text(
+            'import "helper.sprout" as helper\n'
+            "world = helper.window()\n"
+            "say world.base, world.core\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(root))
+        diagnostics = index.files[str(main.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(main), "world"))
+        assert {"base", "core"}.issubset(members)
+
+
+def test_shape_flows_through_variable_aliases() -> None:
+    source = (
+        'state = {"keys": {"left": false, "right": false}}\n'
+        "keys = state.keys\n"
+        "say keys.left, keys.right\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "alias_shape.sprout"
+        path.write_text(source, encoding="utf-8")
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        assert not any(item.code == "SPROUT_UNUSED_NAME" and "keys" in item.message for item in diagnostics)
+        members = names(member_completions(index, str(path), "keys"))
+        assert {"left", "right"}.issubset(members)
+
+
+def test_shape_flows_from_wrapper_result_into_nested_alias() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        main = root / "main.sprout"
+        helper.write_text(
+            "def window():\n"
+            '  return {"base": {"width": 320, "height": 200}, "core": 2}\n',
+            encoding="utf-8",
+        )
+        main.write_text(
+            'import "helper.sprout" as helper\n'
+            "world = helper.window()\n"
+            "base = world.base\n"
+            "say base.width, base.height\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(root))
+        diagnostics = index.files[str(main.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(main), "base"))
+        assert {"width", "height"}.issubset(members)
+
+
+def test_nested_member_completion_on_chain() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "helper.sprout"
+        main = root / "main.sprout"
+        helper.write_text(
+            "def window():\n"
+            '  return {"base": {"width": 320, "height": 200}, "core": 2}\n',
+            encoding="utf-8",
+        )
+        main.write_text(
+            'import "helper.sprout" as helper\n'
+            "world = helper.window()\n"
+            "say world.base.width\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(root))
+        diagnostics = index.files[str(main.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(main), "world.base"))
+        assert {"width", "height"}.issubset(members)
+
+
+def test_branchy_wrapper_return_merges_member_shapes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            "def make(flag):\n"
+            "  if flag:\n"
+            '    return {"base": {"w": 1}}\n'
+            '  return {"base": {"h": 2}}\n'
+            "world = make(True)\n"
+            "say world.base.w\n"
+            "say world.base.h\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "world.base"))
+        assert {"w", "h"}.issubset(members)
+
+
+def test_reassigned_variable_merges_member_shapes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            'world = {"base": {"w": 1}}\n'
+            'world = {"base": {"h": 2}}\n'
+            "say world.base.w\n"
+            "say world.base.h\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "world.base"))
+        assert {"w", "h"}.issubset(members)
+
+
+def test_branch_assigned_variable_merges_member_shapes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            "if True:\n"
+            '  world = {"base": {"w": 1}}\n'
+            "else:\n"
+            '  world = {"base": {"h": 2}}\n'
+            "say world.base.w\n"
+            "say world.base.h\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "world.base"))
+        assert {"w", "h"}.issubset(members)
+
+
+def test_branch_assigned_alias_merges_nested_member_shapes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            "if True:\n"
+            '  state = {"cam": {"yaw": 1}}\n'
+            "else:\n"
+            '  state = {"cam": {"pitch": 2}}\n'
+            "cam = state.cam\n"
+            "say cam.yaw\n"
+            "say cam.pitch\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "cam"))
+        assert {"yaw", "pitch"}.issubset(members)
+
+
+def test_indexed_dict_alias_preserves_member_shape() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            'world = {"base": {"w": 1, "h": 2}}\n'
+            'base = world["base"]\n'
+            "say base.w\n"
+            "say base.h\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "base"))
+        assert {"w", "h"}.issubset(members)
+
+
+def test_get_builtin_alias_preserves_member_shape() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            'world = {"base": {"w": 1, "h": 2}}\n'
+            'base = get(world, "base", {})\n'
+            "say base.w\n"
+            "say base.h\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "base"))
+        assert {"w", "h"}.issubset(members)
+
+
+def test_get_builtin_default_shape_is_merged_when_key_may_be_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            "state = {}\n"
+            'cam = get(state, "cam", {"yaw": 0, "pitch": 1})\n'
+            "say cam.yaw\n"
+            "say cam.pitch\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "cam"))
+        assert {"yaw", "pitch"}.issubset(members)
+
+
+def test_indexed_array_element_alias_preserves_member_shape() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            'items = [{"name": "a", "hp": 1}]\n'
+            "first = items[0]\n"
+            "say first.name\n"
+            "say first.hp\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "first"))
+        assert {"name", "hp"}.issubset(members)
+
+
+def test_indexed_nested_value_alias_preserves_member_shape() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "main.sprout"
+        path.write_text(
+            'world = {"base": {"w": 1}}\n'
+            'items = [world["base"]]\n'
+            "first = items[0]\n"
+            "say first.w\n",
+            encoding="utf-8",
+        )
+        index = build_workspace_index(str(path))
+        diagnostics = index.files[str(path.resolve())].diagnostics
+        assert not any(item.code == "SPROUT_UNKNOWN_MEMBER" for item in diagnostics)
+        members = names(member_completions(index, str(path), "first"))
+        assert {"w"}.issubset(members)
+
+
 def test_incremental_workspace_updates() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -363,6 +656,19 @@ def intel(kind: str, line: int, col: int) -> dict:
     return json.loads(output)
 
 
+def extension_folding_ranges(source: str) -> list[dict]:
+    script = (
+        "const ext=require(process.argv[1]);"
+        "const source=process.argv[2];"
+        "process.stdout.write(JSON.stringify(ext.computeSproutFoldingRanges(source)));"
+    )
+    output = subprocess.check_output(
+        ["node", "-e", script, str(ROOT / "editor" / "vscode-sprout" / "folding.js"), source],
+        text=True,
+    )
+    return json.loads(output)
+
+
 def test_cli_intelligence_queries() -> None:
     completion = intel("completions", 20, 8)
     assert completion["base"] == "player"
@@ -384,6 +690,36 @@ def test_cli_intelligence_queries() -> None:
     assert diagnostics["diagnostics"] == []
 
 
+def test_extension_folding_ranges_cover_dedents_and_block_styles() -> None:
+    source = (
+        "def hello(times):\n"
+        "  for i in range(times):\n"
+        "    say \"Hello\"\n"
+        "\n"
+        "k = 3\n"
+        "\n"
+        "def garden(times) bloom\n"
+        "  if times > 0 bloom\n"
+        "    say times\n"
+        "  end\n"
+        "end\n"
+        "\n"
+        "def braces(times) {\n"
+        "  if times > 0 {\n"
+        "    say times\n"
+        "  }\n"
+        "}\n"
+    )
+    ranges = extension_folding_ranges(source)
+    assert {"start": 0, "end": 2, "kind": "region"} in ranges
+    assert {"start": 1, "end": 2, "kind": "region"} in ranges
+    assert {"start": 6, "end": 10, "kind": "region"} in ranges
+    assert {"start": 7, "end": 9, "kind": "region"} in ranges
+    assert {"start": 12, "end": 16, "kind": "region"} in ranges
+    assert {"start": 13, "end": 15, "kind": "region"} in ranges
+    assert all(item["end"] < 4 or item["start"] > 4 for item in ranges)
+
+
 def main() -> int:
     test_class_member_completion()
     test_project_module_exports()
@@ -392,8 +728,10 @@ def main() -> int:
     test_diagnostic_modes_and_unknown_members()
     test_unknown_name_suggests_keyword_typo()
     test_unknown_name_suggests_builtin_and_local_typos()
+    test_removed_python_aliases_suggest_sprout_replacements()
     test_import_and_member_typos_have_replacements()
     test_hover_and_signature_data()
+    test_variable_reference_after_string_keeps_real_column()
     test_references_and_rename_edits()
     test_rename_safe_filters_module_aliases()
     test_python_module_members()
@@ -401,10 +739,24 @@ def main() -> int:
     test_scope_aware_completions()
     test_completion_ranking_prefers_local_prefix_matches()
     test_member_completion_filters_by_prefix()
+    test_dynamic_state_member_inference()
+    test_wrapper_returned_dict_members_are_visible()
+    test_shape_flows_through_variable_aliases()
+    test_shape_flows_from_wrapper_result_into_nested_alias()
+    test_nested_member_completion_on_chain()
+    test_branchy_wrapper_return_merges_member_shapes()
+    test_reassigned_variable_merges_member_shapes()
+    test_branch_assigned_variable_merges_member_shapes()
+    test_branch_assigned_alias_merges_nested_member_shapes()
+    test_indexed_dict_alias_preserves_member_shape()
+    test_get_builtin_alias_preserves_member_shape()
+    test_indexed_array_element_alias_preserves_member_shape()
+    test_indexed_nested_value_alias_preserves_member_shape()
     test_incremental_workspace_updates()
     test_reassignment_keeps_binding()
     test_standard_mode_surfaces_deeper_flow_diagnostics()
     test_cli_intelligence_queries()
+    test_extension_folding_ranges_cover_dedents_and_block_styles()
     print("sprout intellisense tests passed")
     return 0
 

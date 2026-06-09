@@ -34,7 +34,7 @@ def window(width=800, height=600, title="Sprout Window2D") {
   pg = init()
   screen = pg.display.set_mode([int(width), int(height)])
   pg.display.set_caption(title)
-  return {"pg": pg, "screen": screen, "width": width, "height": height, "open": true}
+  return {"pg": pg, "screen": screen, "width": width, "height": height, "open": True}
 }
 
 def clock(win) {

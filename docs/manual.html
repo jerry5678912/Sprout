@@ -250,9 +250,9 @@ The REPL supports multiline blocks. When a block is open, the prompt changes fro
 Current reserved words:
 </p>
 <pre><code class="language-text">
-False None True and as break bloom catch class continue def each elif else
-extends false fn for if import importpython in let nil none not or pluck
-raise return say sprout super true try whirl while
+True and as break bloom catch class continue def each elif else extends
+false fn for if import importpython in let nil none not or pluck raise
+return say sprout super try whirl while
 </code></pre>
 <p>
 Keyword aliases:
@@ -263,8 +263,8 @@ Keyword aliases:
 <li><code>let</code> and <code>sprout</code> declare variables.</li>
 <li><code>while</code> and <code>whirl</code> start while loops.</li>
 <li><code>for</code> and <code>each</code> start iterable loops.</li>
-<li><code>nil</code>, <code>none</code>, and <code>None</code> mean no value.</li>
-<li><code>true</code> / <code>True</code> and <code>false</code> / <code>False</code> are booleans.</li>
+<li><code>nil</code> and <code>none</code> mean no value.</li>
+<li><code>True</code> and <code>false</code> are booleans.</li>
 </ul>
 <h2 id="5-values-and-types">5. Values and Types</h2>
 <p>
@@ -291,7 +291,7 @@ Use <code>type(value)</code> to inspect a value:
 </p>
 <pre><code class="language-sprout">
 say type(nil)          # nil
-say type(true)         # bool
+say type(True)         # bool
 say type(42)           # number
 say type(&quot;leaf&quot;)       # string
 say type([1, 2])       # array
@@ -402,10 +402,8 @@ say word[:2]    # sp
 Booleans:
 </p>
 <pre><code class="language-sprout">
-true
-false
 True
-False
+false
 </code></pre>
 <p>
 No value:
@@ -413,7 +411,6 @@ No value:
 <pre><code class="language-sprout">
 nil
 none
-None
 </code></pre>
 <p>
 Only <code>false</code> and <code>nil</code> are falsey. Everything else is truthy, including <code>0</code>, empty strings, and empty arrays.
@@ -949,7 +946,7 @@ say py_available(&quot;pygame&quot;)
 pg = py_import(&quot;pygame&quot;)
 </code></pre>
 <p>
-<code>py_available(module_name)</code> returns <code>true</code> if Python can import the module. <code>py_import(module_name)</code> imports by string and returns a Python module object. This is useful for optional modules like Pygame and Panda3D wrappers, where a Sprout module should load cleanly even if the Python package is not installed yet.
+<code>py_available(module_name)</code> returns <code>True</code> if Python can import the module. <code>py_import(module_name)</code> imports by string and returns a Python module object. This is useful for optional modules like Pygame and Panda3D wrappers, where a Sprout module should load cleanly even if the Python package is not installed yet.
 </p>
 <pre><code class="language-sprout">
 day = dt.date(year=2026, month=6, day=4)
@@ -958,7 +955,7 @@ day = dt.date(year=2026, month=6, day=4)
 Python results are wrapped:
 </p>
 <ul>
-<li>Python <code>None</code>, booleans, numbers, and strings become normal Sprout values.</li>
+<li>Python <code>None</code> becomes Sprout <code>nil</code>, and Python booleans, numbers, and strings become normal Sprout values.</li>
 <li>Python lists and tuples become Sprout arrays.</li>
 <li>Python dictionaries become Sprout dictionaries.</li>
 <li>Python modules become <code>python-module</code> values.</li>
@@ -1120,7 +1117,7 @@ json_stringify, keys, last, len, lerp, lines
 listdir, log, log10, lower, ltrim, max
 median, merge, methods, min, mirror, mkdir
 now, num, omit, padleft, padright, pick
-plant, pow, print, prune, push, py_available
+plant, pow, prune, push, py_available
 py_import, radians, rand, randint, range, readfile
 readjson, remove, repeat, replace, rest, reverse
 round, rtrim, sample, say, seed, shout
@@ -1133,12 +1130,11 @@ wrap, writefile, writejson, zipbud
 <h3 id="output-and-input">Output and Input</h3>
 <pre><code class="language-sprout">
 say(...)
-print(...)
 ask(prompt)
 clear()
 </code></pre>
 <p>
-<code>say</code> and <code>print</code> print formatted values separated by spaces.
+<code>say</code> prints formatted values separated by spaces.
 </p>
 <p>
 <code>ask(prompt)</code> prints a prompt and reads a line from standard input.
@@ -1520,7 +1516,7 @@ c2d.world_to_screen(point, camera, canvas)
 c2d.plot_world(canvas, point, camera, char=&quot;#&quot;)
 c2d.line_world(canvas, start, finish, camera, char=&quot;#&quot;)
 c2d.sprite_world(canvas, asset, position, camera)
-c2d.animation(frames, fps=8, loop=true)
+c2d.animation(frames, fps=8, loop=True)
 c2d.animation_frame(animation, seconds)
 c2d.frame_to_text(canvas)
 </code></pre>
@@ -1556,7 +1552,7 @@ pix.composite(canvas, layer, x=0, y=0)
 pix.camera(position=pix.vec2(0, 0), zoom=1)
 pix.line_world(canvas, start, finish, camera, char=&quot;#&quot;)
 pix.sprite_world(canvas, asset, position, camera)
-pix.animation(frames, fps=8, loop=true)
+pix.animation(frames, fps=8, loop=True)
 pix.animation_frame(animation, seconds)
 pix.frame_to_text(canvas)
 </code></pre>
@@ -2090,7 +2086,7 @@ It provides:
 <li>bracket and quote pairing</li>
 <li>basic indentation after <code>{</code>, <code>:</code>, and <code>bloom</code></li>
 <li>native Test Explorer discovery and execution for Sprout <code>test</code> declarations</li>
-<li>safe lightbulb quick fixes for tab indentation and Python-style <code>True</code>, <code>False</code>, and <code>None</code></li>
+<li>safe lightbulb quick fixes for tab indentation and legacy compatibility names like <code>print</code>, <code>true</code>, <code>False</code>, and <code>None</code></li>
 <li>conditional breakpoints, hit counts, and uncaught-error stopping</li>
 <li>snippets for functions, classes, loops, errors, Python imports, and Sprout3D scenes</li>
 <li>semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when <code>sprout.py</code> is available</li>
@@ -2319,7 +2315,7 @@ Small route-based local server:
 <pre><code class="language-sprout">
 server = http_server({
   &quot;/&quot;: &quot;hello&quot;,
-  &quot;/health&quot;: {&quot;body&quot;: {&quot;ok&quot;: true}}
+  &quot;/health&quot;: {&quot;body&quot;: {&quot;ok&quot;: True}}
 })
 server.start()
 say server.url

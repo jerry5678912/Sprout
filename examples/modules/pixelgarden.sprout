@@ -35,6 +35,6 @@ def world_to_screen(point, camera, canvas) { return c2d.world_to_screen(point, c
 def plot_world(canvas, point, camera, char="#") { return c2d.plot_world(canvas, point, camera, char) }
 def line_world(canvas, start, finish, camera, char="#") { return c2d.line_world(canvas, start, finish, camera, char) }
 def sprite_world(canvas, asset, position, camera, flip_x=false, flip_y=false) { return c2d.sprite_world(canvas, asset, position, camera, flip_x, flip_y) }
-def animation(frames, fps=8, loop=true) { return c2d.animation(frames, fps, loop) }
+def animation(frames, fps=8, loop=True) { return c2d.animation(frames, fps, loop) }
 def animation_frame(animation, seconds) { return c2d.animation_frame(animation, seconds) }
 def frame_to_text(canvas) { return c2d.frame_to_text(canvas) }

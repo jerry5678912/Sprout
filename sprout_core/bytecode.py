@@ -22,6 +22,7 @@ from .runtime import (
     SproutModule,
     StructuredTaskGroup,
     TaskFuture,
+    apply_slice_assignment,
     attach_error_source,
     bind_arguments,
     format_value,
@@ -339,7 +340,7 @@ class Compiler:
             self.emit("LOAD_CONST", None) if stmt[1][2] is None else self.expression(stmt[1][2])
             self.emit("LOAD_CONST", None) if stmt[1][3] is None else self.expression(stmt[1][3])
             self.expression(stmt[2])
-            self.emit("SET_SLICE")
+            self.emit("SET_SLICE", stmt[1][1])
         elif kind == "import":
             self.emit("IMPORT_SPROUT", (stmt[1], stmt[2]))
             self.emit("STORE_NAME", stmt[2])
@@ -868,6 +869,40 @@ class BytecodeVM:
             raise SproutError("VM stack underflow")
         return self.stack.pop()
 
+    def assign_target(self, env: Env, target: Any, value: Any) -> None:
+        if target[0] == "var":
+            env.assign(target[1], value)
+            return
+        if target[0] == "index":
+            obj = self.evaluate_expr(target[1], env)
+            index = self.evaluate_expr(target[2], env)
+            if isinstance(obj, list):
+                obj[int(index)] = value
+            elif isinstance(obj, dict):
+                obj[index] = value
+            else:
+                raise SproutError("Index assignment expects an array or dictionary")
+            return
+        if target[0] == "get":
+            obj = self.evaluate_expr(target[1], env)
+            if isinstance(obj, dict):
+                obj[target[2]] = value
+                return
+            if isinstance(obj, VMInstance):
+                obj.set(target[2], value)
+                return
+            self.interpreter.assign(("get", ("literal", obj), target[2]), value)
+            return
+        if target[0] == "slice":
+            obj = self.evaluate_expr(target[1], env)
+            start = None if target[2] is None else int(self.evaluate_expr(target[2], env))
+            end = None if target[3] is None else int(self.evaluate_expr(target[3], env))
+            updated, mutated = apply_slice_assignment(obj, start, end, value)
+            if not mutated:
+                self.assign_target(env, target[1], updated)
+            return
+        raise SproutError("Invalid assignment target")
+
     def execute(self, instr: Instruction, env: Env) -> Any:
         op = instr.op
         if op == "LOAD_CONST":
@@ -936,13 +971,11 @@ class BytecodeVM:
             end = self.pop()
             start = self.pop()
             obj = self.pop()
-            if not isinstance(obj, list):
-                raise SproutError("Slice assignment expects an array")
-            if not isinstance(value, list):
-                raise SproutError("Slice assignment value must be an array")
             start_value = None if start is None else int(start)
             end_value = None if end is None else int(end)
-            obj[start_value:end_value] = value
+            updated, mutated = apply_slice_assignment(obj, start_value, end_value, value)
+            if not mutated:
+                self.assign_target(env, instr.arg, updated)
             self.stack.append(value)
         elif op == "UNARY":
             value = self.pop()

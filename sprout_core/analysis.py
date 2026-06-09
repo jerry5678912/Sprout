@@ -24,6 +24,7 @@ TYPE_ALIAS_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
+FIELD_ASSIGN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
 FOR_RE = re.compile(r"^\s*(?:async\s+)?(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
 CATCH_RE = re.compile(r"^\s*catch\s+([A-Za-z_][A-Za-z0-9_]*)\b")
@@ -49,6 +50,21 @@ UNUSED_DIAGNOSTIC_CODES = {
     "SPROUT_UNUSED_PARAMETER",
 }
 VALID_DIAGNOSTIC_SEVERITIES = {"error", "warning", "information", "hint", "none"}
+LEGACY_NAME_REPLACEMENTS = {
+    "print": "say",
+    "true": "True",
+    "False": "false",
+    "None": "nil",
+}
+
+
+def mask_strings_preserving_columns(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(0)
+        if len(value) <= 2:
+            return value
+        return '"' + (" " * (len(value) - 2)) + '"'
+    return STRING_RE.sub(replace, text)
 
 
 def normalize_path(path: str) -> str:
@@ -511,35 +527,32 @@ class WorkspaceIndex:
                     symbol.members = self.module_exports.get(symbol.module_path or "", {})
                 elif symbol.kind == "python-module" and symbol.module_path:
                     symbol.members = python_module_members(symbol.module_path, symbol)
+            self._refresh_variable_shapes(file)
             for ref in file.references:
                 if "." not in ref.name:
                     continue
-                base, member = ref.name.split(".", 1)
+                parts = ref.name.split(".")
+                base = parts[0]
                 base_symbol = file.imports.get(base) or file.variables.get(base) or file.classes.get(base)
+                parent_symbol = resolve_member_chain_symbol(self, file, file.path, ".".join(parts[:-1])) if len(parts) > 2 else base_symbol
+                member = parts[-1]
                 member_symbol = None
                 member_choices: set[str] = set()
-                if base_symbol and base_symbol.members:
-                    member_choices = set(base_symbol.members)
-                    member_symbol = base_symbol.members.get(member)
-                elif base_symbol and base_symbol.target_type:
-                    target = file.classes.get(base_symbol.target_type) or self.find_symbol(base_symbol.target_type, file.path)
-                    if not target and "." in base_symbol.target_type:
-                        factory = signature_for(self, file.path, base_symbol.target_type)
-                        if factory and factory.target_type:
-                            target = file.classes.get(factory.target_type) or self.find_symbol(factory.target_type, file.path)
-                    if target:
-                        member_choices = set(target.members)
-                        member_symbol = target.members.get(member)
+                if parent_symbol:
+                    resolved_members = resolve_symbol_members(self, file, parent_symbol, file.path)
+                    member_choices = set(resolved_members)
+                    member_symbol = resolved_members.get(member)
                 if member_symbol:
                     ref.symbol_id = member_symbol.symbol_id
-                elif base_symbol and (
-                    (base_symbol.kind == "module" and base_symbol.module_path)
-                    or base_symbol.target_type
+                elif parent_symbol and (
+                    (base_symbol and base_symbol.kind == "module" and base_symbol.module_path)
+                    or parent_symbol.target_type
+                    or bool(resolve_symbol_members(self, file, parent_symbol, file.path))
                 ):
                     suggestion = best_name_suggestion(member, member_choices)
                     message = (
-                        f"'{base}' has no member '{member}'. Did you mean '{suggestion}'?"
-                        if suggestion else f"'{base}' has no member '{member}'"
+                        f"'{'.'.join(parts[:-1])}' has no member '{member}'. Did you mean '{suggestion}'?"
+                        if suggestion else f"'{'.'.join(parts[:-1])}' has no member '{member}'"
                     )
                     file.diagnostics.append(
                         Diagnostic(
@@ -553,6 +566,54 @@ class WorkspaceIndex:
                             {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
                         )
                     )
+
+    def _refresh_variable_shapes(self, file: FileAnalysis) -> None:
+        known_class_names = set(file.classes)
+        for symbol in file.variables.values():
+            if symbol.target_type and not symbol.members:
+                target = file.classes.get(symbol.target_type) or self.find_symbol(symbol.target_type, file.path)
+                if not target and "." in symbol.target_type:
+                    factory = signature_for(self, file.path, symbol.target_type)
+                    if factory:
+                        if factory.members:
+                            symbol.members = {
+                                name: clone_member_symbol(member, file.path, symbol.location.line, symbol.location.col, container=symbol.name)
+                                for name, member in factory.members.items()
+                            }
+                        if factory.target_type:
+                            target = file.classes.get(factory.target_type) or self.find_symbol(factory.target_type, file.path)
+                if target and target.members and not symbol.members:
+                    symbol.members = {
+                        name: clone_member_symbol(member, file.path, symbol.location.line, symbol.location.col, container=symbol.name)
+                        for name, member in target.members.items()
+                    }
+            merged_members = dict(symbol.members)
+            for stmt in walk_statements(file.program):
+                if stmt[0] != "assign" or stmt[1][0] != "var" or stmt[1][1] != symbol.name:
+                    continue
+                target_type = infer_expr_target_from_symbol(stmt[2], known_class_names, file)
+                if target_type:
+                    symbol.target_type = target_type
+                inferred = infer_expr_members(
+                    stmt[2],
+                    file.path,
+                    symbol.location.line,
+                    symbol.location.col,
+                    container=symbol.name,
+                    known_class_names=known_class_names,
+                    analysis=file,
+                )
+                if inferred:
+                    merged_members = merge_symbol_members(
+                        merged_members,
+                        inferred,
+                        file.path,
+                        symbol.location.line,
+                        symbol.location.col,
+                        container=symbol.name,
+                    )
+            if merged_members:
+                symbol.members = merged_members
 
     def find_symbol(self, name: str, path: str | None = None) -> SemanticSymbol | None:
         if path and path in self.files:
@@ -732,21 +793,329 @@ def function_signature(
 
 
 def inferred_return_target(stmt: Any, known_class_names: set[str]) -> str | None:
-    if not isinstance(stmt, tuple) or stmt[0] not in {"fn", "async_fn"}:
-        return None
-    for child in stmt[3]:
-        if not isinstance(child, tuple) or child[0] != "return":
-            continue
-        expr = child[1]
-        if (
-            isinstance(expr, tuple)
-            and expr[0] == "call"
-            and isinstance(expr[1], tuple)
-            and expr[1][0] == "var"
-            and expr[1][1] in known_class_names
-        ):
-            return str(expr[1][1])
+    targets = {
+        target
+        for expr in function_return_exprs(stmt)
+        for target in [infer_expr_target(expr, known_class_names)]
+        if target
+    }
+    if len(targets) == 1:
+        return next(iter(targets))
     return None
+
+
+def inferred_return_members(stmt: Any, path: str, line: int, col: int, known_class_names: set[str]) -> dict[str, SemanticSymbol]:
+    merged: dict[str, SemanticSymbol] = {}
+    for expr in function_return_exprs(stmt):
+        members = infer_expr_members(
+            expr,
+            path,
+            line,
+            col,
+            container=stmt[1],
+            known_class_names=known_class_names,
+        )
+        if members:
+            merged = merge_symbol_members(merged, members, path, line, col, container=stmt[1])
+    return merged
+
+
+def expr_head_name(expr: Any) -> str | None:
+    if not isinstance(expr, tuple):
+        return None
+    if expr[0] == "var":
+        return str(expr[1])
+    if expr[0] == "get":
+        base = expr_head_name(expr[1])
+        return f"{base}.{expr[2]}" if base else None
+    return None
+
+
+def infer_expr_target(expr: Any, known_class_names: set[str]) -> str | None:
+    if not isinstance(expr, tuple) or expr[0] != "call":
+        return None
+    head = expr_head_name(expr[1])
+    if not head:
+        return None
+    if head in known_class_names or "." in head:
+        return head
+    return head
+
+
+def infer_expr_target_from_symbol(
+    expr: Any,
+    known_class_names: set[str],
+    analysis: FileAnalysis | None = None,
+) -> str | None:
+    target = infer_expr_target(expr, known_class_names)
+    if target:
+        return target
+    if analysis is None:
+        return None
+    indexed_target = infer_indexed_target_type(analysis, expr, known_class_names)
+    if indexed_target:
+        return indexed_target
+    resolved_symbol = resolve_expr_symbol(analysis, expr)
+    if not resolved_symbol:
+        return None
+    if resolved_symbol.target_type:
+        return resolved_symbol.target_type
+    if resolved_symbol.kind in {"class", "enum", "interface", "type"}:
+        return resolved_symbol.name
+    return None
+
+
+def clone_member_symbol(
+    symbol: SemanticSymbol,
+    path: str,
+    line: int,
+    col: int,
+    *,
+    container: str | None = None,
+) -> SemanticSymbol:
+    cloned = SemanticSymbol(
+        symbol.name,
+        symbol.kind,
+        Location(path, line, col),
+        signature=symbol.signature,
+        documentation=symbol.documentation,
+        container=container,
+        module_path=symbol.module_path,
+        target_type=symbol.target_type,
+    )
+    if symbol.members:
+        cloned.members = {
+            name: clone_member_symbol(member, path, line, col, container=cloned.qualified_name)
+            for name, member in symbol.members.items()
+        }
+    return cloned
+
+
+def resolve_member_from_symbol(
+    analysis: FileAnalysis,
+    base: SemanticSymbol | None,
+    member: str,
+) -> SemanticSymbol | None:
+    if not base:
+        return None
+    if base.members and member in base.members:
+        return base.members[member]
+    if base.target_type:
+        target = analysis.classes.get(base.target_type)
+        if not target and "." in base.target_type:
+            target = next(
+                (
+                    symbol for symbol in analysis.symbols
+                    if symbol.qualified_name == base.target_type or symbol.name == base.target_type
+                ),
+                None,
+            )
+        if target and target.members:
+            return target.members.get(member)
+    return None
+
+
+def unwrap_call_arg(arg: Any) -> Any:
+    if isinstance(arg, tuple) and len(arg) == 2 and arg[0] == "value":
+        return arg[1]
+    return arg
+
+
+def resolve_expr_symbol(analysis: FileAnalysis, expr: Any) -> SemanticSymbol | None:
+    if not isinstance(expr, tuple):
+        return None
+    kind = expr[0]
+    if kind == "var":
+        name = expr[1]
+        return (
+            analysis.variables.get(name)
+            or analysis.imports.get(name)
+            or analysis.classes.get(name)
+            or analysis.functions.get(name)
+            or analysis.types.get(name)
+            or BUILTINS.get(name)
+        )
+    if kind == "get":
+        return resolve_member_from_symbol(analysis, resolve_expr_symbol(analysis, expr[1]), expr[2])
+    if kind == "index":
+        base = resolve_expr_symbol(analysis, expr[1])
+        index_expr = expr[2]
+        if isinstance(index_expr, tuple) and index_expr[0] == "literal" and isinstance(index_expr[1], str):
+            return resolve_member_from_symbol(analysis, base, index_expr[1])
+        return None
+    if kind == "call":
+        callee = expr[1]
+        args = [unwrap_call_arg(arg) for arg in expr[2]]
+        if isinstance(callee, tuple) and callee[0] == "var" and callee[1] == "get" and len(args) >= 2:
+            base = resolve_expr_symbol(analysis, args[0])
+            key_expr = args[1]
+            if isinstance(key_expr, tuple) and key_expr[0] == "literal" and isinstance(key_expr[1], str):
+                member = resolve_member_from_symbol(analysis, base, key_expr[1])
+                if member:
+                    return member
+                if len(args) >= 3:
+                    return resolve_expr_symbol(analysis, args[2])
+        return resolve_expr_symbol(analysis, expr[1])
+    return None
+
+
+def infer_expr_members(
+    expr: Any,
+    path: str,
+    line: int,
+    col: int,
+    *,
+    container: str | None = None,
+    known_class_names: set[str] | None = None,
+    analysis: FileAnalysis | None = None,
+) -> dict[str, SemanticSymbol]:
+    known_class_names = known_class_names or set()
+    if (
+        analysis is not None
+        and isinstance(expr, tuple)
+        and expr[0] == "call"
+        and isinstance(expr[1], tuple)
+        and expr[1][0] == "var"
+        and expr[1][1] == "get"
+    ):
+        args = [unwrap_call_arg(arg) for arg in expr[2]]
+        if len(args) >= 2:
+            merged: dict[str, SemanticSymbol] = {}
+            base = resolve_expr_symbol(analysis, args[0])
+            key_expr = args[1]
+            if (
+                base
+                and isinstance(key_expr, tuple)
+                and key_expr[0] == "literal"
+                and isinstance(key_expr[1], str)
+            ):
+                member = resolve_member_from_symbol(analysis, base, key_expr[1])
+                if member:
+                    merged = merge_symbol_members(
+                        merged,
+                        {
+                            name: clone_member_symbol(item, path, line, col, container=container)
+                            for name, item in member.members.items()
+                        },
+                        path,
+                        line,
+                        col,
+                        container=container,
+                    )
+            if len(args) >= 3:
+                fallback = infer_expr_members(
+                    args[2],
+                    path,
+                    line,
+                    col,
+                    container=container,
+                    known_class_names=known_class_names,
+                    analysis=analysis,
+                )
+                if fallback:
+                    merged = merge_symbol_members(merged, fallback, path, line, col, container=container)
+            if merged:
+                return merged
+    if analysis is not None:
+        indexed_members = infer_indexed_members(
+            analysis,
+            expr,
+            path,
+            line,
+            col,
+            container=container,
+            known_class_names=known_class_names,
+        )
+        if indexed_members:
+            return indexed_members
+    if analysis is not None:
+        resolved_symbol = resolve_expr_symbol(analysis, expr)
+        if resolved_symbol and resolved_symbol.members:
+            return {
+                name: clone_member_symbol(member, path, line, col, container=container)
+                for name, member in resolved_symbol.members.items()
+            }
+    if not isinstance(expr, tuple) or expr[0] != "dict":
+        return {}
+    members: dict[str, SemanticSymbol] = {}
+    for key_expr, value_expr in expr[1]:
+        if not (
+            isinstance(key_expr, tuple)
+            and key_expr[0] == "literal"
+            and isinstance(key_expr[1], str)
+            and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key_expr[1])
+        ):
+            continue
+        member = SemanticSymbol(
+            key_expr[1],
+            "property",
+            Location(path, line, col),
+            container=container,
+            target_type=infer_expr_target_from_symbol(value_expr, known_class_names, analysis),
+        )
+        nested = infer_expr_members(
+            value_expr,
+            path,
+            line,
+            col,
+            container=member.qualified_name,
+            known_class_names=known_class_names,
+            analysis=analysis,
+        )
+        if nested:
+            member.members = nested
+        members[member.name] = member
+    return members
+
+
+def parse_inline_expr(text: str) -> Any | None:
+    try:
+        program = parse_source(f"tmp = {text}\n")
+    except Exception:
+        return None
+    if not program:
+        return None
+    stmt = program[0]
+    if isinstance(stmt, tuple) and stmt[0] == "assign":
+        return stmt[2]
+    return None
+
+
+def attach_member_path(
+    analysis: FileAnalysis,
+    root_symbol: SemanticSymbol,
+    parts: list[str],
+    path: str,
+    line: int,
+    col: int,
+    *,
+    value_expr: Any | None = None,
+    known_class_names: set[str] | None = None,
+) -> None:
+    current = root_symbol
+    known_class_names = known_class_names or set()
+    for index, part in enumerate(parts):
+        member = current.members.get(part)
+        if member is None:
+            member = SemanticSymbol(part, "property", Location(path, line, col), container=current.qualified_name)
+            current.members[part] = member
+            analysis.symbols.append(member)
+        current = member
+        if index == len(parts) - 1 and value_expr is not None:
+            target_type = infer_expr_target_from_symbol(value_expr, known_class_names, analysis)
+            if target_type:
+                current.target_type = target_type
+            nested = infer_expr_members(
+                value_expr,
+                path,
+                line,
+                col,
+                container=current.qualified_name,
+                known_class_names=known_class_names,
+                analysis=analysis,
+            )
+            if nested:
+                current.members.update(nested)
 
 
 def walk_statements(program: list[Any]) -> list[Any]:
@@ -780,6 +1149,154 @@ def walk_statements(program: list[Any]) -> list[Any]:
     for stmt in program:
         visit(stmt)
     return out
+
+
+def merge_symbol_members(
+    existing: dict[str, SemanticSymbol],
+    incoming: dict[str, SemanticSymbol],
+    path: str,
+    line: int,
+    col: int,
+    *,
+    container: str | None = None,
+) -> dict[str, SemanticSymbol]:
+    merged = {
+        name: clone_member_symbol(symbol, path, line, col, container=container)
+        for name, symbol in existing.items()
+    }
+    for name, symbol in incoming.items():
+        if name not in merged:
+            merged[name] = clone_member_symbol(symbol, path, line, col, container=container)
+            continue
+        current = merged[name]
+        if not current.documentation and symbol.documentation:
+            current.documentation = symbol.documentation
+        if not current.signature and symbol.signature:
+            current.signature = symbol.signature
+        if not current.target_type and symbol.target_type:
+            current.target_type = symbol.target_type
+        if symbol.members:
+            current.members = merge_symbol_members(
+                current.members,
+                symbol.members,
+                path,
+                line,
+                col,
+                container=current.qualified_name,
+            )
+    return merged
+
+
+def function_return_exprs(stmt: Any) -> list[Any]:
+    if not isinstance(stmt, tuple) or stmt[0] not in {"fn", "async_fn"}:
+        return []
+    exprs: list[Any] = []
+    for child in walk_statements(stmt[3]):
+        if isinstance(child, tuple) and child[0] == "return":
+            exprs.append(child[1])
+    return exprs
+
+
+def assignment_exprs_for_name(
+    analysis: FileAnalysis,
+    name: str,
+) -> list[Any]:
+    exprs: list[Any] = []
+    for stmt in walk_statements(analysis.program):
+        if (
+            isinstance(stmt, tuple)
+            and stmt[0] == "assign"
+            and isinstance(stmt[1], tuple)
+            and stmt[1][0] == "var"
+            and stmt[1][1] == name
+        ):
+            exprs.append(stmt[2])
+    return exprs
+
+
+def indexed_element_exprs(
+    analysis: FileAnalysis,
+    base_expr: Any,
+    index_value: int,
+    visited_names: set[str] | None = None,
+) -> list[Any]:
+    visited_names = visited_names or set()
+    if not isinstance(base_expr, tuple):
+        return []
+    if base_expr[0] == "array":
+        items = base_expr[1]
+        if 0 <= index_value < len(items):
+            return [items[index_value]]
+        return []
+    if base_expr[0] == "var":
+        name = base_expr[1]
+        if name in visited_names:
+            return []
+        return [
+            nested
+            for expr in assignment_exprs_for_name(analysis, name)
+            for nested in indexed_element_exprs(analysis, expr, index_value, visited_names | {name})
+        ]
+    return []
+
+
+def infer_indexed_target_type(
+    analysis: FileAnalysis,
+    expr: Any,
+    known_class_names: set[str],
+) -> str | None:
+    if not (
+        isinstance(expr, tuple)
+        and expr[0] == "index"
+        and isinstance(expr[2], tuple)
+        and expr[2][0] == "literal"
+        and isinstance(expr[2][1], int)
+    ):
+        return None
+    targets = {
+        target
+        for item_expr in indexed_element_exprs(analysis, expr[1], expr[2][1])
+        for target in [infer_expr_target_from_symbol(item_expr, known_class_names, analysis)]
+        if target
+    }
+    if len(targets) == 1:
+        return next(iter(targets))
+    return None
+
+
+def infer_indexed_members(
+    analysis: FileAnalysis,
+    expr: Any,
+    path: str,
+    line: int,
+    col: int,
+    *,
+    container: str | None = None,
+    known_class_names: set[str] | None = None,
+) -> dict[str, SemanticSymbol]:
+    known_class_names = known_class_names or set()
+    if not (
+        isinstance(expr, tuple)
+        and expr[0] == "index"
+        and isinstance(expr[2], tuple)
+        and expr[2][0] == "literal"
+        and isinstance(expr[2][1], int)
+    ):
+        return {}
+    merged: dict[str, SemanticSymbol] = {}
+    for item_expr in indexed_element_exprs(analysis, expr[1], expr[2][1]):
+        members = infer_expr_members(
+            item_expr,
+            path,
+            line,
+            col,
+            container=container,
+            known_class_names=known_class_names,
+            analysis=analysis,
+        )
+        if members:
+            merged = merge_symbol_members(merged, members, path, line, col, container=container)
+    return merged
 
 
 def expr_names(expr: Any) -> list[str]:
@@ -948,6 +1465,21 @@ def resolve_in_scope(
     return None
 
 
+def is_lexically_declared_symbol(symbol: SemanticSymbol) -> bool:
+    return symbol.kind in {
+        "variable",
+        "parameter",
+        "function",
+        "method",
+        "class",
+        "interface",
+        "enum",
+        "type",
+        "module",
+        "python-module",
+    }
+
+
 def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
     analysis.scopes = build_lexical_scopes(lines, analysis.path)
     declarations = declaration_token_locations(lines)
@@ -971,7 +1503,8 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             if existing:
                 canonical_symbols[symbol.symbol_id] = existing
                 continue
-        scope.declare(symbol)
+        if is_lexically_declared_symbol(symbol):
+            scope.declare(symbol)
         canonical_symbols[symbol.symbol_id] = symbol
         retained_symbols.append(symbol)
     analysis.symbols = retained_symbols
@@ -1057,7 +1590,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
         if original:
             exact_symbols[(original.location.line, original.location.col, original.name)] = canonical
     for line_no, line in enumerate(lines, start=1):
-        code = STRING_RE.sub('""', line.split("#", 1)[0])
+        code = mask_strings_preserving_columns(line.split("#", 1)[0])
         current_scope = scope_for_line(analysis.scopes, line_no)
         import_match = IMPORT_RE.match(code)
         if import_match:
@@ -1088,8 +1621,8 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             and not code.rstrip().endswith(("{", ":", "bloom"))
         )
         dotted_members = {
-            match.start(2): (match.group(1), match.group(2))
-            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b", code)
+            match.start(1): match.group(1)
+            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\b", code)
         }
         for match in IDENT_RE.finditer(code):
             name = match.group(0)
@@ -1128,7 +1661,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
                 visible_names.update(analysis.classes)
                 visible_names.update(analysis.types)
                 visible_names.update(analysis.imports)
-                suggestion = code_word_suggestion(name, visible_names)
+                suggestion = LEGACY_NAME_REPLACEMENTS.get(name) or code_word_suggestion(name, visible_names)
                 message = (
                     f"Unknown name '{name}'. Did you mean '{suggestion}'?"
                     if suggestion else f"Unknown name '{name}'"
@@ -1145,20 +1678,36 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
                         {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
                     )
                 )
-        for start, (base, member) in dotted_members.items():
-            base_symbol = resolve_in_scope(analysis, base, line_no, current_scope)
-            member_symbol = None
-            if base_symbol:
-                if base_symbol.members:
-                    member_symbol = base_symbol.members.get(member)
-                elif base_symbol.target_type:
-                    target = analysis.classes.get(base_symbol.target_type)
-                    if target:
-                        member_symbol = target.members.get(member)
+        for start, dotted in dotted_members.items():
+            parts = dotted.split(".")
+            member_symbol = resolve_expr_symbol(analysis, ("get", ("var", parts[0]), parts[1])) if len(parts) == 2 else None
+            if len(parts) > 2:
+                member_symbol = None
+                current_symbol = resolve_in_scope(analysis, parts[0], line_no, current_scope)
+                for part in parts[1:]:
+                    if current_symbol is None:
+                        break
+                    if current_symbol.members and part in current_symbol.members:
+                        current_symbol = current_symbol.members.get(part)
+                        continue
+                    if current_symbol.target_type:
+                        target = analysis.classes.get(current_symbol.target_type)
+                        if not target and "." in current_symbol.target_type:
+                            target = next(
+                                (
+                                    symbol for symbol in analysis.symbols
+                                    if symbol.qualified_name == current_symbol.target_type or symbol.name == current_symbol.target_type
+                                ),
+                                None,
+                            )
+                        current_symbol = target.members.get(part) if target and target.members else None
+                    else:
+                        current_symbol = None
+                member_symbol = current_symbol
             analysis.references.append(
                 Reference(
-                    f"{base}.{member}",
-                    Location(analysis.path, line_no, start + len(base) + 2),
+                    dotted,
+                    Location(analysis.path, line_no, start + len(dotted.rsplit(".", 1)[0]) + 2),
                     "read",
                     member_symbol.symbol_id if member_symbol else None,
                 )
@@ -1300,6 +1849,14 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
                 container=container,
                 target_type=inferred_return_target(ast_fn, set(analysis.classes)) if ast_fn else None,
             )
+            if ast_fn:
+                symbol.members = inferred_return_members(
+                    ast_fn,
+                    resolved,
+                    line_no,
+                    fn_match.start(1) + 1,
+                    set(analysis.classes),
+                )
             analysis.symbols.append(symbol)
             if container:
                 class_members.setdefault(container, {})[name] = symbol
@@ -1330,12 +1887,24 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
         decl_match = DECL_RE.match(line)
         if decl_match:
             name = decl_match.group(1)
-            target_type = None
             rhs = line.split("=", 1)[1].strip() if "=" in line else ""
-            call_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\(", rhs)
-            if call_match:
-                target_type = call_match.group(1)
-            symbol = SemanticSymbol(name, "variable", Location(resolved, line_no, decl_match.start(1) + 1), target_type=target_type)
+            expr = parse_inline_expr(rhs)
+            symbol = SemanticSymbol(
+                name,
+                "variable",
+                Location(resolved, line_no, decl_match.start(1) + 1),
+                target_type=infer_expr_target_from_symbol(expr, set(analysis.classes), analysis) if expr else None,
+            )
+            if expr:
+                symbol.members = infer_expr_members(
+                    expr,
+                    resolved,
+                    line_no,
+                    decl_match.start(1) + 1,
+                    container=name,
+                    known_class_names=set(analysis.classes),
+                    analysis=analysis,
+                )
             analysis.symbols.append(symbol)
             analysis.variables[name] = symbol
 
@@ -1344,6 +1913,28 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
                 field_name = field_match.group(1)
                 symbol = SemanticSymbol(field_name, "field", Location(resolved, line_no, field_match.start(1) + 1), container=current_class)
                 class_members.setdefault(current_class, {})[field_name] = symbol
+
+        if "=" in line:
+            rhs = line.split("=", 1)[1].strip()
+            value_expr = parse_inline_expr(rhs)
+            for field_match in FIELD_ASSIGN_RE.finditer(line):
+                dotted = field_match.group(1)
+                parts = dotted.split(".")
+                if not parts or parts[0] == "self":
+                    continue
+                root_symbol = analysis.variables.get(parts[0]) or analysis.imports.get(parts[0]) or analysis.classes.get(parts[0])
+                if root_symbol is None:
+                    continue
+                attach_member_path(
+                    analysis,
+                    root_symbol,
+                    parts[1:],
+                    resolved,
+                    line_no,
+                    field_match.start(1) + len(parts[0]) + 2,
+                    value_expr=value_expr,
+                    known_class_names=set(analysis.classes),
+                )
 
     for class_name, members in class_members.items():
         if class_name in analysis.classes:
@@ -1681,13 +2272,57 @@ def completion_prefix(before: str) -> str:
 
 
 def member_completion_parts(before: str) -> tuple[str | None, str]:
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$", before)
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$", before)
     if not match:
         return (None, "")
     return (match.group(1), match.group(2))
 
 
-def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str], imported_names: set[str]) -> tuple[int, int, str, str]:
+def resolve_symbol_members(
+    index: WorkspaceIndex,
+    file: FileAnalysis,
+    symbol: SemanticSymbol | None,
+    path: str,
+) -> dict[str, SemanticSymbol]:
+    if not symbol:
+        return {}
+    if symbol.members:
+        return symbol.members
+    if symbol.target_type and symbol.target_type in file.classes:
+        return file.classes[symbol.target_type].members
+    if symbol.target_type:
+        target = index.find_symbol(symbol.target_type, path)
+        if not target and "." in symbol.target_type:
+            factory = signature_for(index, path, symbol.target_type)
+            if factory:
+                if factory.members:
+                    return factory.members
+                if factory.target_type:
+                    target = index.find_symbol(factory.target_type, path)
+        if target and target.members:
+            return target.members
+    return {}
+
+
+def resolve_member_chain_symbol(
+    index: WorkspaceIndex,
+    file: FileAnalysis,
+    path: str,
+    dotted_name: str,
+) -> SemanticSymbol | None:
+    parts = dotted_name.split(".")
+    if not parts:
+        return None
+    current = file.imports.get(parts[0]) or file.variables.get(parts[0]) or file.classes.get(parts[0]) or file.types.get(parts[0])
+    for member in parts[1:]:
+        if current is None:
+            return None
+        members = resolve_symbol_members(index, file, current, path)
+        current = members.get(member)
+    return current
+
+
+def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str], imported_names: set[str]) -> tuple[int, int, int, int, int, str]:
     name = symbol.name
     exact = 0 if prefix and name == prefix else 1
     starts = 0 if prefix and name.startswith(prefix) else 1
@@ -1706,7 +2341,8 @@ def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str],
         "python-module": 7,
         "builtin": 8,
     }.get(symbol.kind, 9)
-    return (exact, starts, contains, scope * 10 + kind_rank, name.lower())
+    declared_line = symbol.location.line if symbol.location and symbol.location.line > 0 else 10**9
+    return (exact, starts, contains, scope * 10 + kind_rank, declared_line, len(name), name.lower())
 
 
 def _ranked_visible_symbols(
@@ -1737,19 +2373,11 @@ def member_completions(index: WorkspaceIndex, path: str, base_name: str, prefix:
         return []
     def visible(items: dict[str, SemanticSymbol]) -> list[SemanticSymbol]:
         return _ranked_visible_symbols(list(items.values()), prefix)
-    symbol = file.imports.get(base_name) or file.variables.get(base_name) or file.classes.get(base_name) or file.types.get(base_name)
-    if symbol and symbol.members:
-        return visible(symbol.members)
-    if symbol and symbol.target_type and symbol.target_type in file.classes:
-        return visible(file.classes[symbol.target_type].members)
-    if symbol and symbol.target_type:
-        target = index.find_symbol(symbol.target_type, path)
-        if not target and "." in symbol.target_type:
-            factory = signature_for(index, path, symbol.target_type)
-            if factory and factory.target_type:
-                target = index.find_symbol(factory.target_type, path)
-        if target and target.members:
-            return visible(target.members)
+    symbol = resolve_member_chain_symbol(index, file, path, base_name)
+    if symbol:
+        members = resolve_symbol_members(index, file, symbol, path)
+        if members:
+            return visible(members)
     return []
 
 

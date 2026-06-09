@@ -147,6 +147,22 @@ def test_keyword_argument_diagnostics() -> None:
     assert "SPROUT_ARGUMENT_COUNT" in codes
 
 
+def test_argument_diagnostics_include_fix_data() -> None:
+    result = run_source(
+        "def hello(count: Int, mood: String):\n"
+        "  return count\n\n"
+        "hello()\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    argument_count = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_ARGUMENT_COUNT")
+    assert argument_count["data"]["kind"] == "missing-arguments"
+    assert argument_count["data"]["function"] == "hello"
+    assert argument_count["data"]["missing"] == ["count", "mood"]
+    assert argument_count["data"]["signature"] == "hello(count, mood)"
+
+
 def test_override_and_unreachable_diagnostics() -> None:
     result = run_source(
         "class Base:\n"
@@ -168,13 +184,69 @@ def test_override_and_unreachable_diagnostics() -> None:
     assert "SPROUT_UNREACHABLE" in codes
 
 
+def test_nil_narrowing_and_branch_merge_reduce_false_positives() -> None:
+    result = run_source(
+        "def use(maybe: String | Nil) -> String:\n"
+        "  if maybe != nil:\n"
+        "    return maybe\n"
+        "  return \"fallback\"\n\n"
+        "def branch(flag: Bool):\n"
+        "  if flag:\n"
+        "    value = 1\n"
+        "  else:\n"
+        "    value = 2.5\n"
+        "  return value\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    codes = [item["code"] for item in payload["diagnostics"]]
+    assert "SPROUT_RETURN_TYPE" not in codes
+    assert result.returncode == 0
+
+
+def test_truthy_nil_narrowing_and_keyword_fix_data() -> None:
+    result = run_source(
+        "def greet(name: String | Nil, mood: String = \"ok\") -> String:\n"
+        "  if name:\n"
+        "    return name\n"
+        "  return \"fallback\"\n\n"
+        'greet(name="Ada", modd="happy")\n',
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    unknown = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_UNKNOWN_ARGUMENT")
+    assert unknown["data"]["parameter"] == "modd"
+    assert unknown["data"]["replacement"] == "mood"
+    assert "Did you mean 'mood'?" in unknown["message"]
+
+
+def test_get_builtin_preserves_value_type_with_default() -> None:
+    result = run_source(
+        "def read_name(state: Dict[String, String]) -> String:\n"
+        '  value = get(state, "name", "fallback")\n'
+        "  return value\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    codes = [item["code"] for item in payload["diagnostics"]]
+    assert "SPROUT_RETURN_TYPE" not in codes
+    assert result.returncode == 0
+
+
 def main() -> int:
     test_typed_program_runs_in_both_engines()
     test_assignment_return_and_argument_errors()
     test_interfaces_generics_and_unknown_types()
     test_editor_diagnostics_include_type_errors()
     test_keyword_argument_diagnostics()
+    test_argument_diagnostics_include_fix_data()
     test_override_and_unreachable_diagnostics()
+    test_nil_narrowing_and_branch_merge_reduce_false_positives()
+    test_truthy_nil_narrowing_and_keyword_fix_data()
+    test_get_builtin_preserves_value_type_with_default()
     print("sprout type system tests passed")
     return 0
 

@@ -88,6 +88,44 @@ def type_name(annotation: Any) -> str:
     return f"{name}[{', '.join(type_name(item) for item in arguments)}]"
 
 
+def function_signature_string(name: str, params: list[tuple[str, Any, bool, bool]]) -> str:
+    parts: list[str] = []
+    for param_name, default, var_param, kw_param in params:
+        prefix = "**" if kw_param else "*" if var_param else ""
+        if default is None:
+            parts.append(f"{prefix}{param_name}")
+        else:
+            parts.append(f"{prefix}{param_name}=...")
+    return f"{name}({', '.join(parts)})"
+
+
+def _closest_parameter_name(name: str, candidates: list[str]) -> str | None:
+    pool = [candidate for candidate in candidates if candidate and candidate != name]
+    if not pool or len(name) < 2:
+        return None
+    prefix_matches = [candidate for candidate in pool if candidate.startswith(name)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    best = sorted(pool, key=lambda candidate: (levenshtein_distance(name, candidate), len(candidate), candidate))
+    return best[0] if best and levenshtein_distance(name, best[0]) <= 2 else None
+
+
+def levenshtein_distance(left: str, right: str) -> int:
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_char in enumerate(right, start=1):
+            current.append(
+                min(
+                    previous[right_index] + 1,
+                    current[right_index - 1] + 1,
+                    previous[right_index - 1] + (left_char != right_char),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
 def same_type(left: Any, right: Any) -> bool:
     return type_name(left) == type_name(right)
 
@@ -144,6 +182,32 @@ def common_type(values: list[Any]) -> Any:
     return ("union", members, 0, 0) if len(members) > 1 else ANY
 
 
+def without_nil(annotation: Any) -> Any:
+    if annotation is None or isinstance(annotation, ModuleType):
+        return annotation
+    if same_type(annotation, NIL):
+        return ANY
+    if annotation[0] != "union":
+        return annotation
+    remaining = [member for member in annotation[1] if not same_type(member, NIL)]
+    if not remaining:
+        return ANY
+    if len(remaining) == 1:
+        return remaining[0]
+    return ("union", remaining, 0, 0)
+
+
+def only_nil(annotation: Any) -> Any:
+    if annotation is None or isinstance(annotation, ModuleType):
+        return NIL
+    if same_type(annotation, NIL):
+        return NIL
+    if annotation[0] != "union":
+        return NIL
+    matches = [member for member in annotation[1] if same_type(member, NIL)]
+    return NIL if matches else ANY
+
+
 def statements_contain_yield(statements: list[Any]) -> bool:
     for stmt in statements:
         kind = stmt[0]
@@ -177,11 +241,25 @@ class TypeChecker:
         self.module_cache = module_cache if module_cache is not None else {}
         self.module_cache[os.path.abspath(path)] = self
 
-    def error(self, message: str, line: int = 1, col: int = 1, code: str = "SPROUT_TYPE") -> None:
-        self.diagnostics.append(Diagnostic("error", message, self.path, line, col, code))
+    def error(
+        self,
+        message: str,
+        line: int = 1,
+        col: int = 1,
+        code: str = "SPROUT_TYPE",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        self.diagnostics.append(Diagnostic("error", message, self.path, line, col, code, data=data))
 
-    def warning(self, message: str, line: int = 1, col: int = 1, code: str = "SPROUT_TYPE_WARNING") -> None:
-        self.diagnostics.append(Diagnostic("warning", message, self.path, line, col, code))
+    def warning(
+        self,
+        message: str,
+        line: int = 1,
+        col: int = 1,
+        code: str = "SPROUT_TYPE_WARNING",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        self.diagnostics.append(Diagnostic("warning", message, self.path, line, col, code, data=data))
 
     def is_compatible(self, actual: Any, expected: Any, type_vars: dict[str, Any] | None = None) -> bool:
         return compatible(self.expand_alias(actual), self.expand_alias(expected), type_vars)
@@ -389,6 +467,18 @@ class TypeChecker:
             }
             if callee[0] == "var":
                 name = callee[1]
+                if name == "get":
+                    if len(args) >= 3:
+                        base, default = args[0], args[2]
+                        expanded = self.expand_alias(base)
+                        if not isinstance(expanded, ModuleType) and expanded[1] == "Dict" and len(expanded[2]) == 2:
+                            return common_type([expanded[2][1], default])
+                        return common_type([ANY, default])
+                    if len(args) >= 1:
+                        base = self.expand_alias(args[0])
+                        if not isinstance(base, ModuleType) and base[1] == "Dict" and len(base[2]) == 2:
+                            return common_type([base[2][1], NIL])
+                        return ANY
                 if name in self.functions:
                     return self.check_call(self.functions[name], args, expr[4], expr[5], kwargs)
                 if name in self.classes:
@@ -577,6 +667,7 @@ class TypeChecker:
         fixed = [param for param in function.params if not param[2] and not param[3]]
         keyword_args = kwargs or {}
         fixed_names = [param[0] for param in fixed]
+        function_signature = metadata.get("signature") or function_signature_string(function.name, function.params)
         positional_names = set(fixed_names[:len(args)])
         required_names = {
             name for name, default, _var, _kw in fixed
@@ -586,31 +677,69 @@ class TypeChecker:
         has_keyword_rest = any(param[3] for param in function.params)
         unknown_keywords = sorted(set(keyword_args) - set(fixed_names))
         if unknown_keywords and not has_keyword_rest:
+            unknown_name = unknown_keywords[0]
+            suggested = _closest_parameter_name(unknown_name, fixed_names)
             self.error(
-                f"{function.name} has no parameter named '{unknown_keywords[0]}'",
+                (
+                    f"{function.name} has no parameter named '{unknown_name}'. Did you mean '{suggested}'?"
+                    if suggested else f"{function.name} has no parameter named '{unknown_name}'"
+                ),
                 line,
                 col,
                 "SPROUT_UNKNOWN_ARGUMENT",
+                {
+                    "kind": "unknown-keyword",
+                    "function": function.name,
+                    "signature": function_signature,
+                    "parameter": unknown_name,
+                    "replacement": suggested,
+                    "suggestion": suggested,
+                },
             )
         duplicate_keywords = sorted(positional_names & set(keyword_args))
         if duplicate_keywords:
+            duplicate = duplicate_keywords[0]
             self.error(
-                f"{function.name} got multiple values for '{duplicate_keywords[0]}'",
+                f"{function.name} got multiple values for '{duplicate}'",
                 line,
                 col,
                 "SPROUT_DUPLICATE_ARGUMENT",
+                {
+                    "kind": "duplicate-argument",
+                    "function": function.name,
+                    "signature": function_signature,
+                    "parameter": duplicate,
+                },
             )
         supplied_names = positional_names | set(keyword_args)
-        missing = sorted(required_names - supplied_names)
+        missing = [name for name in fixed_names if name in required_names and name not in supplied_names]
         if missing:
             self.error(
-                f"{function.name} is missing required argument '{missing[0]}'",
+                (
+                    f"{function.name} is missing required argument '{missing[0]}'"
+                    if len(missing) == 1
+                    else f"{function.name} is missing required arguments {', '.join(repr(name) for name in missing)}"
+                ),
                 line, col, "SPROUT_ARGUMENT_COUNT",
+                {
+                    "kind": "missing-arguments",
+                    "function": function.name,
+                    "signature": function_signature,
+                    "missing": missing,
+                    "parameter": missing[0],
+                },
             )
         if not has_rest and len(args) > len(fixed):
             self.error(
                 f"{function.name} expects at most {len(fixed)} positional argument(s), got {len(args)}",
                 line, col, "SPROUT_ARGUMENT_COUNT",
+                {
+                    "kind": "too-many-positional",
+                    "function": function.name,
+                    "signature": function_signature,
+                    "expectedMax": len(fixed),
+                    "actualCount": len(args),
+                },
             )
         substitutions: dict[str, Any] = {
             name: None for name in metadata.get("type_params", [])
@@ -621,6 +750,14 @@ class TypeChecker:
                 self.error(
                     f"Argument '{param[0]}' expects {type_name(expected)}, got {type_name(actual)}",
                     line, col, "SPROUT_ARGUMENT_TYPE",
+                    {
+                        "kind": "argument-type",
+                        "function": function.name,
+                        "signature": function_signature,
+                        "parameter": param[0],
+                        "expectedType": type_name(expected),
+                        "actualType": type_name(actual),
+                    },
                 )
         fixed_by_name = {param[0]: param for param in fixed}
         for name, actual in keyword_args.items():
@@ -632,6 +769,14 @@ class TypeChecker:
                 self.error(
                     f"Argument '{name}' expects {type_name(expected)}, got {type_name(actual)}",
                     line, col, "SPROUT_ARGUMENT_TYPE",
+                    {
+                        "kind": "argument-type",
+                        "function": function.name,
+                        "signature": function_signature,
+                        "parameter": name,
+                        "expectedType": type_name(expected),
+                        "actualType": type_name(actual),
+                    },
                 )
         result = metadata.get("return_type") or ANY
         result = self.substitute(
@@ -796,6 +941,7 @@ class TypeChecker:
                 self.apply_narrowing(stmt[1], then_env, else_env)
                 self.check_statements(stmt[2], then_env, expected_return)
                 self.check_statements(stmt[3], else_env, expected_return)
+                env.update(self.merge_branch_envs(env, then_env, else_env))
             elif kind == "while":
                 self.infer(stmt[1], env)
                 self.check_statements(stmt[2], dict(env), expected_return)
@@ -808,10 +954,12 @@ class TypeChecker:
                 loop_env[stmt[1]] = ANY
                 self.check_statements(stmt[3], loop_env, expected_return)
             elif kind == "try":
-                self.check_statements(stmt[1], dict(env), expected_return)
+                try_env = dict(env)
+                self.check_statements(stmt[1], try_env, expected_return)
                 catch_env = dict(env)
                 catch_env[stmt[2]] = ANY
                 self.check_statements(stmt[3], catch_env, expected_return)
+                env.update(self.merge_branch_envs(env, try_env, catch_env))
             elif kind == "taskgroup":
                 group_env = dict(env)
                 group_env[stmt[1]] = ANY
@@ -820,6 +968,7 @@ class TypeChecker:
                 subject_type = self.infer(stmt[1], env)
                 covered: set[str] = set()
                 wildcard = False
+                case_envs: list[dict[str, Any]] = []
                 for pattern, guard, body, line, col in stmt[2]:
                     case_env = dict(env)
                     bindings, variant, catches_all = self.pattern_bindings(pattern, subject_type)
@@ -838,6 +987,7 @@ class TypeChecker:
                             )
                         covered.add(variant)
                     self.check_statements(body, case_env, expected_return)
+                    case_envs.append(case_env)
                 expanded = self.expand_alias(subject_type)
                 if not isinstance(expanded, ModuleType) and expanded[0] == "type" and expanded[1] in self.enums:
                     missing = sorted(set(self.enums[expanded[1]].variants) - covered)
@@ -848,6 +998,8 @@ class TypeChecker:
                             stmt[4],
                             "SPROUT_NON_EXHAUSTIVE_MATCH",
                         )
+                if case_envs:
+                    env.update(self.merge_many_envs(env, case_envs))
             elif kind == "yield":
                 if not self.yield_types or self.yield_types[-1] is None:
                     self.error(
@@ -869,19 +1021,90 @@ class TypeChecker:
             if not terminated and self.statement_terminates(stmt):
                 terminated = True
 
+    def merge_env_value(self, left: Any, right: Any) -> Any:
+        if left is None:
+            return right
+        if right is None:
+            return left
+        if same_type(left, right):
+            return left
+        return common_type([left, right])
+
+    def merge_branch_envs(self, baseline: dict[str, Any], left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(baseline)
+        for name in set(left) | set(right):
+            left_value = left.get(name, baseline.get(name))
+            right_value = right.get(name, baseline.get(name))
+            if left_value is None and right_value is None:
+                continue
+            merged[name] = self.merge_env_value(left_value, right_value)
+        return merged
+
+    def merge_many_envs(self, baseline: dict[str, Any], envs: list[dict[str, Any]]) -> dict[str, Any]:
+        merged = dict(baseline)
+        for name in set().union(*(env.keys() for env in envs)):
+            values = [env.get(name, baseline.get(name)) for env in envs]
+            values = [value for value in values if value is not None]
+            if not values:
+                continue
+            current = values[0]
+            for value in values[1:]:
+                current = self.merge_env_value(current, value)
+            merged[name] = current
+        return merged
+
+    def narrow_nil_truthiness(self, name: str, then_env: dict[str, Any], else_env: dict[str, Any]) -> None:
+        current = self.expand_alias(then_env.get(name, ANY))
+        if isinstance(current, ModuleType):
+            return
+        if current[0] == "union" and any(same_type(member, NIL) for member in current[1]):
+            then_env[name] = without_nil(current)
+            else_env[name] = only_nil(current)
+
     def apply_narrowing(self, condition: Any, then_env: dict[str, Any], else_env: dict[str, Any]) -> None:
-        if not isinstance(condition, tuple) or condition[0] != "is_type":
+        if not isinstance(condition, tuple):
             return
-        target, narrowed = condition[1], condition[2]
-        if target[0] != "var":
+        kind = condition[0]
+        if kind == "is_type":
+            target, narrowed = condition[1], condition[2]
+            if target[0] != "var":
+                return
+            name = target[1]
+            then_env[name] = narrowed
+            current = self.expand_alias(else_env.get(name, ANY))
+            if not isinstance(current, ModuleType) and current[0] == "union":
+                remaining = [member for member in current[1] if not same_type(member, narrowed)]
+                if remaining:
+                    else_env[name] = remaining[0] if len(remaining) == 1 else ("union", remaining, 0, 0)
             return
-        name = target[1]
-        then_env[name] = narrowed
-        current = self.expand_alias(else_env.get(name, ANY))
-        if not isinstance(current, ModuleType) and current[0] == "union":
-            remaining = [member for member in current[1] if not same_type(member, narrowed)]
-            if remaining:
-                else_env[name] = remaining[0] if len(remaining) == 1 else ("union", remaining, 0, 0)
+        if kind == "var":
+            self.narrow_nil_truthiness(condition[1], then_env, else_env)
+            return
+        if kind == "unary" and condition[1] == "!":
+            swapped_then = dict(else_env)
+            swapped_else = dict(then_env)
+            self.apply_narrowing(condition[2], swapped_then, swapped_else)
+            then_env.update(swapped_else)
+            else_env.update(swapped_then)
+            return
+        if kind != "binary" or condition[1] not in {"==", "!="}:
+            return
+        left, right = condition[2], condition[3]
+        variable = None
+        if left[0] == "var" and right[0] == "literal" and right[1] is None:
+            variable = left[1]
+        elif right[0] == "var" and left[0] == "literal" and left[1] is None:
+            variable = right[1]
+        if not variable:
+            return
+        current = self.expand_alias(then_env.get(variable, ANY))
+        if isinstance(current, ModuleType):
+            return
+        if condition[1] == "!=":
+            self.narrow_nil_truthiness(variable, then_env, else_env)
+        else:
+            then_env[variable] = only_nil(current)
+            else_env[variable] = without_nil(current)
 
     def pattern_bindings(self, pattern: Any, subject: Any) -> tuple[dict[str, Any], str | None, bool]:
         kind = pattern[0]

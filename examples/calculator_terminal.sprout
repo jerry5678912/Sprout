@@ -130,7 +130,7 @@ def safe_calculate(expression):
 say sparkle("Welcome to Sprout Calculator")
 sleep(1)
 
-running = true
+running = True
 while running:
   display_menu()
   
