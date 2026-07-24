@@ -819,6 +819,49 @@ function uniquePaths(paths) {
   });
 }
 
+function diagnosticSeverityToLsp(severity) {
+  switch (severity) {
+    case vscode.DiagnosticSeverity.Error:
+      return 1;
+    case vscode.DiagnosticSeverity.Warning:
+      return 2;
+    case vscode.DiagnosticSeverity.Information:
+      return 3;
+    case vscode.DiagnosticSeverity.Hint:
+      return 4;
+    default:
+      return 1;
+  }
+}
+
+async function localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch) {
+  if (importContext) {
+    const contextCompletions = collectImportCompletions(context, document.uri, importContext);
+    const aliases = collectImportedAliases(document.getText(), document.uri);
+    const aliasCompletions = Array.from(aliases.keys())
+      .filter((alias) => alias.startsWith(importContext.prefix))
+      .map((alias) => completion(alias, "Imported module alias", alias, vscode.CompletionItemKind.Variable));
+    const importItems = dedupeCompletionEntries(contextCompletions.concat(aliasCompletions));
+    return finalizeCompletionEntries(importItems, lineText, position.character, { allowExactWord: true });
+  }
+
+  if (isAfterImportDot) {
+    const imported = aliasMatch ? await importAliasCompletions(context, aliasMatch[1], document.getText(), document.uri) : null;
+    if (imported && imported.length > 0) {
+      return finalizeCompletionEntries(imported, lineText, position.character, { allowExactWord: true });
+    }
+    if (aliasMatch) {
+      return [];
+    }
+  }
+
+  return finalizeCompletionEntries(
+    completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)),
+    lineText,
+    position.character
+  );
+}
+
 function installedModuleRunner(pythonPath) {
   const key = String(pythonPath || "");
   const cached = installedRunnerCache.get(key);
@@ -2304,9 +2347,13 @@ async function activate(context) {
         if (usingLsp) {
           const semantic = await runIntelQuery(context, document, position, "completions", token);
           const lspItems = Array.isArray(semantic?.items) ? semantic.items.map(semanticCompletion) : [];
-          return finalizeCompletionEntries(lspItems, lineText, position.character, {
+          const finalized = finalizeCompletionEntries(lspItems, lineText, position.character, {
             allowExactWord: Boolean(importContext || isAfterImportDot)
           });
+          if (finalized.length > 0) {
+            return finalized;
+          }
+          return localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch);
         }
 
         const semantic = await runIntelQuery(context, document, position, "completions", token);
@@ -2319,26 +2366,7 @@ async function activate(context) {
           );
         }
 
-        if (importContext) {
-          const contextCompletions = collectImportCompletions(context, document.uri, importContext);
-          const aliases = collectImportedAliases(document.getText(), document.uri);
-          const aliasCompletions = Array.from(aliases.keys())
-            .filter((alias) => alias.startsWith(importContext.prefix))
-            .map((alias) => completion(alias, `Imported module alias`, alias, vscode.CompletionItemKind.Variable));
-          const importItems = dedupeCompletionEntries(contextCompletions.concat(aliasCompletions));
-          return finalizeCompletionEntries(importItems, lineText, position.character, { allowExactWord: true });
-        }
-
-        if (isAfterImportDot) {
-          const imported = aliasMatch ? await importAliasCompletions(context, aliasMatch[1], document.getText(), document.uri) : null;
-          if (imported && imported.length > 0) {
-            return finalizeCompletionEntries(imported, lineText, position.character, { allowExactWord: true });
-          }
-          if (aliasMatch) {
-            return [];
-          }
-        }
-          return finalizeCompletionEntries(completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)), lineText, position.character);
+        return localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch);
       }
     },
     ".",
@@ -2525,7 +2553,7 @@ async function activate(context) {
             start: { line: diagnostic.range.start.line, character: diagnostic.range.start.character },
             end: { line: diagnostic.range.end.line, character: diagnostic.range.end.character }
           },
-          severity: diagnostic.severity === vscode.DiagnosticSeverity.Warning ? 2 : 1,
+          severity: diagnosticSeverityToLsp(diagnostic.severity),
           code: diagnostic.code,
           source: diagnostic.source || "sprout",
           message: diagnostic.message,

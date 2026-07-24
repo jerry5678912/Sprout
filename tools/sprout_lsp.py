@@ -495,6 +495,12 @@ def lsp_diagnostic(diag: sprout.Diagnostic, source: str = "") -> dict[str, Any]:
     return payload
 
 
+def is_legacy_style_unknown_name(diag: sprout.Diagnostic) -> bool:
+    if diag.code != "SPROUT_UNKNOWN_NAME":
+        return False
+    return (diag.data or {}).get("replacement") in {"say", "nil", "True", "false"}
+
+
 def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
     kinds = {
         "method": 2,
@@ -777,6 +783,7 @@ class SproutLanguageServer:
                 diagnostics = [
                     diagnostic for diagnostic in diagnostics
                     if diagnostic.code not in {"SPROUT_TAB_INDENT", "SPROUT_PY_ALIAS"}
+                    and not is_legacy_style_unknown_name(diagnostic)
                 ]
             if not diagnostics_settings.get("typoChecking", True):
                 diagnostics = [

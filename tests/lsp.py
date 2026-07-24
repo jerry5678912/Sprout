@@ -1017,6 +1017,46 @@ def test_diagnostic_modes_overrides_and_unused_tags() -> None:
         assert updated["result"]["effectiveSettings"]["userFileIndexingLimit"] == 200
 
 
+def test_style_warnings_off_suppresses_legacy_name_compatibility_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = "value = None\nprint(value)\nflag = true\nother = False\nmystery\n"
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(
+            server,
+            1,
+            "initialize",
+            {
+                "rootUri": root.resolve().as_uri(),
+                "initializationOptions": {
+                    "sprout": {
+                        "diagnostics": {
+                            "styleWarnings": False,
+                            "typoChecking": True,
+                        }
+                    }
+                },
+            },
+        )
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        diagnostics = published["params"]["diagnostics"]
+        unknown_names = [item for item in diagnostics if item["code"] == "SPROUT_UNKNOWN_NAME"]
+        assert len(unknown_names) == 1
+        assert unknown_names[0]["message"].startswith("Unknown name 'mystery'")
+        assert all((item.get("data") or {}).get("replacement") not in {"say", "nil", "True", "false"} for item in diagnostics)
+
+
 def test_open_files_only_limits_workspace_scope() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1105,6 +1145,7 @@ def main() -> int:
     test_unchanged_diagnostics_are_not_republished()
     test_stale_did_change_version_is_ignored()
     test_diagnostic_modes_overrides_and_unused_tags()
+    test_style_warnings_off_suppresses_legacy_name_compatibility_only()
     test_open_files_only_limits_workspace_scope()
     test_stdio_process_lifecycle()
     print("sprout lsp tests passed")
