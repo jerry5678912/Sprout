@@ -19,6 +19,9 @@
     ["(", ")"],
     ["\"", "\""]
   ],
+  "folding": {
+    "offSide": true
+  },
   "onEnterRules": [
     {
       "beforeText": "^.*(\\{|:|\\bbloom)\\s*$",

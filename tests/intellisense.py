@@ -720,6 +720,13 @@ def test_extension_folding_ranges_cover_dedents_and_block_styles() -> None:
     assert all(item["end"] < 4 or item["start"] > 4 for item in ranges)
 
 
+def test_extension_uses_offside_folding_for_blank_line_guides() -> None:
+    configuration = json.loads(
+        (ROOT / "editor" / "vscode-sprout" / "language-configuration.json").read_text(encoding="utf-8")
+    )
+    assert configuration["folding"]["offSide"] is True
+
+
 def main() -> int:
     test_class_member_completion()
     test_project_module_exports()
@@ -757,6 +764,7 @@ def main() -> int:
     test_standard_mode_surfaces_deeper_flow_diagnostics()
     test_cli_intelligence_queries()
     test_extension_folding_ranges_cover_dedents_and_block_styles()
+    test_extension_uses_offside_folding_for_blank_line_guides()
     print("sprout intellisense tests passed")
     return 0
 
