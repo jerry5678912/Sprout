@@ -758,13 +758,18 @@ class SproutLanguageServer:
 
     def publish_diagnostics(self, uri: str, changed_paths: list[str] | None = None, reason: str = "diagnostics") -> None:
         source = self.source_for_uri(uri)
+        document_version = self.documents.get(uri).version if uri in self.documents else None
         if not source.strip():
             payload = {
                 "uri": uri,
-                "version": self.documents.get(uri).version if uri in self.documents else None,
+                "version": document_version,
                 "diagnostics": [],
             }
-            signature = json.dumps(payload["diagnostics"], sort_keys=True, separators=(",", ":"))
+            signature = json.dumps(
+                {"version": document_version, "diagnostics": payload["diagnostics"]},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             if self.last_published_diagnostics.get(uri) == signature:
                 return
             self.last_published_diagnostics[uri] = signature
@@ -813,10 +818,14 @@ class SproutLanguageServer:
                 deduped[key] = item
         payload = {
             "uri": uri,
-            "version": self.documents.get(uri).version if uri in self.documents else None,
+            "version": document_version,
             "diagnostics": list(deduped.values()),
         }
-        signature = json.dumps(payload["diagnostics"], sort_keys=True, separators=(",", ":"))
+        signature = json.dumps(
+            {"version": document_version, "diagnostics": payload["diagnostics"]},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         if self.last_published_diagnostics.get(uri) == signature:
             return
         self.last_published_diagnostics[uri] = signature

@@ -879,7 +879,7 @@ def test_blank_document_has_no_diagnostics() -> None:
         assert published["params"]["diagnostics"] == []
 
 
-def test_unchanged_diagnostics_are_not_republished() -> None:
+def test_diagnostics_are_republished_for_new_document_version() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         path = root / "main.sprout"
@@ -908,6 +908,24 @@ def test_unchanged_diagnostics_are_not_republished() -> None:
                     },
                     "text": " still a comment",
                 }],
+            },
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = [message for message in notifications if message.get("method") == "textDocument/publishDiagnostics"]
+        assert len(published) == 1
+        assert published[0]["params"]["version"] == 2
+        assert published[0]["params"]["diagnostics"][0]["range"] == {
+            "start": {"line": 0, "character": 4},
+            "end": {"line": 0, "character": 16},
+        }
+
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 2},
+                "contentChanges": [{"text": server.documents[uri].text}],
             },
         })
         notifications = decode_messages(output.getvalue()[before:])
@@ -1142,7 +1160,7 @@ def main() -> int:
     test_completion_ranking_prefers_local_symbols()
     test_completion_with_semantic_matches_skips_extra_keywords()
     test_blank_document_has_no_diagnostics()
-    test_unchanged_diagnostics_are_not_republished()
+    test_diagnostics_are_republished_for_new_document_version()
     test_stale_did_change_version_is_ignored()
     test_diagnostic_modes_overrides_and_unused_tags()
     test_style_warnings_off_suppresses_legacy_name_compatibility_only()
