@@ -28,6 +28,18 @@ from sprout_core.model import SPROUT_VERSION
 from sprout_core.package import RELEASE_TEST_SCRIPTS
 
 
+def run_packaging_command(command: list[str]) -> None:
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+        raise AssertionError(f"Packaging command failed ({result.returncode}): {' '.join(command)}\n{output}")
+
+
 def test_install_and_uninstall() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         prefix = Path(tmp) / "prefix"
@@ -136,31 +148,29 @@ def test_python_package_metadata() -> None:
 def test_python_package_build_includes_sprout_runner_module() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         dist = Path(tmp) / "dist"
-        subprocess.run(
-            [sys.executable, "setup.py", "sdist", "--dist-dir", str(dist)],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", str(dist)],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=True,
-        )
+        run_packaging_command([sys.executable, "setup.py", "sdist", "--dist-dir", str(dist)])
+        run_packaging_command([sys.executable, "setup.py", "bdist_wheel", "--dist-dir", str(dist)])
         wheel = dist / f"sprout_language-{SPROUT_VERSION}-py3-none-any.whl"
-        sdist = dist / f"sprout-language-{SPROUT_VERSION}.tar.gz"
+        sdist = next(
+            (
+                candidate
+                for candidate in (
+                    dist / f"sprout-language-{SPROUT_VERSION}.tar.gz",
+                    dist / f"sprout_language-{SPROUT_VERSION}.tar.gz",
+                )
+                if candidate.exists()
+            ),
+            None,
+        )
         assert wheel.exists()
-        assert sdist.exists()
+        assert sdist is not None
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
             assert "sprout.py" in names
             assert "sprout_core/cli.py" in names
         with tarfile.open(sdist, "r:gz") as archive:
             names = set(archive.getnames())
-            root = f"sprout-language-{SPROUT_VERSION}"
+            root = sdist.name.removesuffix(".tar.gz")
             assert f"{root}/sprout.py" in names
             assert f"{root}/sprout_core/cli.py" in names
 
