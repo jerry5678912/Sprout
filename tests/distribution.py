@@ -106,6 +106,7 @@ def test_release_archives() -> None:
             names = archive.namelist()
             assert "[Content_Types].xml" in names
             assert "extension.vsixmanifest" in names
+            assert b"<GalleryFlags>Public</GalleryFlags>" in archive.read("extension.vsixmanifest")
             assert "extension/package.json" in names
             assert "extension/sprout.py" in names
             assert "extension/sprout_core/runtime.py" in names
