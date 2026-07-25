@@ -240,6 +240,7 @@ def vsix_manifest(metadata: dict[str, Any]) -> str:
         f"    <Description xml:space=\"preserve\">{description}</Description>\n"
         "    <Tags>sprout,programming language</Tags>\n"
         "    <Categories>Programming Languages</Categories>\n"
+        "    <GalleryFlags>Public</GalleryFlags>\n"
         "    <Properties>\n"
         f'      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="{escape(str(metadata["engines"]["vscode"]))}" />\n'
         '      <Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="" />\n'
