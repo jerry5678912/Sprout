@@ -196,12 +196,21 @@ The production stdio server at `tools/sprout_lsp.py` provides incremental docume
 
 The semantic engine uses lexical scopes and stable symbol identities. Parameters and local variables with the same spelling in different functions remain separate symbols, repeated assignments stay attached to their original binding, and imported module member references connect to their exported definitions. The language server keeps an in-memory workspace index and reanalyzes only files whose contents or filesystem signatures changed. The VS Code extension starts one persistent server process and falls back to command-based providers only when the server cannot start.
 
+Sprout Intelligence 0.4 uses one bounded fact model for inferred scalar types,
+container element types, nilability, class/module identity, and dynamic object
+members. Facts flow through unannotated functions, call sites, loops,
+constructors, branches, recursion, and imported Sprout modules. Straight-line
+assignments replace earlier shapes; control-flow joins preserve shared fields as
+required and branch-only fields as conditional. Hover and completion expose
+these same facts, so editor features do not maintain separate guesses.
+
 Editor type checking supports `off`, `basic`, `standard`, and `strict` modes
 through `sprout.analysis.typeCheckingMode`. Basic mode reports practical name,
 member, call, assignment, return, import, interface, generic, and pattern
 errors. Standard mode adds deeper flow and override checks such as unreachable
-code and override-signature diagnostics. Strict mode additionally requires
-parameter and return annotations and treats unknown names and members as
+code, override-signature diagnostics, and possibly missing dynamic members.
+Strict mode additionally requires parameter and return annotations, promotes
+possibly missing members to errors, and treats unknown names and members as
 errors. Per-rule severity overrides are available through
 `sprout.analysis.diagnosticSeverityOverrides`. Unused imports, parameters, and
 variables are tagged so VS Code can fade them.
@@ -293,7 +302,7 @@ python3 sprout.py app package .
 
 `vscode-package` creates `dist/sprout-language-VERSION.vsix`. The VSIX includes the Sprout runner and core, so diagnostics and IntelliSense work without separately configuring `sprout.runnerPath`.
 
-GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching version tag, such as `v0.3.4`, verifies the release and publishes the ZIP and VSIX as GitHub release assets.
+GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching runtime version tag, such as `v0.3.4`, verifies the language release and publishes the ZIP and VSIX as GitHub release assets. The VS Code extension is versioned independently in `editor/vscode-sprout/package.json`.
 
 ## Experimental Bytecode VM
 
@@ -984,7 +993,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.3.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 ```
 
 Quick local development flow:

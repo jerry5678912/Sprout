@@ -1911,15 +1911,22 @@ Semantic names are bound through lexical scopes rather than text matching alone.
 The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts. The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 </p>
 <p>
-VS Code diagnostics have three analysis modes:
+Sprout Intelligence uses a shared, bounded fact model for inferred scalar and container types, nilability, target classes/modules, and dynamic object members. It propagates facts through unannotated function calls, loops, constructors, branches, recursion, and imported Sprout modules. Straight-line assignments replace earlier facts, while control-flow joins mark fields found on every path as required and fields found on only some paths as conditional.
+</p>
+<p>
+VS Code diagnostics have four analysis modes:
 </p>
 <ul>
 <li><code>off</code>: syntax and import errors only</li>
 <li><code>basic</code>: practical semantic and type checks without requiring annotations</li>
-<li><code>strict</code>: basic checks plus missing parameter/return annotations and stricter unknown-name/member errors</li>
+<li><code>standard</code>: deeper flow checks and warnings for conditional member access</li>
+<li><code>strict</code>: standard checks plus missing annotations, error-level conditional</li>
 </ul>
 <p>
-Set the mode with <code>sprout.analysis.typeCheckingMode</code>. Individual rules can be changed with <code>sprout.analysis.diagnosticSeverityOverrides</code>, using <code>none</code>, <code>hint</code>, <code>information</code>, <code>warning</code>, or <code>error</code>. Unused imports, parameters, and variables are tagged as unnecessary so supporting VS Code themes can fade them. The checker reports syntax, imports, unknown names and members, call argument counts and names, assignment and return types, generics, interfaces, enum patterns, async/generator mistakes, unreachable code, shadowing, and style warnings where the analyzer has enough information.
+  member access, and stricter unknown-name/member errors
+</p>
+<p>
+Set the mode with <code>sprout.analysis.typeCheckingMode</code>. Individual rules can be changed with <code>sprout.analysis.diagnosticSeverityOverrides</code>, using <code>none</code>, <code>hint</code>, <code>information</code>, <code>warning</code>, or <code>error</code>. Unused imports, parameters, and variables are tagged as unnecessary so supporting VS Code themes can fade them. The checker reports syntax, imports, unknown names and members, possibly missing dynamic members (<code>SPROUT_POSSIBLY_MISSING_MEMBER</code>), call argument counts and names, assignment and return types, generics, interfaces, enum patterns, async/generator mistakes, unreachable code, shadowing, and style warnings where the analyzer has enough information. Completion keeps conditional members available after required members and labels them as possibly missing. Hover shows inferred types, nilability, and required/conditional fields.
 </p>
 <p>
 Editor-style JSON queries are available through <code>intel</code>:
@@ -2112,7 +2119,7 @@ Build and install the self-contained VSIX:
 </p>
 <pre><code class="language-sh">
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.3.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 </code></pre>
 <p>
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2530,7 +2537,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 </code></pre>
 <p>
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as <code>v0.3.4</code> must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as <code>v0.3.4</code> must match the runtime version before the release workflow publishes artifacts. The VS Code extension has its own version in <code>editor/vscode-sprout/package.json</code>.
 </p>
 <p>
 The capability baseline used to plan this work is recorded in <code>docs/CAPABILITY_AUDIT.md</code>.

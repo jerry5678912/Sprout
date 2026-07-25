@@ -9,6 +9,7 @@ import re
 import time
 from typing import Any
 
+from .facts import ValueFacts
 from .model import Diagnostic, KEYWORDS, resolve_module_file
 from .runtime import Interpreter
 from .tooling import module_search_paths_for, parse_source, project_for_path, read_source_file
@@ -41,6 +42,7 @@ STRICT_DIAGNOSTIC_CODES = {
     "SPROUT_MISSING_RETURN_TYPE",
 }
 STANDARD_DIAGNOSTIC_CODES = {
+    "SPROUT_POSSIBLY_MISSING_MEMBER",
     "SPROUT_UNREACHABLE",
     "SPROUT_OVERRIDE_SIGNATURE",
 }
@@ -89,6 +91,8 @@ def diagnostic_severity(
         return "none"
     if code in UNUSED_DIAGNOSTIC_CODES:
         return "hint"
+    if normalized_mode == "strict" and code == "SPROUT_POSSIBLY_MISSING_MEMBER":
+        return "error"
     if normalized_mode == "strict" and code in {"SPROUT_UNKNOWN_NAME", "SPROUT_UNKNOWN_MEMBER"} and not (diagnostic.data or {}).get("suggestion"):
         return "error"
     return diagnostic.severity
@@ -182,6 +186,10 @@ class SemanticSymbol:
     members: dict[str, "SemanticSymbol"] = field(default_factory=dict)
     module_path: str | None = None
     target_type: str | None = None
+    facts: ValueFacts = field(default_factory=ValueFacts.unknown_value)
+    member_presence: str = "required"
+    parameter_names: list[str] = field(default_factory=list)
+    parameter_facts: dict[str, ValueFacts] = field(default_factory=dict)
     symbol_id: str = ""
     scope_id: str = ""
 
@@ -205,6 +213,9 @@ class SemanticSymbol:
             "container": self.container,
             "modulePath": self.module_path,
             "targetType": self.target_type,
+            "inferredType": self.facts.type_name,
+            "nilable": self.facts.nilable,
+            "memberPresence": self.member_presence,
             "symbolId": self.symbol_id,
         }
 
@@ -258,6 +269,8 @@ class FileAnalysis:
     classes: dict[str, SemanticSymbol] = field(default_factory=dict)
     types: dict[str, SemanticSymbol] = field(default_factory=dict)
     scopes: dict[str, LexicalScope] = field(default_factory=dict)
+    inferred_locals: dict[str, ValueFacts] = field(default_factory=dict)
+    fact_import_signature: tuple[tuple[str, str, str], ...] | None = None
     source_hash: str = ""
     parse_count: int = 1
     analysis_duration_ms: float = 0.0
@@ -517,55 +530,124 @@ class WorkspaceIndex:
                     self.symbols.pop(key, None)
 
     def refresh_imports(self) -> None:
+        fact_changed: set[str] = set()
         for file in self.files.values():
-            file.diagnostics = [
-                diagnostic for diagnostic in file.diagnostics
-                if diagnostic.code != "SPROUT_UNKNOWN_MEMBER"
-            ]
             for symbol in file.imports.values():
                 if symbol.kind == "module":
                     symbol.members = self.module_exports.get(symbol.module_path or "", {})
                 elif symbol.kind == "python-module" and symbol.module_path:
                     symbol.members = python_module_members(symbol.module_path, symbol)
-            self._refresh_variable_shapes(file)
-            for ref in file.references:
-                if "." not in ref.name:
-                    continue
-                parts = ref.name.split(".")
-                base = parts[0]
-                base_symbol = file.imports.get(base) or file.variables.get(base) or file.classes.get(base)
-                parent_symbol = resolve_member_chain_symbol(self, file, file.path, ".".join(parts[:-1])) if len(parts) > 2 else base_symbol
-                member = parts[-1]
-                member_symbol = None
-                member_choices: set[str] = set()
-                if parent_symbol:
-                    resolved_members = resolve_symbol_members(self, file, parent_symbol, file.path)
-                    member_choices = set(resolved_members)
-                    member_symbol = resolved_members.get(member)
-                if member_symbol:
-                    ref.symbol_id = member_symbol.symbol_id
-                elif parent_symbol and (
-                    (base_symbol and base_symbol.kind == "module" and base_symbol.module_path)
-                    or parent_symbol.target_type
-                    or bool(resolve_symbol_members(self, file, parent_symbol, file.path))
-                ):
-                    suggestion = best_name_suggestion(member, member_choices)
-                    message = (
-                        f"'{'.'.join(parts[:-1])}' has no member '{member}'. Did you mean '{suggestion}'?"
-                        if suggestion else f"'{'.'.join(parts[:-1])}' has no member '{member}'"
+            import_signature = tuple(sorted(
+                (
+                    alias,
+                    symbol.module_path or "",
+                    fact_file_signature(self.files.get(symbol.module_path or "")),
+                )
+                for alias, symbol in file.imports.items()
+                if symbol.kind == "module"
+            ))
+            if import_signature and import_signature != file.fact_import_signature:
+                infer_semantic_facts(file)
+                sync_bound_symbol_facts(file)
+                fact_changed.add(file.path)
+            file.fact_import_signature = import_signature
+        if fact_changed:
+            closure = set(fact_changed)
+            pending = list(fact_changed)
+            while pending:
+                path = pending.pop()
+                related = self.dependency_graph.get(path, set()) | self.reverse_dependencies.get(path, set())
+                for related_path in related:
+                    if related_path in self.files and related_path not in closure:
+                        closure.add(related_path)
+                        pending.append(related_path)
+            for _iteration in range(8):
+                before = {
+                    path: fact_file_signature(self.files.get(path))
+                    for path in closure
+                }
+                for path in sorted(closure):
+                    infer_semantic_facts(self.files[path])
+                    sync_bound_symbol_facts(self.files[path])
+                after = {
+                    path: fact_file_signature(self.files.get(path))
+                    for path in closure
+                }
+                if after == before:
+                    break
+            for file in self.files.values():
+                file.fact_import_signature = tuple(sorted(
+                    (
+                        alias,
+                        symbol.module_path or "",
+                        fact_file_signature(self.files.get(symbol.module_path or "")),
                     )
+                    for alias, symbol in file.imports.items()
+                    if symbol.kind == "module"
+                ))
+        for file in self.files.values():
+            self._refresh_member_diagnostics(file)
+
+    def _refresh_member_diagnostics(self, file: FileAnalysis) -> None:
+        file.diagnostics = [
+            diagnostic for diagnostic in file.diagnostics
+            if diagnostic.code not in {"SPROUT_UNKNOWN_MEMBER", "SPROUT_POSSIBLY_MISSING_MEMBER"}
+        ]
+        for ref in file.references:
+            if "." not in ref.name:
+                continue
+            parts = ref.name.split(".")
+            base = parts[0]
+            base_symbol = file.imports.get(base) or file.variables.get(base) or file.classes.get(base)
+            parent_symbol = resolve_member_chain_symbol(self, file, file.path, ".".join(parts[:-1])) if len(parts) > 2 else base_symbol
+            member = parts[-1]
+            member_symbol = None
+            member_choices: set[str] = set()
+            if parent_symbol:
+                resolved_members = resolve_symbol_members(self, file, parent_symbol, file.path)
+                member_choices = set(resolved_members)
+                member_symbol = resolved_members.get(member)
+            if member_symbol:
+                ref.symbol_id = member_symbol.symbol_id
+                if member_symbol.member_presence == "conditional":
                     file.diagnostics.append(
                         Diagnostic(
                             "warning",
-                            message,
+                            f"Member '{member}' may be missing from '{'.'.join(parts[:-1])}'",
                             file.path,
                             ref.location.line,
                             ref.location.col,
-                            "SPROUT_UNKNOWN_MEMBER",
+                            "SPROUT_POSSIBLY_MISSING_MEMBER",
                             None,
-                            {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
+                            {
+                                "member": member,
+                                "owner": ".".join(parts[:-1]),
+                                "presence": "conditional",
+                            },
                         )
                     )
+            elif parent_symbol and (
+                (base_symbol and base_symbol.kind == "module" and base_symbol.module_path)
+                or parent_symbol.target_type
+                or bool(resolve_symbol_members(self, file, parent_symbol, file.path))
+            ):
+                suggestion = best_name_suggestion(member, member_choices)
+                message = (
+                    f"'{'.'.join(parts[:-1])}' has no member '{member}'. Did you mean '{suggestion}'?"
+                    if suggestion else f"'{'.'.join(parts[:-1])}' has no member '{member}'"
+                )
+                file.diagnostics.append(
+                    Diagnostic(
+                        "warning",
+                        message,
+                        file.path,
+                        ref.location.line,
+                        ref.location.col,
+                        "SPROUT_UNKNOWN_MEMBER",
+                        None,
+                        {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
+                    )
+                )
 
     def _refresh_variable_shapes(self, file: FileAnalysis) -> None:
         known_class_names = set(file.classes)
@@ -882,6 +964,10 @@ def clone_member_symbol(
         container=container,
         module_path=symbol.module_path,
         target_type=symbol.target_type,
+        facts=symbol.facts.copy(),
+        member_presence=symbol.member_presence,
+        parameter_names=list(symbol.parameter_names),
+        parameter_facts={name: facts.copy() for name, facts in symbol.parameter_facts.items()},
     )
     if symbol.members:
         cloned.members = {
@@ -1191,10 +1277,563 @@ def function_return_exprs(stmt: Any) -> list[Any]:
     if not isinstance(stmt, tuple) or stmt[0] not in {"fn", "async_fn"}:
         return []
     exprs: list[Any] = []
-    for child in walk_statements(stmt[3]):
-        if isinstance(child, tuple) and child[0] == "return":
-            exprs.append(child[1])
+
+    def visit(statements: list[Any]) -> None:
+        for child in statements:
+            if not isinstance(child, tuple) or not child:
+                continue
+            kind = child[0]
+            if kind == "return":
+                exprs.append(child[1])
+            elif kind in {"fn", "async_fn", "class", "test"}:
+                continue
+            elif kind == "if":
+                visit(child[2])
+                visit(child[3])
+            elif kind in {"while", "for", "async_for"}:
+                visit(child[-1])
+            elif kind == "try":
+                visit(child[1])
+                visit(child[3])
+            elif kind == "taskgroup":
+                visit(child[2])
+            elif kind == "match":
+                for case in child[2]:
+                    visit(case[2])
+
+    visit(stmt[3])
     return exprs
+
+
+def facts_from_annotation(annotation: Any) -> ValueFacts:
+    if annotation is None:
+        return ValueFacts.unknown_value()
+    if annotation[0] == "union":
+        result: ValueFacts | None = None
+        for member in annotation[1]:
+            facts = facts_from_annotation(member)
+            result = facts if result is None else result.join(facts)
+        return result or ValueFacts.unknown_value()
+    name = str(annotation[1])
+    arguments = annotation[2]
+    if name in {"List", "Array", "Generator", "Task"} and arguments:
+        item = facts_from_annotation(arguments[0])
+        return ValueFacts(types=(f"{name}[{item.type_name}]",), item=item)
+    if name == "Dict" and len(arguments) == 2:
+        key = facts_from_annotation(arguments[0])
+        value = facts_from_annotation(arguments[1])
+        return ValueFacts(types=(f"Dict[{key.type_name}, {value.type_name}]",), key=key, value=value)
+    return ValueFacts.of_type(name, target_type=name if name not in {"Any", "Nil", "Bool", "Int", "Float", "Number", "String"} else None)
+
+
+def sync_symbol_facts(symbol: SemanticSymbol, facts: ValueFacts) -> None:
+    symbol.facts = facts.copy()
+    if facts.target_type:
+        symbol.target_type = facts.target_type
+    if not facts.members:
+        return
+    existing = symbol.members
+    members: dict[str, SemanticSymbol] = {}
+    for name, member_facts in facts.members.items():
+        member = existing.get(name) or SemanticSymbol(
+            name,
+            "property",
+            symbol.location,
+            container=symbol.qualified_name,
+        )
+        member.member_presence = member_facts.presence
+        sync_symbol_facts(member, member_facts)
+        members[name] = member
+    for name, member in existing.items():
+        if member.kind in {"method", "function", "enum-member"}:
+            members.setdefault(name, member)
+    symbol.members = members
+
+
+def facts_from_symbol(symbol: SemanticSymbol | None) -> ValueFacts:
+    if symbol is None:
+        return ValueFacts.unknown_value()
+    if not symbol.facts.is_pure_unknown:
+        return symbol.facts.copy()
+    if symbol.kind in {"class", "interface"}:
+        members = {
+            name: member.facts.copy()
+            for name, member in symbol.members.items()
+        }
+        return ValueFacts(
+            types=(symbol.name,),
+            members=members,
+            target_type=symbol.name,
+        )
+    if symbol.members:
+        return ValueFacts.object({
+            name: member.facts.copy()
+            for name, member in symbol.members.items()
+        })
+    if symbol.target_type:
+        return ValueFacts.of_type(symbol.target_type, target_type=symbol.target_type)
+    return ValueFacts.unknown_value()
+
+
+def fact_file_signature(file: FileAnalysis | None) -> str:
+    if file is None:
+        return ""
+    payload = [
+        (
+            symbol.symbol_id,
+            symbol.facts.type_name,
+            tuple(sorted(
+                (name, member.member_presence, member.facts.type_name)
+                for name, member in symbol.members.items()
+            )),
+            tuple(sorted(
+                (name, facts.type_name)
+                for name, facts in symbol.parameter_facts.items()
+            )),
+        )
+        for symbol in file.symbols
+        if symbol.scope_id == "file" or symbol.kind in {"function", "method", "class"}
+    ]
+    raw = repr((file.source_hash, payload))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _join_facts(items: list[ValueFacts]) -> ValueFacts:
+    known = [item for item in items if not item.is_pure_unknown]
+    source = known or items
+    if not source:
+        return ValueFacts.of_type("Nil")
+    result = source[0].copy()
+    for item in source[1:]:
+        result = result.join(item)
+    return result
+
+
+def infer_expression_facts(
+    expr: Any,
+    env: dict[str, ValueFacts],
+    analysis: FileAnalysis,
+    call_updates: dict[str, dict[str, ValueFacts]],
+) -> ValueFacts:
+    if not isinstance(expr, tuple):
+        return ValueFacts.unknown_value()
+    kind = expr[0]
+    if kind == "literal":
+        value = expr[1]
+        name = (
+            "Nil" if value is None else
+            "Bool" if isinstance(value, bool) else
+            "Int" if isinstance(value, int) else
+            "Float" if isinstance(value, float) else
+            "String" if isinstance(value, str) else
+            "Any"
+        )
+        return ValueFacts.of_type(name)
+    if kind == "var":
+        return env.get(expr[1], facts_from_symbol(resolve_expr_symbol(analysis, expr))).copy()
+    if kind == "dict":
+        members: dict[str, ValueFacts] = {}
+        keys: list[ValueFacts] = []
+        values: list[ValueFacts] = []
+        for key_expr, value_expr in expr[1]:
+            key_facts = infer_expression_facts(key_expr, env, analysis, call_updates)
+            value_facts = infer_expression_facts(value_expr, env, analysis, call_updates)
+            keys.append(key_facts)
+            values.append(value_facts)
+            if (
+                isinstance(key_expr, tuple)
+                and key_expr[0] == "literal"
+                and isinstance(key_expr[1], str)
+                and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key_expr[1])
+            ):
+                members[key_expr[1]] = value_facts
+        result = ValueFacts.object(members)
+        if keys:
+            result.key = _join_facts(keys)
+        if values:
+            result.value = _join_facts(values)
+            result.types = (f"Dict[{result.key.type_name}, {result.value.type_name}]",)
+        return result
+    if kind == "array":
+        item = _join_facts([
+            infer_expression_facts(value, env, analysis, call_updates)
+            for value in expr[1]
+        ])
+        return ValueFacts(types=(f"List[{item.type_name}]",), item=item)
+    if kind == "list_comp":
+        local = dict(env)
+        iterable = infer_expression_facts(expr[3], env, analysis, call_updates)
+        local[expr[2]] = iterable.item.copy() if iterable.item else ValueFacts.unknown_value()
+        item = infer_expression_facts(expr[1], local, analysis, call_updates)
+        return ValueFacts(types=(f"List[{item.type_name}]",), item=item)
+    if kind == "dict_comp":
+        local = dict(env)
+        iterable = infer_expression_facts(expr[4], env, analysis, call_updates)
+        local[expr[3]] = iterable.item.copy() if iterable.item else ValueFacts.unknown_value()
+        key = infer_expression_facts(expr[1], local, analysis, call_updates)
+        value = infer_expression_facts(expr[2], local, analysis, call_updates)
+        return ValueFacts(types=(f"Dict[{key.type_name}, {value.type_name}]",), key=key, value=value)
+    if kind in {"index", "slice"}:
+        container = infer_expression_facts(expr[1], env, analysis, call_updates)
+        if kind == "slice":
+            return container
+        if container.item:
+            return container.item.copy()
+        if container.value:
+            if (
+                isinstance(expr[2], tuple)
+                and expr[2][0] == "literal"
+                and isinstance(expr[2][1], str)
+                and expr[2][1] in container.members
+            ):
+                return container.members[expr[2][1]].copy()
+            return container.value.copy()
+        return ValueFacts.unknown_value()
+    if kind == "get":
+        owner = infer_expression_facts(expr[1], env, analysis, call_updates)
+        if expr[2] in owner.members:
+            return owner.members[expr[2]].copy()
+        return facts_from_symbol(resolve_expr_symbol(analysis, expr))
+    if kind == "unary":
+        return ValueFacts.of_type("Bool") if expr[1] == "!" else infer_expression_facts(expr[2], env, analysis, call_updates)
+    if kind == "binary":
+        if expr[1] in {"==", "!=", "<", "<=", ">", ">=", "in", "and", "or"}:
+            return ValueFacts.of_type("Bool")
+        left = infer_expression_facts(expr[2], env, analysis, call_updates)
+        right = infer_expression_facts(expr[3], env, analysis, call_updates)
+        if "String" in left.types or "String" in right.types:
+            return ValueFacts.of_type("String")
+        return left.join(right)
+    if kind == "await":
+        task = infer_expression_facts(expr[1], env, analysis, call_updates)
+        return task.item.copy() if task.item else ValueFacts.unknown_value()
+    if kind == "call":
+        callee_expr = expr[1]
+        positional = [
+            infer_expression_facts(unwrap_call_arg(arg), env, analysis, call_updates)
+            for arg in expr[2]
+        ]
+        keyword = {
+            arg[1]: infer_expression_facts(arg[2], env, analysis, call_updates)
+            for arg in expr[3]
+            if isinstance(arg, tuple) and arg[0] == "pair"
+        }
+        if isinstance(callee_expr, tuple) and callee_expr[0] == "var" and callee_expr[1] == "get":
+            if len(positional) >= 2:
+                base = positional[0]
+                key_expr = unwrap_call_arg(expr[2][1])
+                if (
+                    isinstance(key_expr, tuple)
+                    and key_expr[0] == "literal"
+                    and isinstance(key_expr[1], str)
+                    and key_expr[1] in base.members
+                ):
+                    found = base.members[key_expr[1]].copy()
+                    if len(positional) >= 3:
+                        return found.join(positional[2])
+                    return found.join(ValueFacts.of_type("Nil"))
+                if base.value:
+                    return base.value.join(positional[2]) if len(positional) >= 3 else base.value.join(ValueFacts.of_type("Nil"))
+            return ValueFacts.unknown_value()
+        callee = resolve_expr_symbol(analysis, callee_expr)
+        if callee and callee.kind in {"class", "interface"}:
+            initializer = callee.members.get("init")
+            if initializer:
+                _record_call_facts(initializer, positional, keyword, call_updates, skip_self=True)
+            facts = facts_from_symbol(callee)
+            facts.target_type = callee.name
+            facts.types = (callee.name,)
+            return facts
+        if callee:
+            _record_call_facts(callee, positional, keyword, call_updates, skip_self=callee.kind == "method")
+            return facts_from_symbol(callee)
+        return ValueFacts.unknown_value()
+    return ValueFacts.unknown_value()
+
+
+def _record_call_facts(
+    function: SemanticSymbol,
+    positional: list[ValueFacts],
+    keyword: dict[str, ValueFacts],
+    updates: dict[str, dict[str, ValueFacts]],
+    *,
+    skip_self: bool,
+) -> None:
+    names = list(function.parameter_names)
+    if skip_self and names and names[0] == "self":
+        names = names[1:]
+    target = updates.setdefault(function.symbol_id, {})
+    for name, facts in zip(names, positional):
+        target[name] = target[name].join(facts) if name in target else facts.copy()
+        previous = function.parameter_facts.get(name, ValueFacts.unknown_value())
+        function.parameter_facts[name] = previous.join(facts)
+    for name, facts in keyword.items():
+        if name in names:
+            target[name] = target[name].join(facts) if name in target else facts.copy()
+            previous = function.parameter_facts.get(name, ValueFacts.unknown_value())
+            function.parameter_facts[name] = previous.join(facts)
+
+
+def _merge_fact_envs(base: dict[str, ValueFacts], branches: list[dict[str, ValueFacts]]) -> dict[str, ValueFacts]:
+    merged = dict(base)
+    names = set().union(*(branch.keys() for branch in branches))
+    for name in names:
+        values = [branch.get(name, base.get(name, ValueFacts.unknown_value())) for branch in branches]
+        merged[name] = _join_facts(values)
+    return merged
+
+
+def assign_member_facts(
+    target: Any,
+    value: ValueFacts,
+    env: dict[str, ValueFacts],
+    analysis: FileAnalysis,
+) -> bool:
+    if not isinstance(target, tuple) or target[0] != "get":
+        return False
+    owner, member_name = target[1], target[2]
+    if owner[0] == "var":
+        owner_name = owner[1]
+        owner_facts = env.get(owner_name, facts_from_symbol(analysis.variables.get(owner_name))).copy()
+        owner_facts.members[member_name] = value.copy()
+        object_facts = ValueFacts.object(owner_facts.members)
+        owner_facts.types = object_facts.types
+        owner_facts.key = object_facts.key
+        owner_facts.value = object_facts.value
+        env[owner_name] = owner_facts
+        symbol = analysis.variables.get(owner_name)
+        if symbol:
+            sync_symbol_facts(symbol, owner_facts)
+        return True
+    if owner[0] == "get":
+        root = owner
+        chain = [member_name]
+        while root[0] == "get":
+            chain.append(root[2])
+            root = root[1]
+        if root[0] != "var":
+            return False
+        owner_name = root[1]
+        owner_facts = env.get(owner_name, facts_from_symbol(analysis.variables.get(owner_name))).copy()
+        current = owner_facts
+        for part in reversed(chain[1:]):
+            current.members.setdefault(part, ValueFacts.object({}))
+            current = current.members[part]
+        current.members[chain[0]] = value.copy()
+        env[owner_name] = owner_facts
+        symbol = analysis.variables.get(owner_name)
+        if symbol:
+            sync_symbol_facts(symbol, owner_facts)
+        return True
+    return False
+
+
+def analyze_fact_statements(
+    statements: list[Any],
+    env: dict[str, ValueFacts],
+    analysis: FileAnalysis,
+    call_updates: dict[str, dict[str, ValueFacts]],
+    *,
+    current_class: SemanticSymbol | None = None,
+) -> list[ValueFacts]:
+    returns: list[ValueFacts] = []
+    for stmt in statements:
+        kind = stmt[0]
+        if kind == "let":
+            env[stmt[1]] = facts_from_annotation(stmt[3]) if len(stmt) > 3 and stmt[3] else infer_expression_facts(stmt[2], env, analysis, call_updates)
+            symbol = analysis.variables.get(stmt[1])
+            if symbol:
+                sync_symbol_facts(symbol, env[stmt[1]])
+        elif kind == "assign":
+            value = infer_expression_facts(stmt[2], env, analysis, call_updates)
+            target = stmt[1]
+            if target[0] == "var":
+                env[target[1]] = value
+                symbol = analysis.variables.get(target[1])
+                if symbol:
+                    sync_symbol_facts(symbol, value)
+            elif target[0] == "get" and target[1] == ("var", "self") and current_class:
+                member = current_class.members.get(target[2]) or SemanticSymbol(
+                    target[2],
+                    "field",
+                    current_class.location,
+                    container=current_class.name,
+                )
+                sync_symbol_facts(member, value)
+                current_class.members[target[2]] = member
+            elif target[0] == "get":
+                assign_member_facts(target, value, env, analysis)
+        elif kind == "return":
+            returns.append(ValueFacts.of_type("Nil") if stmt[1] is None else infer_expression_facts(stmt[1], env, analysis, call_updates))
+        elif kind == "yield":
+            returns.append(infer_expression_facts(stmt[1], env, analysis, call_updates))
+        elif kind == "expr":
+            infer_expression_facts(stmt[1], env, analysis, call_updates)
+        elif kind == "say":
+            for expr in stmt[1]:
+                infer_expression_facts(expr, env, analysis, call_updates)
+        elif kind == "if":
+            then_env = dict(env)
+            else_env = dict(env)
+            returns.extend(analyze_fact_statements(stmt[2], then_env, analysis, call_updates, current_class=current_class))
+            returns.extend(analyze_fact_statements(stmt[3], else_env, analysis, call_updates, current_class=current_class))
+            env.update(_merge_fact_envs(env, [then_env, else_env]))
+        elif kind in {"for", "async_for"}:
+            iterable = infer_expression_facts(stmt[2], env, analysis, call_updates)
+            item = iterable.item.copy() if iterable.item else iterable.key.copy() if iterable.key else ValueFacts.unknown_value()
+            loop_env = dict(env)
+            loop_env[stmt[1]] = item
+            analysis.inferred_locals[stmt[1]] = (
+                analysis.inferred_locals[stmt[1]].join(item)
+                if stmt[1] in analysis.inferred_locals else item.copy()
+            )
+            for symbol in analysis.symbols:
+                if symbol.name == stmt[1] and symbol.kind == "variable":
+                    sync_symbol_facts(symbol, item)
+            returns.extend(analyze_fact_statements(stmt[3], loop_env, analysis, call_updates, current_class=current_class))
+            env.update(_merge_fact_envs(env, [env, loop_env]))
+        elif kind == "while":
+            loop_env = dict(env)
+            returns.extend(analyze_fact_statements(stmt[2], loop_env, analysis, call_updates, current_class=current_class))
+            env.update(_merge_fact_envs(env, [env, loop_env]))
+        elif kind == "try":
+            try_env = dict(env)
+            catch_env = dict(env)
+            returns.extend(analyze_fact_statements(stmt[1], try_env, analysis, call_updates, current_class=current_class))
+            returns.extend(analyze_fact_statements(stmt[3], catch_env, analysis, call_updates, current_class=current_class))
+            env.update(_merge_fact_envs(env, [try_env, catch_env]))
+        elif kind == "match":
+            branch_envs: list[dict[str, ValueFacts]] = []
+            for _pattern, _guard, body, _line, _col in stmt[2]:
+                branch = dict(env)
+                returns.extend(analyze_fact_statements(body, branch, analysis, call_updates, current_class=current_class))
+                branch_envs.append(branch)
+            if branch_envs:
+                env.update(_merge_fact_envs(env, branch_envs))
+        elif kind == "taskgroup":
+            returns.extend(analyze_fact_statements(stmt[2], dict(env), analysis, call_updates, current_class=current_class))
+    return returns
+
+
+def infer_semantic_facts(analysis: FileAnalysis) -> None:
+    function_defs: list[tuple[Any, SemanticSymbol, SemanticSymbol | None]] = []
+    symbols_by_line = {
+        (symbol.location.line, symbol.name, symbol.container): symbol
+        for symbol in analysis.symbols
+        if symbol.kind in {"function", "method"}
+    }
+    for stmt in analysis.program:
+        if stmt[0] in {"fn", "async_fn"}:
+            symbol = symbols_by_line.get((stmt[4], stmt[1], None))
+            if symbol:
+                function_defs.append((stmt, symbol, None))
+        elif stmt[0] == "class":
+            klass = analysis.classes.get(stmt[1])
+            for method in stmt[3]:
+                symbol = symbols_by_line.get((method[4], method[1], stmt[1]))
+                if symbol:
+                    function_defs.append((method, symbol, klass))
+    for stmt, symbol, _klass in function_defs:
+        metadata = stmt[6] if len(stmt) > 6 else {}
+        symbol.parameter_names = [param[0] for param in stmt[2]]
+        previous_parameter_facts = symbol.parameter_facts
+        symbol.parameter_facts = {
+            name: (
+                facts_from_annotation(metadata.get("parameter_types", {}).get(name))
+                if metadata.get("parameter_types", {}).get(name)
+                else previous_parameter_facts.get(name, ValueFacts.unknown_value()).copy()
+            )
+            for name in symbol.parameter_names
+        }
+    call_updates: dict[str, dict[str, ValueFacts]] = {}
+    for _iteration in range(12):
+        before = {
+            symbol.symbol_id: (
+                symbol.facts.type_name,
+                tuple(sorted((name, member.member_presence, member.facts.type_name) for name, member in symbol.members.items())),
+                tuple(sorted((name, facts.type_name) for name, facts in symbol.parameter_facts.items())),
+            )
+            for _stmt, symbol, _klass in function_defs
+        }
+        global_env = {
+            name: facts_from_symbol(symbol)
+            for name, symbol in analysis.variables.items()
+        }
+        analyze_fact_statements(
+            [stmt for stmt in analysis.program if stmt[0] not in {"fn", "async_fn", "class"}],
+            global_env,
+            analysis,
+            call_updates,
+        )
+        for stmt, symbol, klass in function_defs:
+            metadata = stmt[6] if len(stmt) > 6 else {}
+            env = dict(global_env)
+            for name in symbol.parameter_names:
+                annotated = metadata.get("parameter_types", {}).get(name)
+                inferred = call_updates.get(symbol.symbol_id, {}).get(name)
+                if annotated:
+                    env[name] = facts_from_annotation(annotated)
+                elif inferred:
+                    previous = symbol.parameter_facts.get(name, ValueFacts.unknown_value())
+                    env[name] = previous.join(inferred)
+                else:
+                    env[name] = symbol.parameter_facts.get(name, ValueFacts.unknown_value())
+                symbol.parameter_facts[name] = env[name].copy()
+            if klass and "self" in env:
+                env["self"] = facts_from_symbol(klass)
+            returns = analyze_fact_statements(stmt[3], env, analysis, call_updates, current_class=klass)
+            inferred_return = _join_facts(returns)
+            if stmt[0] == "async_fn":
+                inferred_return = ValueFacts(
+                    types=(f"Task[{inferred_return.type_name}]",),
+                    item=inferred_return,
+                )
+            sync_symbol_facts(symbol, inferred_return)
+        after = {
+            symbol.symbol_id: (
+                symbol.facts.type_name,
+                tuple(sorted((name, member.member_presence, member.facts.type_name) for name, member in symbol.members.items())),
+                tuple(sorted((name, facts.type_name) for name, facts in symbol.parameter_facts.items())),
+            )
+            for _stmt, symbol, _klass in function_defs
+        }
+        if after == before:
+            break
+    final_env = {
+        name: facts_from_symbol(symbol)
+        for name, symbol in analysis.variables.items()
+    }
+    analyze_fact_statements(
+        [stmt for stmt in analysis.program if stmt[0] not in {"fn", "async_fn", "class"}],
+        final_env,
+        analysis,
+        call_updates,
+    )
+    analysis.inferred_locals.update({
+        name: facts.copy()
+        for name, facts in final_env.items()
+    })
+
+
+def sync_bound_symbol_facts(analysis: FileAnalysis) -> None:
+    functions = {
+        (symbol.location.line, symbol.name): symbol
+        for symbol in analysis.symbols
+        if symbol.kind in {"function", "method"}
+    }
+    for symbol in analysis.symbols:
+        if symbol.kind == "variable" and symbol.name in analysis.inferred_locals:
+            sync_symbol_facts(symbol, analysis.inferred_locals[symbol.name])
+        elif symbol.kind == "parameter":
+            owner = next(
+                (
+                    function for (line, _name), function in functions.items()
+                    if line == symbol.location.line and symbol.name in function.parameter_facts
+                ),
+                None,
+            )
+            if owner:
+                sync_symbol_facts(symbol, owner.parameter_facts[symbol.name])
 
 
 def assignment_exprs_for_name(
@@ -1947,8 +2586,10 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
                     parts = parts[1:]
                 analysis.classes[class_name].signature = f"{class_name}({', '.join(parts)})"
 
+    infer_semantic_facts(analysis)
     analysis.source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
     bind_references(analysis, lines)
+    sync_bound_symbol_facts(analysis)
     from .tooling import lint_source
     from .typesystem import typecheck_source
     seen_diagnostics: set[tuple[str, int | None, int | None, str, str]] = {
@@ -2322,7 +2963,7 @@ def resolve_member_chain_symbol(
     return current
 
 
-def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str], imported_names: set[str]) -> tuple[int, int, int, int, int, str]:
+def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str], imported_names: set[str]) -> tuple[int, int, int, int, int, int, int, str]:
     name = symbol.name
     exact = 0 if prefix and name == prefix else 1
     starts = 0 if prefix and name.startswith(prefix) else 1
@@ -2342,7 +2983,8 @@ def _rank_completion(symbol: SemanticSymbol, prefix: str, local_names: set[str],
         "builtin": 8,
     }.get(symbol.kind, 9)
     declared_line = symbol.location.line if symbol.location and symbol.location.line > 0 else 10**9
-    return (exact, starts, contains, scope * 10 + kind_rank, declared_line, len(name), name.lower())
+    presence = 0 if symbol.member_presence == "required" else 1
+    return (exact, starts, contains, presence, scope * 10 + kind_rank, declared_line, len(name), name.lower())
 
 
 def _ranked_visible_symbols(

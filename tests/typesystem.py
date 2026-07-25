@@ -236,6 +236,49 @@ def test_get_builtin_preserves_value_type_with_default() -> None:
     assert result.returncode == 0
 
 
+def test_unannotated_return_and_call_site_parameter_types_are_inferred() -> None:
+    result = run_source(
+        "def identity(value):\n"
+        "  return value\n\n"
+        "let count: Int = identity(\"wrong\")\n",
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    assignment = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_ASSIGNMENT_TYPE")
+    assert "got String" in assignment["message"]
+
+
+def test_loop_item_type_flows_into_unannotated_return() -> None:
+    result = run_source(
+        "def first(items):\n"
+        "  for item in items:\n"
+        "    return item\n"
+        "  return nil\n\n"
+        'let count: Int = first(["wrong"])\n',
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    assignment = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_ASSIGNMENT_TYPE")
+    assert "String" in assignment["message"]
+
+
+def test_recursive_return_inference_converges_without_any_pollution() -> None:
+    result = run_source(
+        "def countdown(value):\n"
+        "  if value <= 0:\n"
+        "    return 1\n"
+        "  return countdown(value - 1)\n\n"
+        'let label: String = countdown(3)\n',
+        "typecheck",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    assignment = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_ASSIGNMENT_TYPE")
+    assert "got Int" in assignment["message"]
+
+
 def main() -> int:
     test_typed_program_runs_in_both_engines()
     test_assignment_return_and_argument_errors()
@@ -247,6 +290,9 @@ def main() -> int:
     test_nil_narrowing_and_branch_merge_reduce_false_positives()
     test_truthy_nil_narrowing_and_keyword_fix_data()
     test_get_builtin_preserves_value_type_with_default()
+    test_unannotated_return_and_call_site_parameter_types_are_inferred()
+    test_loop_item_type_flows_into_unannotated_return()
+    test_recursive_return_inference_converges_without_any_pollution()
     print("sprout type system tests passed")
     return 0
 

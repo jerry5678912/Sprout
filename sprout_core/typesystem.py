@@ -18,6 +18,7 @@ BUILTIN_TYPES = {
     "List", "Array", "Dict", "Task", "Generator",
 }
 GENERIC_ARITY = {"List": 1, "Array": 1, "Dict": 2, "Task": 1, "Generator": 1}
+MAX_INFERRED_UNION_MEMBERS = 8
 
 
 @dataclass
@@ -238,6 +239,7 @@ class TypeChecker:
         self.modules: dict[str, ModuleType] = {}
         self.global_env: dict[str, Any] = {}
         self.yield_types: list[Any] = []
+        self.suppress_diagnostics = False
         self.module_cache = module_cache if module_cache is not None else {}
         self.module_cache[os.path.abspath(path)] = self
 
@@ -249,6 +251,8 @@ class TypeChecker:
         code: str = "SPROUT_TYPE",
         data: dict[str, Any] | None = None,
     ) -> None:
+        if self.suppress_diagnostics:
+            return
         self.diagnostics.append(Diagnostic("error", message, self.path, line, col, code, data=data))
 
     def warning(
@@ -259,6 +263,8 @@ class TypeChecker:
         code: str = "SPROUT_TYPE_WARNING",
         data: dict[str, Any] | None = None,
     ) -> None:
+        if self.suppress_diagnostics:
+            return
         self.diagnostics.append(Diagnostic("warning", message, self.path, line, col, code, data=data))
 
     def is_compatible(self, actual: Any, expected: Any, type_vars: dict[str, Any] | None = None) -> bool:
@@ -328,7 +334,8 @@ class TypeChecker:
                 return
             checker = TypeChecker(resolved, self.module_cache)
             checker.collect(program)
-            checker.prepare_global_env(program)
+            imported_env = checker.prepare_global_env(program)
+            checker.infer_program_summaries(program, imported_env)
         self.modules[alias] = ModuleType(resolved, checker)
 
     def substitute(self, annotation: Any, values: dict[str, Any]) -> Any:
@@ -744,6 +751,14 @@ class TypeChecker:
         substitutions: dict[str, Any] = {
             name: None for name in metadata.get("type_params", [])
         }
+        inferred_parameters = metadata.setdefault("_inferred_parameter_types", {})
+        for actual, param in zip(args, fixed):
+            name = param[0]
+            previous = inferred_parameters.get(name)
+            inferred_parameters[name] = self.merge_inferred_type(previous, actual)
+        for name, actual in keyword_args.items():
+            if name in fixed_names:
+                inferred_parameters[name] = self.merge_inferred_type(inferred_parameters.get(name), actual)
         for actual, param in zip(args, fixed):
             expected = annotations.get(param[0])
             if expected is not None and not self.is_compatible(actual, expected, substitutions):
@@ -778,7 +793,7 @@ class TypeChecker:
                         "actualType": type_name(actual),
                     },
                 )
-        result = metadata.get("return_type") or ANY
+        result = metadata.get("return_type") or metadata.get("_inferred_return_type") or ANY
         result = self.substitute(
             result,
             {name: value or ANY for name, value in substitutions.items()},
@@ -828,7 +843,7 @@ class TypeChecker:
                 expected_yield = expanded_return[2][0]
         env = dict(outer)
         for name, _default, _variadic, _kw_variadic in function.params:
-            env[name] = parameter_types.get(name, ANY)
+            env[name] = parameter_types.get(name, metadata.get("_inferred_parameter_types", {}).get(name, ANY))
         self.yield_types.append(expected_yield if is_generator else None)
         try:
             self.check_statements(body, env, None if is_generator else expected_return)
@@ -947,11 +962,11 @@ class TypeChecker:
                 self.check_statements(stmt[2], dict(env), expected_return)
             elif kind == "for":
                 loop_env = dict(env)
-                loop_env[stmt[1]] = ANY
+                loop_env[stmt[1]] = self.iterable_item_type(self.infer(stmt[2], env))
                 self.check_statements(stmt[3], loop_env, expected_return)
             elif kind == "async_for":
                 loop_env = dict(env)
-                loop_env[stmt[1]] = ANY
+                loop_env[stmt[1]] = self.iterable_item_type(self.infer(stmt[2], env))
                 self.check_statements(stmt[3], loop_env, expected_return)
             elif kind == "try":
                 try_env = dict(env)
@@ -1029,6 +1044,156 @@ class TypeChecker:
         if same_type(left, right):
             return left
         return common_type([left, right])
+
+    def merge_inferred_type(self, left: Any, right: Any) -> Any:
+        return self.bounded_inferred_union([left, right])
+
+    def inferred_common_type(self, values: list[Any]) -> Any:
+        return self.bounded_inferred_union(values)
+
+    def bounded_inferred_union(self, values: list[Any]) -> Any:
+        flattened: list[Any] = []
+
+        def add(value: Any) -> None:
+            if value is None:
+                return
+            if not isinstance(value, ModuleType) and value[0] == "union":
+                for member in value[1]:
+                    add(member)
+            else:
+                flattened.append(value)
+
+        for value in values:
+            add(value)
+        concrete = [value for value in flattened if type_name(value) != "Any"]
+        candidates = concrete or flattened or [ANY]
+        unique: dict[str, Any] = {}
+        for value in candidates:
+            unique.setdefault(type_name(value), value)
+            if len(unique) >= MAX_INFERRED_UNION_MEMBERS:
+                break
+        members = list(unique.values())
+        if len(members) == 1:
+            return members[0]
+        if members and all(type_name(item) in {"Int", "Float", "Number"} for item in members):
+            return ("type", "Number", [], 0, 0)
+        return ("union", members, 0, 0)
+
+    def infer_summary_statements(
+        self,
+        statements: list[Any],
+        env: dict[str, Any],
+    ) -> list[Any]:
+        returns: list[Any] = []
+        for stmt in statements:
+            kind = stmt[0]
+            if kind == "let":
+                actual = self.infer(stmt[2], env)
+                env[stmt[1]] = stmt[3] or actual
+            elif kind == "assign" and stmt[1][0] == "var":
+                env[stmt[1][1]] = self.infer(stmt[2], env)
+            elif kind == "return":
+                returns.append(NIL if stmt[1] is None else self.infer(stmt[1], env))
+            elif kind == "yield":
+                returns.append(self.infer(stmt[1], env))
+            elif kind == "expr":
+                self.infer(stmt[1], env)
+            elif kind == "say":
+                for expr in stmt[1]:
+                    self.infer(expr, env)
+            elif kind == "if":
+                then_env = dict(env)
+                else_env = dict(env)
+                self.apply_narrowing(stmt[1], then_env, else_env)
+                returns.extend(self.infer_summary_statements(stmt[2], then_env))
+                returns.extend(self.infer_summary_statements(stmt[3], else_env))
+                env.update(self.merge_branch_envs(env, then_env, else_env))
+            elif kind in {"for", "async_for"}:
+                loop_env = dict(env)
+                loop_env[stmt[1]] = self.iterable_item_type(self.infer(stmt[2], env))
+                returns.extend(self.infer_summary_statements(stmt[3], loop_env))
+                env.update(self.merge_branch_envs(env, env, loop_env))
+            elif kind == "while":
+                loop_env = dict(env)
+                returns.extend(self.infer_summary_statements(stmt[2], loop_env))
+                env.update(self.merge_branch_envs(env, env, loop_env))
+            elif kind == "try":
+                try_env = dict(env)
+                catch_env = dict(env)
+                catch_env[stmt[2]] = ANY
+                returns.extend(self.infer_summary_statements(stmt[1], try_env))
+                returns.extend(self.infer_summary_statements(stmt[3], catch_env))
+                env.update(self.merge_branch_envs(env, try_env, catch_env))
+            elif kind == "match":
+                branches = []
+                subject = self.infer(stmt[1], env)
+                for pattern, guard, body, _line, _col in stmt[2]:
+                    branch = dict(env)
+                    bindings, _variant, _all = self.pattern_bindings(pattern, subject)
+                    branch.update(bindings)
+                    if guard is not None:
+                        self.infer(guard, branch)
+                    returns.extend(self.infer_summary_statements(body, branch))
+                    branches.append(branch)
+                if branches:
+                    env.update(self.merge_many_envs(env, branches))
+        return returns
+
+    def infer_program_summaries(self, program: list[Any], global_env: dict[str, Any]) -> None:
+        definitions: list[tuple[FunctionType, list[Any], set[str]]] = []
+        for stmt in program:
+            if stmt[0] in {"fn", "async_fn"}:
+                definitions.append((self.functions[stmt[1]], stmt[3], set()))
+            elif stmt[0] == "class":
+                klass = self.classes[stmt[1]]
+                for method in stmt[3]:
+                    definitions.append((klass.methods[method[1]], method[3], set(klass.type_params)))
+        previous_suppression = self.suppress_diagnostics
+        self.suppress_diagnostics = True
+        try:
+            for _iteration in range(12):
+                before = [
+                    (
+                        type_name(function.metadata.get("_inferred_return_type")),
+                        tuple(sorted(
+                            (name, type_name(value))
+                            for name, value in function.metadata.get("_inferred_parameter_types", {}).items()
+                        )),
+                    )
+                    for function, _body, _types in definitions
+                ]
+                top_env = dict(global_env)
+                self.infer_summary_statements(
+                    [
+                        stmt for stmt in program
+                        if stmt[0] not in {"fn", "async_fn", "class", "interface", "enum", "type_alias"}
+                    ],
+                    top_env,
+                )
+                for function, body, _inherited in definitions:
+                    metadata = function.metadata or {}
+                    env = dict(global_env)
+                    annotations = metadata.get("parameter_types", {})
+                    inferred_parameters = metadata.get("_inferred_parameter_types", {})
+                    for name, _default, _variadic, _kw_variadic in function.params:
+                        env[name] = annotations.get(name, inferred_parameters.get(name, ANY))
+                    returns = self.infer_summary_statements(body, env)
+                    if returns:
+                        metadata["_inferred_return_type"] = self.inferred_common_type(returns)
+                after = [
+                    (
+                        type_name(function.metadata.get("_inferred_return_type")),
+                        tuple(sorted(
+                            (name, type_name(value))
+                            for name, value in function.metadata.get("_inferred_parameter_types", {}).items()
+                        )),
+                    )
+                    for function, _body, _types in definitions
+                ]
+                if after == before:
+                    break
+        finally:
+            self.suppress_diagnostics = previous_suppression
 
     def merge_branch_envs(self, baseline: dict[str, Any], left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
         merged = dict(baseline)
@@ -1269,6 +1434,7 @@ class TypeChecker:
                 self.validate_annotation(method.metadata.get("return_type"), method_types)
         self.check_interfaces()
         global_env = self.prepare_global_env(program)
+        self.infer_program_summaries(program, global_env)
         for stmt in program:
             if stmt[0] in {"fn", "async_fn"}:
                 function = self.functions[stmt[1]]

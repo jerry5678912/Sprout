@@ -514,10 +514,15 @@ def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
         "python-module": 9,
         "parameter": 6,
     }
+    detail = symbol.signature or symbol.qualified_name or f"Sprout {symbol.kind}"
+    if symbol.member_presence == "conditional":
+        detail = f"{detail} (possibly missing)"
+    elif symbol.facts.type_name != "Any" and not symbol.signature:
+        detail = f"{detail}: {symbol.facts.type_name}"
     item: dict[str, Any] = {
         "label": symbol.name,
         "kind": kinds.get(symbol.kind, 6),
-        "detail": symbol.signature or symbol.qualified_name or f"Sprout {symbol.kind}",
+        "detail": detail,
         "documentation": {"kind": "markdown", "value": symbol.documentation or f"Sprout {symbol.kind}."},
         "data": {"symbolId": symbol.symbol_id},
     }
@@ -1004,6 +1009,16 @@ class SproutLanguageServer:
                 details.append(f"Container: `{symbol.container}`")
             if symbol.target_type:
                 details.append(f"Target type: `{symbol.target_type}`")
+            if symbol.facts.type_name != "Any":
+                details.append(f"Inferred type: `{symbol.facts.type_name}`")
+            if symbol.facts.nilable:
+                details.append("May be `nil`")
+            required = sorted(name for name, member in symbol.members.items() if member.member_presence == "required")
+            conditional = sorted(name for name, member in symbol.members.items() if member.member_presence == "conditional")
+            if required:
+                details.append(f"Fields: `{', '.join(required)}`")
+            if conditional:
+                details.append(f"Conditional fields: `{', '.join(conditional)}`")
             if symbol.module_path:
                 details.append(f"Module: `{symbol.module_path}`")
             defined = ""

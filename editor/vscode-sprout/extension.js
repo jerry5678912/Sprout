@@ -834,7 +834,7 @@ function diagnosticSeverityToLsp(severity) {
   }
 }
 
-async function localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch) {
+async function localCompletionFallback(context, document, lineText, position, importContext) {
   if (importContext) {
     const contextCompletions = collectImportCompletions(context, document.uri, importContext);
     const aliases = collectImportedAliases(document.getText(), document.uri);
@@ -845,14 +845,19 @@ async function localCompletionFallback(context, document, lineText, position, im
     return finalizeCompletionEntries(importItems, lineText, position.character, { allowExactWord: true });
   }
 
-  if (isAfterImportDot) {
-    const imported = aliasMatch ? await importAliasCompletions(context, aliasMatch[1], document.getText(), document.uri) : null;
+  const before = lineText.slice(0, position.character);
+  const memberAccess = before.match(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/);
+  if (memberAccess) {
+    const imported = await importAliasCompletions(
+      context,
+      memberAccess[1],
+      document.getText(),
+      document.uri
+    );
     if (imported && imported.length > 0) {
       return finalizeCompletionEntries(imported, lineText, position.character, { allowExactWord: true });
     }
-    if (aliasMatch) {
-      return [];
-    }
+    return [];
   }
 
   return finalizeCompletionEntries(
@@ -2338,7 +2343,6 @@ async function activate(context) {
         const usingLsp = usingLanguageServer();
         const previousChar = before.slice(-1);
         const isAfterImportDot = before.endsWith(".");
-        const aliasMatch = isAfterImportDot ? before.match(/([A-Za-z_][A-Za-z0-9_]*)\.\s*$/) : null;
         const shouldSkipSpace = trigger === " " && !importContext && !isAfterImportDot && previousChar.trim().length === 0;
         if (shouldSkipSpace || exactImportKeyword) {
           return [];
@@ -2353,7 +2357,7 @@ async function activate(context) {
           if (finalized.length > 0) {
             return finalized;
           }
-          return localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch);
+          return localCompletionFallback(context, document, lineText, position, importContext);
         }
 
         const semantic = await runIntelQuery(context, document, position, "completions", token);
@@ -2366,7 +2370,7 @@ async function activate(context) {
           );
         }
 
-        return localCompletionFallback(context, document, lineText, position, importContext, isAfterImportDot, aliasMatch);
+        return localCompletionFallback(context, document, lineText, position, importContext);
       }
     },
     ".",

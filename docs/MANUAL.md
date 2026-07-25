@@ -1863,20 +1863,32 @@ Semantic names are bound through lexical scopes rather than text matching alone.
 The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 
-VS Code diagnostics have three analysis modes:
+Sprout Intelligence uses a shared, bounded fact model for inferred scalar and
+container types, nilability, target classes/modules, and dynamic object members.
+It propagates facts through unannotated function calls, loops, constructors,
+branches, recursion, and imported Sprout modules. Straight-line assignments
+replace earlier facts, while control-flow joins mark fields found on every path
+as required and fields found on only some paths as conditional.
+
+VS Code diagnostics have four analysis modes:
 
 - `off`: syntax and import errors only
 - `basic`: practical semantic and type checks without requiring annotations
-- `strict`: basic checks plus missing parameter/return annotations and stricter unknown-name/member errors
+- `standard`: deeper flow checks and warnings for conditional member access
+- `strict`: standard checks plus missing annotations, error-level conditional
+  member access, and stricter unknown-name/member errors
 
 Set the mode with `sprout.analysis.typeCheckingMode`. Individual rules can be
 changed with `sprout.analysis.diagnosticSeverityOverrides`, using `none`,
 `hint`, `information`, `warning`, or `error`. Unused imports, parameters, and
 variables are tagged as unnecessary so supporting VS Code themes can fade them.
-The checker reports syntax, imports, unknown names and members, call argument
-counts and names, assignment and return types, generics, interfaces, enum
-patterns, async/generator mistakes, unreachable code, shadowing, and style
-warnings where the analyzer has enough information.
+The checker reports syntax, imports, unknown names and members, possibly missing
+dynamic members (`SPROUT_POSSIBLY_MISSING_MEMBER`), call argument counts and
+names, assignment and return types, generics, interfaces, enum patterns,
+async/generator mistakes, unreachable code, shadowing, and style warnings where
+the analyzer has enough information. Completion keeps conditional members
+available after required members and labels them as possibly missing. Hover
+shows inferred types, nilability, and required/conditional fields.
 
 Editor-style JSON queries are available through `intel`:
 
@@ -2060,7 +2072,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.3.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2490,7 +2502,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.4` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.4` must match the runtime version before the release workflow publishes artifacts. The VS Code extension has its own version in `editor/vscode-sprout/package.json`.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 

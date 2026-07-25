@@ -10,9 +10,9 @@ It adds:
 - Auto-closing braces, brackets, parentheses, and strings
 - Basic indentation after `{`, `:`, and `bloom`
 - Snippets for functions, variadic/functions with options, classes, subclasses, loops, errors, Python imports, and Sprout3D scenes
-- Semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when `sprout.py` is available
+- Semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, inferred object fields, and project symbols when `sprout.py` is available
 - Static fallback completions for Sprout keywords, built-ins, dot methods, bundled modules, Sprout2D, Sprout3D, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D
-- Hover help with signatures, `##` documentation comments, and source locations
+- Hover help with signatures, inferred types, nilability, required/conditional fields, `##` documentation comments, and source locations
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json` and semantic
   workspace diagnostics from the language server
@@ -48,7 +48,7 @@ From the Sprout repository:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.3.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 ```
 
 The VSIX contains the Sprout runner and core. Diagnostics and semantic IntelliSense work immediately as long as Python 3.9 or newer is available.
@@ -101,6 +101,11 @@ Those comments appear in hover help and completion descriptions.
 - `sprout.analysis.exclude`: glob patterns excluded from Sprout workspace indexing.
 - `sprout.analysis.languageServerMode`: choose `default`, `light`, or `off` analysis load.
 - `sprout.analysis.diagnosticSeverityOverrides`: override individual diagnostic codes with `none`, `hint`, `information`, `warning`, or `error`.
+
+Sprout uses one bounded inference model for completion, hover, and diagnostics.
+Branch-only object fields appear after required fields in completion and are
+marked as possibly missing. Accessing one is ignored in `basic`, warned in
+`standard`, and reported as an error in `strict`.
 - `sprout.pythonPath`: optional Python executable; empty selects `python` on Windows and `python3` elsewhere.
 - `sprout.runnerPath`: selected `sprout.py` interpreter; use **Sprout: Select Interpreter** instead of editing this manually.
 

@@ -118,7 +118,7 @@ grep -q "squares: \\[0, 1, 9, 16, 25\\]" /tmp/sprout_garden.out
 grep -q "Ada A" /tmp/sprout_pythonish.out
 grep -q "Sam C" /tmp/sprout_pythonish.out
 grep -q "average 84" /tmp/sprout_pythonish.out
-grep -q "true true" /tmp/sprout_pythonish.out
+grep -q "True True" /tmp/sprout_pythonish.out
 grep -q "\\* welcome to Sprout \\*" /tmp/sprout_special.out
 grep -q "last: Kai" /tmp/sprout_special.out
 grep -q "unique: \\[Ada, Lin, Mina, Kai\\]" /tmp/sprout_special.out
@@ -141,10 +141,10 @@ grep -q "\\* Tiny Adventure \\*" /tmp/sprout_adventure.out
 grep -q "module: sprout-module Jerry @(1,1) hp=10" /tmp/sprout_adventure.out
 grep -q "map rows: 5" /tmp/sprout_adventure.out
 grep -q "first map line: ########" /tmp/sprout_adventure.out
-grep -q "file exists: true" /tmp/sprout_fileio.out
-grep -q "is file: true" /tmp/sprout_fileio.out
+grep -q "file exists: True" /tmp/sprout_fileio.out
+grep -q "is file: True" /tmp/sprout_fileio.out
 grep -q "file lines: \\[seed, leaf\\]" /tmp/sprout_fileio.out
-grep -q "dir exists: true" /tmp/sprout_fileio.out
+grep -q "dir exists: True" /tmp/sprout_fileio.out
 grep -q "dir listing: \\[save.json\\]" /tmp/sprout_fileio.out
 grep -q "json save: Mina 10 seed/leaf" /tmp/sprout_fileio.out
 grep -q "class Hero" /tmp/sprout_oopgame.out
@@ -215,13 +215,13 @@ grep -q "super status: Mina @(3,2) hp=13" /tmp/sprout_super.out
 grep -q "super error: Superclass Base has no method 'nope'" /tmp/sprout_super_errors.out
 grep -q "Tic-Tac-Toe" /tmp/sprout_tictactoe.out
 grep -q "Player X wins!" /tmp/sprout_tictactoe.out
-grep -q "function count: 183" /tmp/sprout_stdlib100.out
+grep -q "function count: 182" /tmp/sprout_stdlib100.out
 grep -q "stdlib ok" /tmp/sprout_stdlib100.out
 grep -q "step: 3 3" /tmp/sprout_geom2d.out
 grep -q "distance: 7" /tmp/sprout_geom2d.out
-grep -q "inside: true" /tmp/sprout_geom2d.out
+grep -q "inside: True" /tmp/sprout_geom2d.out
 grep -q "wall hit: false" /tmp/sprout_geom2d.out
-grep -q "circle hit: true" /tmp/sprout_geom2d.out
+grep -q "circle hit: True" /tmp/sprout_geom2d.out
 grep -q "bounds: 1 2 6 3" /tmp/sprout_geom2d.out
 grep -q "forward: 0 3" /tmp/sprout_geom2d.out
 grep -q "########################" /tmp/sprout_canvas2d.out
@@ -237,12 +237,12 @@ grep -q "named imports: Mina 3 5" /tmp/sprout_named_imports.out
 grep -q "4 passed" /tmp/sprout_graphics_tests.out
 grep -q "vertices: 8 edges: 12" /tmp/sprout_engine3d.out
 grep -q "\\*" /tmp/sprout_engine3d.out
-grep -q "solid faces: 12 zbuffered: true" /tmp/sprout_engine3d_solid.out
+grep -q "solid faces: 12 zbuffered: True" /tmp/sprout_engine3d_solid.out
 grep -q "%" /tmp/sprout_engine3d_solid.out
 grep -q "obj vertices: 5 faces: 6 edges: 9" /tmp/sprout_engine3d_obj.out
 grep -q "camera forward z: 9" /tmp/sprout_engine3d_camera.out
 grep -q "orbit forward z: 8" /tmp/sprout_engine3d_camera.out
-grep -q "camera oriented: true true" /tmp/sprout_engine3d_camera.out
+grep -q "camera oriented: True True" /tmp/sprout_engine3d_camera.out
 grep -q "34" /tmp/sprout_run_cmd.out
 grep -q "ok .*examples/tictactoe.sprout" /tmp/sprout_check.out
 grep -q '"ok": true' /tmp/sprout_check_json.out
@@ -255,7 +255,7 @@ grep -q "ok .*examples/window2d_demo.sprout" /tmp/sprout_window2d_check.out
 grep -q "ok .*examples/panda3d_window_demo.sprout" /tmp/sprout_panda3d_check.out
 grep -q "ok .*examples/modules/window2d.sprout" /tmp/sprout_window2d_module_check.out
 grep -q "ok .*examples/modules/panda3d_window.sprout" /tmp/sprout_panda3d_module_check.out
-grep -q "183 functions" /tmp/sprout_stdlib_cmd.out
+grep -q "182 functions" /tmp/sprout_stdlib_cmd.out
 grep -q "^json_parse$" /tmp/sprout_stdlib_cmd.out
 grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out

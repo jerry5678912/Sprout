@@ -45,6 +45,121 @@ def test_incremental_rebuild_and_navigation() -> None:
         assert index.analysis_count == first_count + 1
 
 
+def test_inferred_hover_completion_and_conditional_diagnostics_agree() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = (
+            "def make(active):\n"
+            "  if active:\n"
+            '    return {"name": "Mina", "hp": 10}\n'
+            '  return {"name": "Mina", "mood": "calm"}\n'
+            "\n"
+            "player = make(True)\n"
+            "say player.hp\n"
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(
+            server,
+            1,
+            "initialize",
+            {
+                "workspaceFolders": [{"uri": root.resolve().as_uri(), "name": "sample"}],
+                "initializationOptions": {
+                    "analysis": {"typeCheckingMode": "standard"},
+                },
+            },
+        )
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
+        conditional = next(
+            item for item in published["params"]["diagnostics"]
+            if item["code"] == "SPROUT_POSSIBLY_MISSING_MEMBER"
+        )
+        assert conditional["severity"] == 2
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 6, "character": 11},
+        })
+        items = completion["result"]["items"]
+        name = next(item for item in items if item["label"] == "name")
+        hp = next(item for item in items if item["label"] == "hp")
+        assert name["sortText"] < hp["sortText"]
+        assert "possibly missing" in hp["detail"]
+
+        hover = request(server, 3, "textDocument/hover", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 5, "character": 2},
+        })
+        value = hover["result"]["contents"]["value"]
+        assert "Inferred type" in value
+        assert "Conditional fields" in value
+        assert "hp" in value and "mood" in value
+
+
+def test_imported_factory_partial_member_completion_stays_member_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        helper = root / "player.sprout"
+        main = root / "main.sprout"
+        helper.write_text(
+            "def create_player(name):\n"
+            '  return {"name": name, "health": 100}\n',
+            encoding="utf-8",
+        )
+        source = (
+            "import player as player\n"
+            'hero = player.create_player("Jerry")\n'
+            "hero.n\n"
+        )
+        main.write_text(source, encoding="utf-8")
+        uri = main.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(
+            server,
+            1,
+            "initialize",
+            {
+                "workspaceFolders": [{"uri": root.resolve().as_uri(), "name": "sample"}],
+            },
+        )
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": source,
+                },
+            },
+        })
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 2, "character": 6},
+        })
+        labels = [item["label"] for item in completion["result"]["items"]]
+        assert "name" in labels
+        assert "nil" not in labels
+        assert "none" not in labels
+        assert "not" not in labels
+
+
 def decode_messages(raw: bytes) -> list[dict]:
     messages = []
     offset = 0
@@ -1141,6 +1256,8 @@ def test_stdio_process_lifecycle() -> None:
 
 def main() -> int:
     test_incremental_rebuild_and_navigation()
+    test_inferred_hover_completion_and_conditional_diagnostics_agree()
+    test_imported_factory_partial_member_completion_stays_member_only()
     test_protocol_lifecycle_and_incremental_sync()
     test_references_rename_and_protocol_errors()
     test_prepare_rename_refuses_module_aliases()
