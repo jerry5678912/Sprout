@@ -2,6 +2,9 @@ const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
+const TYPING_SYNC_DEBOUNCE_MS = 45;
+const HEARTBEAT_RESYNC_MS = 2500;
+
 class SproutLanguageClient {
   constructor(vscode, pythonPath, runnerPath, extensionPath, diagnostics, outputChannel) {
     this.vscode = vscode;
@@ -20,6 +23,7 @@ class SproutLanguageClient {
     this.stopping = false;
     this.openDocuments = new Map();
     this.pendingSyncs = new Map();
+    this.lastHeartbeatSync = new Map();
   }
 
   log(message) {
@@ -90,7 +94,9 @@ class SproutLanguageClient {
       this.log(`Language server exited code=${code ?? "none"} signal=${signal ?? "none"}`);
       this.ready = false;
       this.starting = false;
+      this.stopping = false;
       this.openDocuments.clear();
+      this.lastHeartbeatSync.clear();
       for (const pending of this.pendingSyncs.values()) {
         clearTimeout(pending.timer);
       }
@@ -127,6 +133,7 @@ class SproutLanguageClient {
     this.notify("initialized", {});
     this.ready = true;
     this.starting = false;
+    this.stopping = false;
     this.log("Language server initialized");
     return true;
   }
@@ -338,12 +345,15 @@ class SproutLanguageClient {
     }
     const diagnostics = this.dedupePublishDiagnostics(params.diagnostics || []).map((item) => {
       const range = normalizeDiagnosticRange(item.range);
-      const severity = ({
+      let severity = ({
         1: this.vscode.DiagnosticSeverity.Error,
         2: this.vscode.DiagnosticSeverity.Warning,
         3: this.vscode.DiagnosticSeverity.Information,
         4: this.vscode.DiagnosticSeverity.Hint
       })[item.severity] || this.vscode.DiagnosticSeverity.Warning;
+      if (["SPROUT_ERROR", "SPROUT_SYNTAX", "SPROUT_IMPORT"].includes(String(item.code || ""))) {
+        severity = this.vscode.DiagnosticSeverity.Error;
+      }
       if (!range) {
         return null;
       }
@@ -370,6 +380,7 @@ class SproutLanguageClient {
     if (openedVersion !== undefined) {
       if (openedVersion !== document.version) {
         this.openDocuments.set(uri, document.version);
+        this.lastHeartbeatSync.set(uri, Date.now());
         this.notify("textDocument/didChange", {
           textDocument: { uri, version: document.version },
           contentChanges: [{ text: document.getText() }]
@@ -379,6 +390,7 @@ class SproutLanguageClient {
       return;
     }
     this.openDocuments.set(uri, document.version);
+    this.lastHeartbeatSync.set(uri, Date.now());
     this.notify("textDocument/didOpen", {
       textDocument: {
         uri,
@@ -398,19 +410,30 @@ class SproutLanguageClient {
       return;
     }
     this.openDocuments.set(uri, event.document.version);
-    this.queueSync(event.document);
+    const immediate = event.contentChanges.length !== 1 || event.contentChanges.some((change) => (
+      String(change.text || "").includes("\n")
+      || String(change.text || "").length > 2
+      || Number(change.rangeLength || 0) > 1
+    ));
+    this.queueSync(event.document, { immediate });
   }
 
-  queueSync(document) {
+  queueSync(document, options = {}) {
     const uri = document.uri.toString();
     const existing = this.pendingSyncs.get(uri);
     if (existing) clearTimeout(existing.timer);
-    const timer = setTimeout(() => this.flushSync(document), 180);
-    this.pendingSyncs.set(uri, {
+    const pending = {
       version: document.version,
       text: document.getText(),
-      timer
-    });
+      timer: null
+    };
+    if (options.immediate) {
+      this.pendingSyncs.set(uri, pending);
+      this.flushSync(document);
+      return;
+    }
+    pending.timer = setTimeout(() => this.flushSync(document), TYPING_SYNC_DEBOUNCE_MS);
+    this.pendingSyncs.set(uri, pending);
   }
 
   hasPendingSync(document) {
@@ -427,6 +450,7 @@ class SproutLanguageClient {
       textDocument: { uri, version: pending.version },
       contentChanges: [{ text: pending.text }]
     });
+    this.lastHeartbeatSync.set(uri, Date.now());
   }
 
   save(document) {
@@ -445,9 +469,41 @@ class SproutLanguageClient {
       this.pendingSyncs.delete(uri);
     }
     this.openDocuments.delete(uri);
+    this.lastHeartbeatSync.delete(uri);
     this.log(`Document closed ${uri}`);
     this.notify("textDocument/didClose", { textDocument: { uri } });
     this.diagnostics.delete(document.uri);
+  }
+
+  heartbeat(documents) {
+    if (!this.ready) return;
+    const now = Date.now();
+    for (const document of documents) {
+      if (!document || document.languageId !== "sprout") continue;
+      const uri = document.uri.toString();
+      if (!this.openDocuments.has(uri)) {
+        this.open(document);
+        continue;
+      }
+      if (this.hasPendingSync(document)) {
+        this.flushSync(document);
+        continue;
+      }
+      const openedVersion = this.openDocuments.get(uri);
+      if (openedVersion !== document.version) {
+        this.queueSync(document, { immediate: true });
+        continue;
+      }
+      const last = this.lastHeartbeatSync.get(uri) || 0;
+      if (now - last < HEARTBEAT_RESYNC_MS) {
+        continue;
+      }
+      this.notify("textDocument/didChange", {
+        textDocument: { uri, version: document.version },
+        contentChanges: [{ text: document.getText() }]
+      });
+      this.lastHeartbeatSync.set(uri, now);
+    }
   }
 
   configure() {
@@ -478,6 +534,17 @@ class SproutLanguageClient {
       textDocument: { uri: document.uri.toString() },
       position: { line: position.line, character: position.character },
       ...extra
+    }, token);
+  }
+
+  semanticTokens(document, token) {
+    if (!this.ready) return Promise.resolve(undefined);
+    this.open(document);
+    if (this.hasPendingSync(document)) {
+      this.flushSync(document);
+    }
+    return this.request("textDocument/semanticTokens/full", {
+      textDocument: { uri: document.uri.toString() }
     }, token);
   }
 

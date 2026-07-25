@@ -25,4 +25,4 @@ for name in scores {
 }
 
 say "average", total // len(scores.keys())
-say None == nil, True and not False
+say nil == nil, True and not false

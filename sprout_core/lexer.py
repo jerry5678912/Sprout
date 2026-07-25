@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import textwrap
+
 from .model import KEYWORDS, Token, SproutError
 
 class Lexer:
     def __init__(self, source: str):
-        self.source = source
+        self.source = self.normalize_pasted_indentation(source)
         self.i = 0
         self.line = 1
         self.col = 1
@@ -12,6 +14,17 @@ class Lexer:
         self.indents = [0]
         self.pending_indent = False
         self.nesting = 0
+
+    @staticmethod
+    def normalize_pasted_indentation(source: str) -> str:
+        for raw_line in source.splitlines():
+            stripped = raw_line.lstrip(" \t")
+            if not stripped:
+                continue
+            if stripped != raw_line:
+                return textwrap.dedent(source)
+            break
+        return source
 
     def tokenize(self) -> list[Token]:
         tokens: list[Token] = []

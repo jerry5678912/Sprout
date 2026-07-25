@@ -2,7 +2,7 @@
   "name": "sprout-language",
   "displayName": "Sprout Language",
   "description": "Syntax highlighting, snippets, completions, and editor basics for the Sprout programming language.",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "publisher": "jerry5678912",
   "license": "Apache-2.0",
   "repository": {
@@ -63,6 +63,18 @@
         "title": "Rebuild Workspace Index",
         "category": "Sprout",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sprout.smartEnter",
+        "title": "Smart Enter",
+        "category": "Sprout"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sprout.smartEnter",
+        "key": "enter",
+        "when": "editorTextFocus && editorLangId == sprout && !editorReadonly && !suggestWidgetVisible && !inSnippetMode && !renameInputVisible"
       }
     ],
     "menus": {

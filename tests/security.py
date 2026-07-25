@@ -96,7 +96,7 @@ def test_malformed_source_never_leaks_python_traceback() -> None:
     hostile_sources = [
         "\x00\n",
         "def x(",
-        (" " * 5000) + "say 1\n",
+        "say 0\n" + (" " * 5000) + "say 1\n",
         '"\\' * 2000,
         "say [1, 2,\n",
     ]

@@ -9,7 +9,7 @@ pix.text(canvas, 4, 1, "PixelGarden")
 hero = pix.sprite_asset([" /\\", "<@>", " /\\"])
 spark = pix.sprite_asset(["*", "+"])
 effects = pix.layer(22, 8)
-pix.draw_sprite(effects, hero, 10, 4, flip_x=true)
+pix.draw_sprite(effects, hero, 10, 4, flip_x=True)
 
 twinkle = pix.animation([spark, pix.sprite_asset(["+"])], fps=4)
 pix.draw_sprite(effects, pix.animation_frame(twinkle, 0.30), 19, 2)

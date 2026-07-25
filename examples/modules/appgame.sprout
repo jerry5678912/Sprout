@@ -2,7 +2,7 @@
 def game(title="Sprout Game"):
   return {
     "title": title,
-    "running": true,
+    "running": True,
     "frame": 0,
     "time": 0,
     "entities": [],
@@ -13,7 +13,7 @@ def game(title="Sprout Game"):
 
 ## Creates a simple mutable entity.
 def entity(name, x=0, y=0, w=1, h=1):
-  return {"name": name, "x": x, "y": y, "w": w, "h": h, "active": true, "data": {}}
+  return {"name": name, "x": x, "y": y, "w": w, "h": h, "active": True, "data": {}}
 
 ## Adds an entity to a game.
 def add_entity(state, value):
@@ -50,17 +50,17 @@ def collides(a, b):
 def timer(seconds, repeat=false):
   return {"duration": seconds, "remaining": seconds, "repeat": repeat, "done": false}
 
-## Advances a timer and returns true when it fires.
+## Advances a timer and returns True when it fires.
 def tick_timer(value, dt):
   if value.done and not value.repeat:
     return false
   value.remaining = value.remaining - dt
   if value.remaining <= 0:
-    value.done = true
+    value.done = True
     if value.repeat:
       value.remaining = value.duration
       value.done = false
-    return true
+    return True
   return false
 
 ## Runs a deterministic fixed-step game loop.

@@ -38,8 +38,6 @@ def resolve_module_file(path: str, current_dir: str, search_paths: list[str] | N
 
 
 KEYWORDS = {
-    "False",
-    "None",
     "True",
     "and",
     "as",
@@ -83,7 +81,6 @@ KEYWORDS = {
     "super",
     "test",
     "taskgroup",
-    "true",
     "try",
     "whirl",
     "while",

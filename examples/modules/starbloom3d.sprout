@@ -29,7 +29,7 @@ def render_wireframe(mesh, camera, width=48, height=22, char="#") { return s3d.r
 def render_solid(mesh, camera, width=48, height=22) { return s3d.render_solid(mesh, camera, width, height) }
 def frame_to_text(frame) { return s3d.frame_to_text(frame) }
 
-def object(mesh, position=vec3(0, 0, 0), rotation=vec3(0, 0, 0), scale=1, char="#", visible=true) {
+def object(mesh, position=vec3(0, 0, 0), rotation=vec3(0, 0, 0), scale=1, char="#", visible=True) {
   return {
     "mesh": mesh,
     "position": position,

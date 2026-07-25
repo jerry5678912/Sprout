@@ -184,9 +184,9 @@ The REPL supports multiline blocks. When a block is open, the prompt changes fro
 Current reserved words:
 
 ```text
-False None True and as break bloom catch class continue def each elif else
-extends false fn for if import importpython in let nil none not or pluck
-raise return say sprout super true try whirl while
+True and as break bloom catch class continue def each elif else extends
+false fn for if import importpython in let nil none not or pluck raise
+return say sprout super try whirl while
 ```
 
 Keyword aliases:
@@ -196,8 +196,8 @@ Keyword aliases:
 - `let` and `sprout` declare variables.
 - `while` and `whirl` start while loops.
 - `for` and `each` start iterable loops.
-- `nil`, `none`, and `None` mean no value.
-- `true` / `True` and `false` / `False` are booleans.
+- `nil` and `none` mean no value.
+- `True` and `false` are booleans.
 
 ## 5. Values and Types
 
@@ -221,7 +221,7 @@ Use `type(value)` to inspect a value:
 
 ```sprout
 say type(nil)          # nil
-say type(true)         # bool
+say type(True)         # bool
 say type(42)           # number
 say type("leaf")       # string
 say type([1, 2])       # array
@@ -335,10 +335,8 @@ say word[:2]    # sp
 Booleans:
 
 ```sprout
-true
-false
 True
-False
+false
 ```
 
 No value:
@@ -346,7 +344,6 @@ No value:
 ```sprout
 nil
 none
-None
 ```
 
 Only `false` and `nil` are falsey. Everything else is truthy, including `0`, empty strings, and empty arrays.
@@ -891,7 +888,7 @@ say py_available("pygame")
 pg = py_import("pygame")
 ```
 
-`py_available(module_name)` returns `true` if Python can import the module. `py_import(module_name)` imports by string and returns a Python module object. This is useful for optional modules like Pygame and Panda3D wrappers, where a Sprout module should load cleanly even if the Python package is not installed yet.
+`py_available(module_name)` returns `True` if Python can import the module. `py_import(module_name)` imports by string and returns a Python module object. This is useful for optional modules like Pygame and Panda3D wrappers, where a Sprout module should load cleanly even if the Python package is not installed yet.
 
 ```sprout
 day = dt.date(year=2026, month=6, day=4)
@@ -899,7 +896,7 @@ day = dt.date(year=2026, month=6, day=4)
 
 Python results are wrapped:
 
-- Python `None`, booleans, numbers, and strings become normal Sprout values.
+- Python `None` becomes Sprout `nil`, and Python booleans, numbers, and strings become normal Sprout values.
 - Python lists and tuples become Sprout arrays.
 - Python dictionaries become Sprout dictionaries.
 - Python modules become `python-module` values.
@@ -1058,7 +1055,7 @@ json_stringify, keys, last, len, lerp, lines
 listdir, log, log10, lower, ltrim, max
 median, merge, methods, min, mirror, mkdir
 now, num, omit, padleft, padright, pick
-plant, pow, print, prune, push, py_available
+plant, pow, prune, push, py_available
 py_import, radians, rand, randint, range, readfile
 readjson, remove, repeat, replace, rest, reverse
 round, rtrim, sample, say, seed, shout
@@ -1073,12 +1070,11 @@ wrap, writefile, writejson, zipbud
 
 ```sprout
 say(...)
-print(...)
 ask(prompt)
 clear()
 ```
 
-`say` and `print` print formatted values separated by spaces.
+`say` prints formatted values separated by spaces.
 
 `ask(prompt)` prints a prompt and reads a line from standard input.
 
@@ -1478,7 +1474,7 @@ c2d.world_to_screen(point, camera, canvas)
 c2d.plot_world(canvas, point, camera, char="#")
 c2d.line_world(canvas, start, finish, camera, char="#")
 c2d.sprite_world(canvas, asset, position, camera)
-c2d.animation(frames, fps=8, loop=true)
+c2d.animation(frames, fps=8, loop=True)
 c2d.animation_frame(animation, seconds)
 c2d.frame_to_text(canvas)
 ```
@@ -1513,7 +1509,7 @@ pix.composite(canvas, layer, x=0, y=0)
 pix.camera(position=pix.vec2(0, 0), zoom=1)
 pix.line_world(canvas, start, finish, camera, char="#")
 pix.sprite_world(canvas, asset, position, camera)
-pix.animation(frames, fps=8, loop=true)
+pix.animation(frames, fps=8, loop=True)
 pix.animation_frame(animation, seconds)
 pix.frame_to_text(canvas)
 ```
@@ -1867,20 +1863,32 @@ Semantic names are bound through lexical scopes rather than text matching alone.
 The workspace index is incremental in a running language-server process. Unchanged files reuse their parsed analysis, open documents are reanalyzed only when their text changes, and changed files refresh their exports and import links. VS Code uses this persistent server by default and automatically falls back to command-based tooling if it cannot start. The cache is currently in memory and is rebuilt when the language-server process restarts.
 The current semantic tooling layer also builds a workspace index for functions, classes, methods, modules, variables, imports, module exports, references, rename edits, and function signatures.
 
-VS Code diagnostics have three analysis modes:
+Sprout Intelligence uses a shared, bounded fact model for inferred scalar and
+container types, nilability, target classes/modules, and dynamic object members.
+It propagates facts through unannotated function calls, loops, constructors,
+branches, recursion, and imported Sprout modules. Straight-line assignments
+replace earlier facts, while control-flow joins mark fields found on every path
+as required and fields found on only some paths as conditional.
+
+VS Code diagnostics have four analysis modes:
 
 - `off`: syntax and import errors only
 - `basic`: practical semantic and type checks without requiring annotations
-- `strict`: basic checks plus missing parameter/return annotations and stricter unknown-name/member errors
+- `standard`: deeper flow checks and warnings for conditional member access
+- `strict`: standard checks plus missing annotations, error-level conditional
+  member access, and stricter unknown-name/member errors
 
 Set the mode with `sprout.analysis.typeCheckingMode`. Individual rules can be
 changed with `sprout.analysis.diagnosticSeverityOverrides`, using `none`,
 `hint`, `information`, `warning`, or `error`. Unused imports, parameters, and
 variables are tagged as unnecessary so supporting VS Code themes can fade them.
-The checker reports syntax, imports, unknown names and members, call argument
-counts and names, assignment and return types, generics, interfaces, enum
-patterns, async/generator mistakes, unreachable code, shadowing, and style
-warnings where the analyzer has enough information.
+The checker reports syntax, imports, unknown names and members, possibly missing
+dynamic members (`SPROUT_POSSIBLY_MISSING_MEMBER`), call argument counts and
+names, assignment and return types, generics, interfaces, enum patterns,
+async/generator mistakes, unreachable code, shadowing, and style warnings where
+the analyzer has enough information. Completion keeps conditional members
+available after required members and labels them as possibly missing. Hover
+shows inferred types, nilability, and required/conditional fields.
 
 Editor-style JSON queries are available through `intel`:
 
@@ -2045,7 +2053,7 @@ It provides:
 - bracket and quote pairing
 - basic indentation after `{`, `:`, and `bloom`
 - native Test Explorer discovery and execution for Sprout `test` declarations
-- safe lightbulb quick fixes for tab indentation and Python-style `True`, `False`, and `None`
+- safe lightbulb quick fixes for tab indentation and legacy compatibility names like `print`, `true`, `False`, and `None`
 - conditional breakpoints, hit counts, and uncaught-error stopping
 - snippets for functions, classes, loops, errors, Python imports, and Sprout3D scenes
 - semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when `sprout.py` is available
@@ -2064,7 +2072,7 @@ Build and install the self-contained VSIX:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.3.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 ```
 
 The VSIX contains the Sprout runner and core, so semantic editor services work without a separate runner path.
@@ -2281,7 +2289,7 @@ Small route-based local server:
 ```sprout
 server = http_server({
   "/": "hello",
-  "/health": {"body": {"ok": true}}
+  "/health": {"body": {"ok": True}}
 })
 server.start()
 say server.url
@@ -2494,7 +2502,7 @@ python3 sprout.py language-package
 python3 sprout.py vscode-package
 ```
 
-The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.4` must match the runtime version before the release workflow publishes artifacts.
+The first command creates a source/runtime ZIP. The second creates a self-contained VSIX with the Sprout runner included. CI validates Python 3.9 and 3.12 on Linux, macOS, and Windows. Tags such as `v0.3.4` must match the runtime version before the release workflow publishes artifacts. The VS Code extension has its own version in `editor/vscode-sprout/package.json`.
 
 The capability baseline used to plan this work is recorded in `docs/CAPABILITY_AUDIT.md`.
 

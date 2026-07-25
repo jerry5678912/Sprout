@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77", "wheel"]
+requires = ["setuptools>=58", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -37,6 +37,9 @@ Documentation = "https://github.com/jerry5678912/Sprout/blob/main/docs/MANUAL.md
 Repository = "https://github.com/jerry5678912/Sprout.git"
 Issues = "https://github.com/jerry5678912/Sprout/issues"
 Changelog = "https://github.com/jerry5678912/Sprout/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+py-modules = ["sprout"]
 
 [tool.setuptools.packages.find]
 include = ["sprout_core*"]

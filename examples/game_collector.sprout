@@ -16,7 +16,7 @@ game = {
   "player": g2d.vec2(5, 5),
   "items": [],
   "score": 0,
-  "running": true
+  "running": True
 }
 
 # Spawn initial items

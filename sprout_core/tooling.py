@@ -18,6 +18,7 @@ from .runtime import Interpreter, attach_error_source, format_value, native_runt
 
 IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
 IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
+ASSIGN_RE = re.compile(r'^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=')
 
 
 def _levenshtein_distance(left: str, right: str) -> int:
@@ -417,18 +418,31 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
     lines = source.splitlines()
     import_matches: list[tuple[re.Match[str], int]] = []
     importpython_matches: list[tuple[re.Match[str], int]] = []
+    assignment_matches: list[tuple[re.Match[str], int]] = []
     for index, line in enumerate(lines, start=1):
-        if "\t" in line:
+        if "\t" in line and line.strip():
             diagnostics.append(Diagnostic("warning", "Use spaces instead of tabs for indentation", path, index, line.index("\t") + 1, "SPROUT_TAB_INDENT"))
-        alias_match = None if syntax_only else re.search(r"\b(True|False|None)\b", line)
-        if alias_match:
-            diagnostics.append(Diagnostic("warning", "Prefer Sprout-style true, false, or nil", path, index, alias_match.start() + 1, "SPROUT_PY_ALIAS"))
+        stripped = line.rstrip("\t ")
+        if stripped != line and stripped.strip():
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "Remove trailing whitespace",
+                    path,
+                    index,
+                    len(stripped) + 1,
+                    "SPROUT_TRAILING_WHITESPACE",
+                )
+            )
         import_match = IMPORT_RE.match(line)
         if import_match:
             import_matches.append((import_match, index))
         importpython_match = IMPORTPY_RE.match(line)
         if importpython_match:
             importpython_matches.append((importpython_match, index))
+        assignment_match = ASSIGN_RE.match(line)
+        if assignment_match:
+            assignment_matches.append((assignment_match, index))
 
     if program is None:
         try:
@@ -443,6 +457,7 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
     unused_candidates: set[str] = set()
     import_index = 0
     importpython_index = 0
+    assignment_index = 0
 
     def declare(name: str, line: int, col: int, track_unused: bool = False) -> None:
         declared.setdefault(name, (line, col))
@@ -492,11 +507,14 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
         elif kind == "taskgroup":
             declare(stmt[1], stmt[3], stmt[4], track_unused=True)
         elif kind == "assign" and stmt[1][0] == "var":
+            match, line = assignment_matches[assignment_index] if assignment_index < len(assignment_matches) else (None, 1)
+            assignment_index += 1
+            col = match.start(2) + 1 if match else 1
             if stmt[1][1] in declared:
                 previous_line, previous_col = declared[stmt[1][1]]
                 diagnostics.append(Diagnostic("warning", f"Assignment shadows earlier name '{stmt[1][1]}'", path, previous_line, previous_col, "SPROUT_SHADOW"))
             if stmt[1][1] not in declared:
-                declare(stmt[1][1], 1, 1, track_unused=True)
+                declare(stmt[1][1], line, col, track_unused=True)
             scan_expr(stmt[2])
         elif kind == "import":
             import_path = stmt[1]
@@ -681,7 +699,7 @@ def dotted_base_before(source: str, line: int, col: int) -> str | None:
     if line_index >= len(lines):
         return None
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z0-9_]*$", before)
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z0-9_]*$", before)
     return match.group(1) if match else None
 
 
@@ -701,7 +719,7 @@ def member_completion_parts_before(source: str, line: int, col: int) -> tuple[st
     if line_index >= len(lines):
         return (None, "")
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$", before)
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$", before)
     if not match:
         return (None, "")
     return (match.group(1), match.group(2))

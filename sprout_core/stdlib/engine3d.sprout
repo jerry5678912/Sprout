@@ -116,7 +116,7 @@ def unique_edges(edges) {
   for edge in edges {
     key = edge_key(edge[0], edge[1])
     if not has(seen, key) {
-      seen[key] = true
+      seen[key] = True
       out.append(edge)
     }
   }

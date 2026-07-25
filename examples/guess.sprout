@@ -9,6 +9,6 @@ fn label(score) {
   return "growing";
 }
 
-print("Ada is", label(96));
-print("Lin is", label(76));
-print("Sam is", label(51));
+say "Ada is", label(96);
+say "Lin is", label(76);
+say "Sam is", label(51);

@@ -1,7 +1,23 @@
 # Changelog
 
-## Unreleased
+## VS Code Extension 0.4.0
 
+The Sprout runtime and PyPI package remain at version `0.3.4`.
+
+- Unified scalar/container type inference and dynamic object-shape inference so
+  completions, hover details, and member diagnostics use the same bounded
+  analysis facts.
+- Added flow-sensitive replacement for straight-line assignments, branch joins
+  with required versus conditional members, loop item inference, inferred
+  unannotated returns, call-site parameter inference, constructor fields, and
+  recursive/cross-module summary convergence.
+- Added `SPROUT_POSSIBLY_MISSING_MEMBER`: hidden in basic mode, a warning in
+  standard mode, and an error in strict mode. Conditional members remain
+  available in completion with a clear label and lower ranking.
+- Added inferred types, nilability, and member presence to semantic symbol
+  output and richer hover details.
+- Bounded recursive shapes and inferred unions, and invalidated cross-file facts
+  through dependency signatures without adding an on-disk workspace cache.
 - Made `sprout docs` reuse semantic workspace analysis instead of a separate
   regex-only scanner, so generated API docs stay aligned with Sprout
   signatures, class constructors, member docs, and source locations.

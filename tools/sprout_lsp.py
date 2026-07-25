@@ -27,6 +27,22 @@ JSONRPC_INTERNAL_ERROR = -32603
 LSP_SERVER_NOT_INITIALIZED = -32002
 LSP_REQUEST_CANCELLED = -32800
 
+SEMANTIC_TOKEN_TYPES = [
+    "class",
+    "function",
+    "method",
+    "variable",
+    "parameter",
+    "property",
+    "number",
+    "string",
+    "keyword",
+]
+
+SEMANTIC_TOKEN_TYPE_INDEX = {name: index for index, name in enumerate(SEMANTIC_TOKEN_TYPES)}
+STRING_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"')
+NUMBER_TOKEN_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+
 
 class OpenDocument:
     def __init__(
@@ -65,6 +81,47 @@ def uri_from_path(path: str | None) -> str:
 
 def position(line: int, character: int) -> dict[str, int]:
     return {"line": max(0, line), "character": max(0, character)}
+
+
+def semantic_token_type_for_symbol(symbol: sprout.SemanticSymbol) -> str | None:
+    kind = symbol.kind
+    if kind in {"class", "interface", "enum", "type"}:
+        return "class"
+    if kind == "function":
+        return "function"
+    if kind == "method":
+        return "method"
+    if kind == "builtin":
+        return "function" if symbol.signature else "variable"
+    if kind in {"variable", "module", "python-module"}:
+        return "variable"
+    if kind == "parameter":
+        return "parameter"
+    if kind in {"property", "field", "enum-member"}:
+        return "property"
+    return None
+
+
+def line_without_comments(text: str) -> str:
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "#":
+            return text[:index]
+    return text
 
 
 def location_range(line: int, col: int, length: int = 1) -> dict[str, Any]:
@@ -249,6 +306,18 @@ def diagnostic_length(diag: sprout.Diagnostic, source: str) -> int:
     if line < 0 or line >= len(lines):
         return 1
     text = lines[line]
+    if col >= len(text):
+        return 1
+    if diag.code == "SPROUT_TRAILING_WHITESPACE":
+        stripped = text.rstrip("\t ")
+        start = min(max(col, 0), len(text))
+        return max(1, len(text) - max(start, len(stripped)))
+    if diag.code == "SPROUT_TAB_INDENT":
+        start = min(max(col, 0), len(text))
+        end = start
+        while end < len(text) and text[end] == "\t":
+            end += 1
+        return max(1, end - start)
     index = max(0, min(col, len(text)))
     start, end = identifier_span(text, index)
     if end <= start:
@@ -256,6 +325,148 @@ def diagnostic_length(diag: sprout.Diagnostic, source: str) -> int:
             return 1
         return 1
     return max(1, end - start)
+
+
+def diagnostic_range(diag: sprout.Diagnostic, source: str) -> dict[str, Any]:
+    lines = source.splitlines()
+    line = max(0, (diag.line or 1) - 1)
+    col = max(0, (diag.col or 1) - 1)
+    if line >= len(lines):
+        return location_range(line + 1, col + 1, 1)
+    text = lines[line]
+    start = min(col, len(text))
+    end = min(len(text), start + diagnostic_length(diag, source))
+    return {"start": position(line, start), "end": position(line, end)}
+
+
+def call_parentheses_range(line: str, start_character: int, function_name: str) -> tuple[int, int] | None:
+    search_start = max(0, min(start_character, len(line)))
+    name_index = line.find(function_name, search_start)
+    if name_index < 0:
+        name_index = line.rfind(function_name, 0, search_start + len(function_name))
+    if name_index < 0:
+        return None
+    open_index = line.find("(", name_index + len(function_name))
+    if open_index < 0:
+        return None
+    depth = 0
+    string_quote = ""
+    escaped = False
+    for index in range(open_index, len(line)):
+        char = line[index]
+        if string_quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == string_quote:
+                string_quote = ""
+            continue
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return (open_index, index)
+    return None
+
+
+def missing_argument_edit(
+    uri: str,
+    line_number: int,
+    line: str,
+    character: int,
+    function_name: str,
+    missing: list[str],
+) -> dict[str, Any] | None:
+    parens = call_parentheses_range(line, character, function_name)
+    if not parens or not missing:
+        return None
+    open_index, close_index = parens
+    inner = line[open_index + 1:close_index]
+    insertion = ", ".join(f"{name}=nil" for name in missing)
+    if inner.strip():
+        new_text = f"{inner.rstrip()}, {insertion}"
+    else:
+        new_text = insertion
+    return {
+        "title": (
+            f"Add missing argument '{missing[0]}'"
+            if len(missing) == 1 else "Add missing required arguments"
+        ),
+        "kind": "quickfix",
+        "isPreferred": True,
+        "edit": {
+            "changes": {
+                uri: [{
+                    "range": {
+                        "start": position(line_number, open_index + 1),
+                        "end": position(line_number, close_index),
+                    },
+                    "newText": new_text,
+                }]
+            }
+        },
+    }
+
+
+def argument_value_end(line: str, start: int) -> int:
+    depth = 0
+    string_quote = ""
+    escaped = False
+    for index in range(start, len(line)):
+        char = line[index]
+        if string_quote:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == string_quote:
+                string_quote = ""
+            continue
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0 and char == ")":
+                return index
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            return index
+    return len(line)
+
+
+def duplicate_argument_edit_range(line: str, parameter: str) -> tuple[int, int] | None:
+    match = re.search(rf"\b{re.escape(parameter)}\s*=", line)
+    if not match:
+        return None
+    start = match.start()
+    end = argument_value_end(line, match.end())
+    remove_start = start
+    while remove_start > 0 and line[remove_start - 1].isspace():
+        remove_start -= 1
+    if remove_start > 0 and line[remove_start - 1] == ",":
+        remove_start -= 1
+        while remove_start > 0 and line[remove_start - 1].isspace():
+            remove_start -= 1
+        return (remove_start, end)
+    remove_end = end
+    while remove_end < len(line) and line[remove_end].isspace():
+        remove_end += 1
+    if remove_end < len(line) and line[remove_end] == ",":
+        remove_end += 1
+        while remove_end < len(line) and line[remove_end].isspace():
+            remove_end += 1
+    return (start, remove_end)
 
 
 def lsp_diagnostic(diag: sprout.Diagnostic, source: str = "") -> dict[str, Any]:
@@ -266,7 +477,7 @@ def lsp_diagnostic(diag: sprout.Diagnostic, source: str = "") -> dict[str, Any]:
         "hint": 4,
     }.get(diag.severity, 2)
     payload = {
-        "range": location_range(diag.line or 1, diag.col or 1, diagnostic_length(diag, source)),
+        "range": diagnostic_range(diag, source),
         "severity": severity,
         "code": diag.code,
         "source": "sprout",
@@ -284,6 +495,12 @@ def lsp_diagnostic(diag: sprout.Diagnostic, source: str = "") -> dict[str, Any]:
     return payload
 
 
+def is_legacy_style_unknown_name(diag: sprout.Diagnostic) -> bool:
+    if diag.code != "SPROUT_UNKNOWN_NAME":
+        return False
+    return (diag.data or {}).get("replacement") in {"say", "nil", "True", "false"}
+
+
 def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
     kinds = {
         "method": 2,
@@ -297,10 +514,15 @@ def completion_item(symbol: sprout.SemanticSymbol) -> dict[str, Any]:
         "python-module": 9,
         "parameter": 6,
     }
+    detail = symbol.signature or symbol.qualified_name or f"Sprout {symbol.kind}"
+    if symbol.member_presence == "conditional":
+        detail = f"{detail} (possibly missing)"
+    elif symbol.facts.type_name != "Any" and not symbol.signature:
+        detail = f"{detail}: {symbol.facts.type_name}"
     item: dict[str, Any] = {
         "label": symbol.name,
         "kind": kinds.get(symbol.kind, 6),
-        "detail": symbol.signature or symbol.qualified_name or f"Sprout {symbol.kind}",
+        "detail": detail,
         "documentation": {"kind": "markdown", "value": symbol.documentation or f"Sprout {symbol.kind}."},
         "data": {"symbolId": symbol.symbol_id},
     }
@@ -393,6 +615,7 @@ class SproutLanguageServer:
             },
         }
         self.operation_stats: dict[str, dict[str, float | int]] = {}
+        self.last_published_diagnostics: dict[str, str] = {}
 
     def record_operation(self, name: str, duration_ms: float) -> None:
         stats = self.operation_stats.setdefault(
@@ -540,16 +763,23 @@ class SproutLanguageServer:
 
     def publish_diagnostics(self, uri: str, changed_paths: list[str] | None = None, reason: str = "diagnostics") -> None:
         source = self.source_for_uri(uri)
+        document_version = self.documents.get(uri).version if uri in self.documents else None
         if not source.strip():
-            log(f"diagnostics {uri}: 0 blank")
-            self.notify(
-                "textDocument/publishDiagnostics",
-                {
-                    "uri": uri,
-                    "version": self.documents.get(uri).version if uri in self.documents else None,
-                    "diagnostics": [],
-                },
+            payload = {
+                "uri": uri,
+                "version": document_version,
+                "diagnostics": [],
+            }
+            signature = json.dumps(
+                {"version": document_version, "diagnostics": payload["diagnostics"]},
+                sort_keys=True,
+                separators=(",", ":"),
             )
+            if self.last_published_diagnostics.get(uri) == signature:
+                return
+            self.last_published_diagnostics[uri] = signature
+            log(f"diagnostics {uri}: 0 blank")
+            self.notify("textDocument/publishDiagnostics", payload)
             return
         index = self.index_for_uri(uri, changed_paths=changed_paths, reason=reason)
         file = index.files.get(os.path.realpath(path_from_uri(uri)))
@@ -563,6 +793,7 @@ class SproutLanguageServer:
                 diagnostics = [
                     diagnostic for diagnostic in diagnostics
                     if diagnostic.code not in {"SPROUT_TAB_INDENT", "SPROUT_PY_ALIAS"}
+                    and not is_legacy_style_unknown_name(diagnostic)
                 ]
             if not diagnostics_settings.get("typoChecking", True):
                 diagnostics = [
@@ -590,16 +821,21 @@ class SproutLanguageServer:
             )
             if key not in deduped:
                 deduped[key] = item
-        self.notify(
-            "textDocument/publishDiagnostics",
-            {
-                "uri": uri,
-                "version": self.documents.get(uri).version if uri in self.documents else None,
-                "diagnostics": list(deduped.values()),
-            },
+        payload = {
+            "uri": uri,
+            "version": document_version,
+            "diagnostics": list(deduped.values()),
+        }
+        signature = json.dumps(
+            {"version": document_version, "diagnostics": payload["diagnostics"]},
+            sort_keys=True,
+            separators=(",", ":"),
         )
-        if diagnostics:
-            log(f"diagnostics {uri}: {len(diagnostics)}")
+        if self.last_published_diagnostics.get(uri) == signature:
+            return
+        self.last_published_diagnostics[uri] = signature
+        self.notify("textDocument/publishDiagnostics", payload)
+        log(f"diagnostics {uri}: {len(payload['diagnostics'])}")
 
 
 
@@ -705,6 +941,10 @@ class SproutLanguageServer:
                 "documentSymbolProvider": True,
                 "workspaceSymbolProvider": True,
                 "codeActionProvider": {"codeActionKinds": ["quickfix"]},
+                "semanticTokensProvider": {
+                    "legend": {"tokenTypes": SEMANTIC_TOKEN_TYPES, "tokenModifiers": []},
+                    "full": True,
+                },
             },
             "serverInfo": {"name": "sprout-lsp", "version": sprout.SPROUT_VERSION},
         }
@@ -745,7 +985,7 @@ class SproutLanguageServer:
             item = completion_item(symbol)
             item["sortText"] = completion_sort_key(idx)
             items.append(item)
-        if not base and not import_context:
+        if not base and not import_context and (not prefix or not items):
             existing = {item["label"] for item in items}
             start_index = len(items)
             for offset, word in enumerate(sorted(sprout.KEYWORDS)):
@@ -769,6 +1009,16 @@ class SproutLanguageServer:
                 details.append(f"Container: `{symbol.container}`")
             if symbol.target_type:
                 details.append(f"Target type: `{symbol.target_type}`")
+            if symbol.facts.type_name != "Any":
+                details.append(f"Inferred type: `{symbol.facts.type_name}`")
+            if symbol.facts.nilable:
+                details.append("May be `nil`")
+            required = sorted(name for name, member in symbol.members.items() if member.member_presence == "required")
+            conditional = sorted(name for name, member in symbol.members.items() if member.member_presence == "conditional")
+            if required:
+                details.append(f"Fields: `{', '.join(required)}`")
+            if conditional:
+                details.append(f"Conditional fields: `{', '.join(conditional)}`")
             if symbol.module_path:
                 details.append(f"Module: `{symbol.module_path}`")
             defined = ""
@@ -876,6 +1126,72 @@ class SproutLanguageServer:
             "selectionRange": location_range(symbol.location.line, symbol.location.col, len(symbol.name)),
         } for symbol in symbols]
 
+    def semantic_tokens(self, uri: str) -> dict[str, Any]:
+        index = self.index_for_uri(uri, rebuild=False)
+        path = os.path.realpath(path_from_uri(uri))
+        file = index.files.get(path)
+        if not file:
+            return {"data": []}
+        lines = file.source.splitlines()
+        symbol_by_id = {symbol.symbol_id: symbol for symbol in file.symbols}
+        raw_tokens: set[tuple[int, int, int, int, int]] = set()
+
+        def add(line: int, col: int, length: int, token_name: str) -> None:
+            if token_name not in SEMANTIC_TOKEN_TYPE_INDEX:
+                return
+            line_index = line - 1
+            start = col - 1
+            if line_index < 0 or line_index >= len(lines):
+                return
+            text = lines[line_index]
+            if start < 0 or start >= len(text):
+                return
+            clipped = min(length, len(text) - start)
+            if clipped <= 0:
+                return
+            raw_tokens.add((line_index, start, clipped, SEMANTIC_TOKEN_TYPE_INDEX[token_name], 0))
+
+        for symbol in file.symbols:
+            token_name = semantic_token_type_for_symbol(symbol)
+            if token_name:
+                add(symbol.location.line, symbol.location.col, len(symbol.name), token_name)
+
+        for reference in file.references:
+            symbol = symbol_by_id.get(reference.symbol_id or "")
+            if not symbol:
+                continue
+            token_name = semantic_token_type_for_symbol(symbol)
+            if token_name:
+                add(reference.location.line, reference.location.col, len(reference.name.rsplit(".", 1)[-1]), token_name)
+
+        for line_index, raw_line in enumerate(lines, start=1):
+            code = line_without_comments(raw_line)
+            masked = sprout.mask_strings_preserving_columns(code)
+            for match in STRING_TOKEN_RE.finditer(code):
+                add(line_index, match.start() + 1, len(match.group(0)), "string")
+            for match in NUMBER_TOKEN_RE.finditer(masked):
+                add(line_index, match.start() + 1, len(match.group(0)), "number")
+            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()", masked):
+                word = match.group(1)
+                if word in sprout.BUILTINS:
+                    add(line_index, match.start(1) + 1, len(word), "function")
+            for match in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\b", masked):
+                word = match.group(0)
+                if word in sprout.KEYWORDS:
+                    add(line_index, match.start() + 1, len(word), "keyword")
+
+        ordered = sorted(raw_tokens)
+        data: list[int] = []
+        previous_line = 0
+        previous_start = 0
+        for line_index, start, length, token_type, modifiers in ordered:
+            delta_line = line_index - previous_line
+            delta_start = start - previous_start if delta_line == 0 else start
+            data.extend([delta_line, delta_start, length, token_type, modifiers])
+            previous_line = line_index
+            previous_start = start
+        return {"data": data}
+
     def workspace_symbols(self, query: str) -> list[dict[str, Any]]:
         lowered = query.lower()
         out = []
@@ -926,6 +1242,16 @@ class SproutLanguageServer:
                 edit_range = target
                 new_text = str(replacement)
                 title = f"Replace with '{replacement}'"
+            elif code == "SPROUT_UNKNOWN_ARGUMENT" and replacement and data.get("parameter"):
+                name = str(data.get("parameter"))
+                match = re.search(rf"\b{re.escape(name)}(?=\s*=)", line)
+                if match:
+                    edit_range = {
+                        "start": position(line_number, match.start()),
+                        "end": position(line_number, match.end()),
+                    }
+                    new_text = str(replacement)
+                    title = f"Rename argument to '{replacement}'"
             elif code == "SPROUT_UNUSED_IMPORT":
                 edit_range = {
                     "start": position(line_number, 0),
@@ -951,6 +1277,15 @@ class SproutLanguageServer:
                     }
                     new_text = f"_{word}"
                     title = f"Rename unused parameter to _{word}"
+            elif code == "SPROUT_DUPLICATE_ARGUMENT" and data.get("parameter"):
+                duplicate = duplicate_argument_edit_range(line, str(data.get("parameter")))
+                if duplicate:
+                    edit_range = {
+                        "start": position(line_number, duplicate[0]),
+                        "end": position(line_number, duplicate[1]),
+                    }
+                    new_text = ""
+                    title = f"Remove duplicate argument '{data.get('parameter')}'"
             elif code == "SPROUT_TAB_INDENT" and "\t" in line:
                 edit_range = {
                     "start": position(line_number, 0),
@@ -958,20 +1293,41 @@ class SproutLanguageServer:
                 }
                 new_text = line.replace("\t", "  ")
                 title = "Convert tabs to Sprout spaces"
+            elif code == "SPROUT_TRAILING_WHITESPACE":
+                stripped = line.rstrip("\t ")
+                if stripped != line:
+                    edit_range = {
+                        "start": position(line_number, len(stripped)),
+                        "end": position(line_number, len(line)),
+                    }
+                    new_text = ""
+                    title = "Remove trailing whitespace"
             elif code == "SPROUT_PY_ALIAS":
                 match = None
-                for candidate in re.finditer(r"\b(?:True|False|None)\b", line):
+                for candidate in re.finditer(r"\b(?:true|False|None)\b", line):
                     if candidate.start() <= character <= candidate.end():
                         match = candidate
                         break
                 if match:
-                    replacement = {"True": "true", "False": "false", "None": "nil"}[match.group(0)]
+                    replacement = {"true": "True", "False": "false", "None": "nil"}[match.group(0)]
                     edit_range = {
                         "start": position(line_number, match.start()),
                         "end": position(line_number, match.end()),
                     }
                     new_text = replacement
                     title = f"Use Sprout '{replacement}'"
+            elif code == "SPROUT_ARGUMENT_COUNT" and isinstance(data.get("missing"), list):
+                action = missing_argument_edit(
+                    uri,
+                    line_number,
+                    line,
+                    character,
+                    str(data.get("function") or ""),
+                    [str(item) for item in data.get("missing", []) if item],
+                )
+                if action:
+                    action["diagnostics"] = [diagnostic]
+                    actions.append(action)
             if edit_range is not None and new_text is not None and title:
                 actions.append({
                     "title": title,
@@ -1023,6 +1379,11 @@ class SproutLanguageServer:
         if method == "textDocument/didOpen":
             item = params["textDocument"]
             uri = item["uri"]
+            existing = self.documents.get(uri)
+            incoming_version = item.get("version")
+            if existing and isinstance(existing.version, int) and isinstance(incoming_version, int) and incoming_version < existing.version:
+                log(f"ignored stale didOpen {uri} v{incoming_version} < v{existing.version}")
+                return True
             document = OpenDocument(uri, item.get("text", ""), item.get("version"), item.get("languageId", "sprout"))
             self.documents[uri] = document
             documents[uri] = document.text
@@ -1033,8 +1394,12 @@ class SproutLanguageServer:
             item = params["textDocument"]
             uri = item["uri"]
             document = self.documents.get(uri, OpenDocument(uri, self.source_for_uri(uri)))
+            incoming_version = item.get("version", document.version)
+            if isinstance(document.version, int) and isinstance(incoming_version, int) and incoming_version < document.version:
+                log(f"ignored stale didChange {uri} v{incoming_version} < v{document.version}")
+                return True
             document.text = apply_content_changes(document.text, params.get("contentChanges", []))
-            document.version = item.get("version", document.version)
+            document.version = incoming_version
             self.documents[uri] = document
             documents[uri] = document.text
             self.publish_diagnostics(uri, changed_paths=[path_from_uri(uri)], reason="didChange")
@@ -1048,6 +1413,7 @@ class SproutLanguageServer:
             uri = params["textDocument"]["uri"]
             self.documents.pop(uri, None)
             documents.pop(uri, None)
+            self.last_published_diagnostics.pop(uri, None)
             self.index_for_uri(uri)
             self.notify("textDocument/publishDiagnostics", {"uri": uri, "diagnostics": []})
             log(f"didClose {uri}")
@@ -1104,6 +1470,8 @@ class SproutLanguageServer:
             self.respond(message, timed("signatureHelp", lambda: self.signature_help(uri, pos)))
         elif method == "textDocument/documentSymbol":
             self.respond(message, timed("documentSymbol", lambda: self.document_symbols(uri)))
+        elif method == "textDocument/semanticTokens/full":
+            self.respond(message, timed("semanticTokens", lambda: self.semantic_tokens(uri)))
         elif method == "textDocument/codeAction":
             self.respond(message, timed("codeAction", lambda: self.code_actions(uri, params)))
         elif method == "workspace/symbol":

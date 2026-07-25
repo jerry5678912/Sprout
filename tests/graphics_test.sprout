@@ -5,7 +5,7 @@ test "PixelGarden sprites, layers, and animation":
   canvas = pix.canvas(8, 4, ".")
   actor = pix.sprite_asset(["ab", "cd"])
   layer = pix.layer(8, 4)
-  pix.draw_sprite(layer, actor, 2, 1, flip_x=true)
+  pix.draw_sprite(layer, actor, 2, 1, flip_x=True)
   pix.composite(canvas, layer)
   expect(canvas.rows[1].join("")).to_equal("..ba....")
   expect(canvas.rows[2].join("")).to_equal("..dc....")

@@ -17,4 +17,4 @@ say "python interop stats"
 say "mean:", report.mean
 say "median:", report.median
 say "spread:", report.spread
-say "json:", json.dumps(report, sort_keys=true)
+say "json:", json.dumps(report, sort_keys=True)

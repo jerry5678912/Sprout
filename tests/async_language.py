@@ -62,7 +62,7 @@ def test_taskgroup_waits_and_propagates_failure() -> None:
         '  say err.contains("boom")\n'
     )
     assert failed.returncode == 0, failed.stderr
-    assert failed.stdout.strip() == "true"
+    assert failed.stdout.strip() == "True"
 
 
 def test_await_validation_and_vm_execution() -> None:

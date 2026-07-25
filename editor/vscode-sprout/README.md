@@ -10,9 +10,9 @@ It adds:
 - Auto-closing braces, brackets, parentheses, and strings
 - Basic indentation after `{`, `:`, and `bloom`
 - Snippets for functions, variadic/functions with options, classes, subclasses, loops, errors, Python imports, and Sprout3D scenes
-- Semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, and project symbols when `sprout.py` is available
+- Semantic completions for local variables, functions, classes, methods, imports, module exports, Python module members, inferred object fields, and project symbols when `sprout.py` is available
 - Static fallback completions for Sprout keywords, built-ins, dot methods, bundled modules, Sprout2D, Sprout3D, PixelGarden, StarBloom3D, Window2D, and PandaWindow3D
-- Hover help with signatures, `##` documentation comments, and source locations
+- Hover help with signatures, inferred types, nilability, required/conditional fields, `##` documentation comments, and source locations
 - Go to Definition, Find References, Rename Symbol, and signature help foundations
 - JSON syntax diagnostics powered by `sprout.py check --json` and semantic
   workspace diagnostics from the language server
@@ -25,7 +25,7 @@ It adds:
   annotations, generic functions/classes, interfaces, and `implements`
 - VS Code debugging with breakpoints, call stacks, variable scopes, expression evaluation, continue, pause, step in, step over, and step out
 - Native Testing view discovery and execution for Sprout test declarations
-- LSP quick fixes for tab indentation and Python-style boolean/nil aliases
+- LSP quick fixes for tab indentation and legacy compatibility names
 - Conditional breakpoints, hit counts, and uncaught-error breakpoints
 - **Sprout: Show Language Server Output** for startup, interpreter, document,
   diagnostic, completion, hover, navigation, rename, and crash logs
@@ -48,7 +48,7 @@ From the Sprout repository:
 
 ```sh
 python3 sprout.py vscode-package
-code --install-extension dist/sprout-language-0.3.8.vsix
+code --install-extension dist/sprout-language-0.4.0.vsix
 ```
 
 The VSIX contains the Sprout runner and core. Diagnostics and semantic IntelliSense work immediately as long as Python 3.9 or newer is available.
@@ -91,7 +91,7 @@ Those comments appear in hover help and completion descriptions.
 ## Diagnostics Settings
 
 - `sprout.diagnostics.enabled`: turn editor diagnostics on or off.
-- `sprout.diagnostics.styleWarnings`: show yellow style warnings for tabs and Python-style constants.
+- `sprout.diagnostics.styleWarnings`: show yellow style warnings for tabs and legacy compatibility names.
 - `sprout.diagnostics.typoChecking`: suggest corrections for mistyped Sprout keywords, built-ins, imports, and project symbols.
 - `sprout.analysis.typeCheckingMode`: choose `off`, `basic`, `standard`, or `strict`.
 - `sprout.analysis.diagnosticMode`: choose `workspace` or `openFilesOnly`.
@@ -101,6 +101,11 @@ Those comments appear in hover help and completion descriptions.
 - `sprout.analysis.exclude`: glob patterns excluded from Sprout workspace indexing.
 - `sprout.analysis.languageServerMode`: choose `default`, `light`, or `off` analysis load.
 - `sprout.analysis.diagnosticSeverityOverrides`: override individual diagnostic codes with `none`, `hint`, `information`, `warning`, or `error`.
+
+Sprout uses one bounded inference model for completion, hover, and diagnostics.
+Branch-only object fields appear after required fields in completion and are
+marked as possibly missing. Accessing one is ignored in `basic`, warned in
+`standard`, and reported as an error in `strict`.
 - `sprout.pythonPath`: optional Python executable; empty selects `python` on Windows and `python3` elsewhere.
 - `sprout.runnerPath`: selected `sprout.py` interpreter; use **Sprout: Select Interpreter** instead of editing this manually.
 
@@ -192,6 +197,56 @@ Manual workspace:
 code examples/editor_test_workspace
 ```
 
+Manual indentation/folding fixture:
+
+```sh
+code examples/editor_test_workspace/indentation_folding.sprout
+```
+
+## Indentation Guides
+
+Sprout now owns folding ranges for `:`, `bloom`/`end`, and `{`/`}` blocks, and
+the extension's folding algorithm does not include dedented top-level lines in
+the previous block. If you still see the far-left active indent guide continue
+through a blank gap into a dedented line, that appears to be VS Code's active
+indent-guide rendering rather than Sprout folding the line into the block.
+
+Example:
+
+```sprout
+def hello(times):
+  for i in range(times):
+    say "Hello"
+
+
+
+k = 3
+```
+
+In this case:
+
+- `k = 3` is still top-level code at column `0`
+- Sprout folding does not include `k = 3` inside `hello`
+- Sprout runtime does not execute `k = 3` as part of the function
+- the remaining long vertical line is a visual guide artifact, not a block-ownership bug
+
+Python may look cleaner here because its editor integration stays closer to
+VS Code's native indentation path. Sprout's actual block structure is still
+correct even when the active guide line looks too long across blank lines.
+
+If you want to reduce that visual beam without hiding normal guides, you can
+set this per-language in your own VS Code settings:
+
+```json
+{
+  "[sprout]": {
+    "editor.guides.highlightActiveIndentation": false
+  }
+}
+```
+
+That setting is optional and is not applied by the extension automatically.
+
 ## Debugging
 
 The extension bundles `tools/sprout_dap.py`, Sprout's Debug Adapter Protocol server. To debug the active file:
@@ -227,4 +282,4 @@ shows that text as a tooltip.
 Sprout diagnostics offer lightbulb actions for safe style corrections:
 
 - convert tab indentation to spaces
-- replace `True`, `False`, and `None` with `true`, `false`, and `nil`
+- replace `print`, `true`, `False`, and `None` with `say`, `True`, `false`, and `nil`

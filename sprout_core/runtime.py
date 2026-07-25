@@ -438,6 +438,19 @@ class NativeMethod:
         return f"<method {self.name}>"
 
 
+class DictMethodAlias(NativeMethod, NativeResource):
+    def __init__(self, field_name: str, arity: int | None, fn: Callable[..., Any]):
+        super().__init__(f"dict.{field_name}", arity, fn)
+        self.field_name = field_name
+
+    def get(self, name: str) -> Any:
+        raise SproutError(
+            f"Dictionary has no key '{self.field_name}'. "
+            f"Sprout resolved '{self.field_name}' to the built-in dict.{self.field_name}() helper, "
+            f"so '{name}' cannot be read from it."
+        )
+
+
 class PythonModule:
     def __init__(self, module: types.ModuleType):
         self.module = module
@@ -549,8 +562,7 @@ class Interpreter:
         self.install_builtins()
 
     def install_builtins(self) -> None:
-        self.globals.define("print", Builtin("print", None, lambda *xs: print(*map(format_value, xs))))
-        self.globals.define("say", self.globals.get("print"))
+        self.globals.define("say", Builtin("say", None, lambda *xs: print(*map(format_value, xs))))
         self.globals.define("len", Builtin("len", 1, len))
         self.globals.define("push", Builtin("push", 2, self.builtin_push))
         self.globals.define("range", Builtin("range", 1, lambda n: list(range(int(n)))))
@@ -1321,11 +1333,9 @@ class Interpreter:
             obj = self.evaluate(target[1])
             start = None if target[2] is None else int(self.evaluate(target[2]))
             end = None if target[3] is None else int(self.evaluate(target[3]))
-            if not isinstance(obj, list):
-                raise SproutError("Slice assignment expects an array")
-            if not isinstance(value, list):
-                raise SproutError("Slice assignment value must be an array")
-            obj[start:end] = value
+            updated, mutated = apply_slice_assignment(obj, start, end, value)
+            if not mutated:
+                self.assign(target[1], updated)
             return
         if target[0] == "get":
             obj = self.evaluate(target[1])
@@ -1568,12 +1578,12 @@ class Interpreter:
             if name in obj:
                 return obj[name]
             methods = {
-                "keys": NativeMethod("dict.keys", 0, lambda: list(obj.keys())),
-                "values": NativeMethod("dict.values", 0, lambda: list(obj.values())),
-                "items": NativeMethod("dict.items", 0, lambda: [[k, v] for k, v in obj.items()]),
-                "get": NativeMethod("dict.get", None, lambda key, default=None: obj.get(key, default)),
-                "has": NativeMethod("dict.has", 1, lambda key: key in obj),
-                "set": NativeMethod("dict.set", 2, lambda key, value: set_dict_value(obj, key, value)),
+                "keys": DictMethodAlias("keys", 0, lambda: list(obj.keys())),
+                "values": DictMethodAlias("values", 0, lambda: list(obj.values())),
+                "items": DictMethodAlias("items", 0, lambda: [[k, v] for k, v in obj.items()]),
+                "get": DictMethodAlias("get", None, lambda key, default=None: obj.get(key, default)),
+                "has": DictMethodAlias("has", 1, lambda key: key in obj),
+                "set": DictMethodAlias("set", 2, lambda key, value: set_dict_value(obj, key, value)),
             }
             if name in methods:
                 return methods[name]
@@ -1647,6 +1657,19 @@ class Interpreter:
 
 def truthy(value: Any) -> bool:
     return value not in (False, None)
+
+
+def apply_slice_assignment(obj: Any, start: int | None, end: int | None, value: Any) -> tuple[Any, bool]:
+    if isinstance(obj, list):
+        if not isinstance(value, list):
+            raise SproutError("Slice assignment value must be an array")
+        obj[start:end] = value
+        return obj, True
+    if isinstance(obj, str):
+        if not isinstance(value, str):
+            raise SproutError("String slice assignment expects a string")
+        return obj[:start] + value + obj[end:], False
+    raise SproutError("Slice assignment expects an array or string")
 
 
 def bind_arguments(
@@ -2048,7 +2071,7 @@ def format_value(value: Any) -> str:
     if value is None:
         return "nil"
     if value is True:
-        return "true"
+        return "True"
     if value is False:
         return "false"
     if isinstance(value, list):

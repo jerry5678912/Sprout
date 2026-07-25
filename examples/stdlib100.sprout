@@ -15,7 +15,7 @@ say "pad:", padleft("7", 3, "0"), padright("x", 3, ".")
 profile = dict("name", "Mina", "hp", 10, "x", 2)
 say "dict:", pick(profile, ["name", "hp"]), omit(profile, ["x"])
 say "pairs:", frompairs([["a", 1], ["b", 2]])
-say "json:", json_parse("{\"hp\": 10}").hp, json_stringify({"ok": true})
+say "json:", json_parse("{\"hp\": 10}").hp, json_stringify({"ok": True})
 
 seed(4)
 rolls = [randint(1, 6), randint(1, 6), randint(1, 6)]

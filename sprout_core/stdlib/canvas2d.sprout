@@ -237,7 +237,7 @@ def sprite_world(canvas, asset, position, cam, flip_x=false, flip_y=false) {
   return draw_sprite(canvas, asset, point.x, point.y, flip_x, flip_y)
 }
 
-def animation(frames, fps=8, loop=true) {
+def animation(frames, fps=8, loop=True) {
   return {"frames": frames, "fps": fps, "loop": loop}
 }
 
