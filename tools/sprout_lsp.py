@@ -970,6 +970,12 @@ class SproutLanguageServer:
                 },
             },
             "serverInfo": {"name": "sprout-lsp", "version": sprout.SPROUT_VERSION},
+            "sproutInfo": {
+                "runtimeVersion": sprout.SPROUT_VERSION,
+                "catalogVersion": sprout.LANGUAGE_CATALOG_VERSION,
+                "languagePackSchemaVersion": sprout.LANGUAGE_PACK_SCHEMA_VERSION,
+                "serverRoot": str(ROOT),
+            },
         }
 
     def completion(self, uri: str, pos: dict[str, int]) -> dict[str, Any]:
@@ -1438,13 +1444,7 @@ class SproutLanguageServer:
                 self.error(message, LSP_SERVER_NOT_INITIALIZED, "Sprout language server is not initialized")
             return True
         if method == "initialized":
-            log("initialized notification received; building workspace indexes")
-            for root in self.workspace_folders:
-                self.indexes[root] = sprout.build_workspace_index(
-                    root,
-                    options=self.current_analysis_options(),
-                    reason="initialized",
-                )
+            log("initialized notification received; workspace indexes will build on demand")
             return True
         if method == "shutdown":
             self.shutdown_requested = True

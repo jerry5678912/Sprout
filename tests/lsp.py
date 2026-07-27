@@ -363,12 +363,18 @@ def test_protocol_lifecycle_and_incremental_sync() -> None:
             {"workspaceFolders": [{"uri": root.resolve().as_uri(), "name": "sample"}]},
         )
         capabilities = initialized["result"]["capabilities"]
+        sprout_info = initialized["result"]["sproutInfo"]
+        assert sprout_info["runtimeVersion"] == LSP.sprout.SPROUT_VERSION
+        assert sprout_info["catalogVersion"] == LSP.sprout.LANGUAGE_CATALOG_VERSION
+        assert sprout_info["languagePackSchemaVersion"] == LSP.sprout.LANGUAGE_PACK_SCHEMA_VERSION
+        assert Path(sprout_info["serverRoot"]) == ROOT
         assert capabilities["textDocumentSync"]["change"] == 2
         assert capabilities["renameProvider"]["prepareProvider"] is True
         assert capabilities["workspaceSymbolProvider"] is True
         assert capabilities["codeActionProvider"]["codeActionKinds"] == ["quickfix"]
         assert capabilities["semanticTokensProvider"]["legend"]["tokenTypes"] == LSP.SEMANTIC_TOKEN_TYPES
         server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        assert server.indexes == {}
 
         before = len(output.getvalue())
         server.handle({
@@ -380,6 +386,7 @@ def test_protocol_lifecycle_and_incremental_sync() -> None:
         diagnostics = next(message for message in notifications if message.get("method") == "textDocument/publishDiagnostics")
         assert diagnostics["params"]["version"] == 1
         assert diagnostics["params"]["diagnostics"] == []
+        assert server.indexes
 
         changed = "missing_name"
         server.handle({
@@ -1376,6 +1383,48 @@ def test_stdio_process_lifecycle() -> None:
     assert responses[1] == {"jsonrpc": "2.0", "id": 2, "result": None}
 
 
+def test_chinese_builtin_aliases_do_not_report_unknown_names() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = (
+            'language "chinese-pack"\n'
+            "设置随机种子(17)\n"
+            "上限 = 最大值(2, 5)\n"
+            "结果 = 随机整数(1, 上限)\n"
+            '输出 包含值([1, 2, 3], 结果)\n'
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        before = len(output.getvalue())
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": source,
+                },
+            },
+        })
+        notifications = decode_messages(output.getvalue()[before:])
+        published = next(
+            message for message in notifications
+            if message.get("method") == "textDocument/publishDiagnostics"
+        )
+        unknown_names = [
+            item for item in published["params"]["diagnostics"]
+            if item["code"] == "SPROUT_UNKNOWN_NAME"
+        ]
+        assert unknown_names == []
+
+
 def main() -> int:
     test_incremental_rebuild_and_navigation()
     test_inferred_hover_completion_and_conditional_diagnostics_agree()
@@ -1406,6 +1455,7 @@ def main() -> int:
     test_diagnostic_modes_overrides_and_unused_tags()
     test_style_warnings_off_suppresses_legacy_name_compatibility_only()
     test_open_files_only_limits_workspace_scope()
+    test_chinese_builtin_aliases_do_not_report_unknown_names()
     test_stdio_process_lifecycle()
     print("sprout lsp tests passed")
     return 0

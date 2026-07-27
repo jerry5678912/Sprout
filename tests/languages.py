@@ -162,6 +162,27 @@ def test_pack_validation_rejects_unknown_and_ambiguous_entries() -> None:
     errors = validate_language_pack_data(data)
     assert any("duplicate spelling" in error for error in errors)
 
+    data = json.loads(json.dumps(pack.data))
+    data["entries"]["syntax.function"]["aliases"].append(
+        data["entries"]["syntax.function"]["aliases"][0]
+    )
+    errors = validate_language_pack_data(data)
+    assert any("repeats spelling" in error for error in errors)
+
+
+def test_pack_validation_rejects_invalid_locale_and_incomplete_no_fallback_pack() -> None:
+    pack = load_language_pack("chinese-pack")
+    data = json.loads(json.dumps(pack.data))
+    data["locale"] = ""
+    errors = validate_language_pack_data(data)
+    assert any("locale" in error for error in errors)
+
+    data = json.loads(json.dumps(pack.data))
+    data["englishFallback"] = False
+    data["entries"].pop("syntax.function")
+    errors = validate_language_pack_data(data)
+    assert any("without English fallback" in error for error in errors)
+
 
 def test_external_pack_is_data_only_json() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -434,6 +455,7 @@ def main() -> int:
     test_reviewed_aliases_are_accepted_but_preferred_spelling_is_stable()
     test_curated_chinese_builtins_execute()
     test_pack_validation_rejects_unknown_and_ambiguous_entries()
+    test_pack_validation_rejects_invalid_locale_and_incomplete_no_fallback_pack()
     test_external_pack_is_data_only_json()
     test_chinese_runtime_and_vm_match_english()
     test_chinese_guessing_game_runs_on_interpreter_and_vm()

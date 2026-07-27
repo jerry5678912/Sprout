@@ -461,6 +461,76 @@ def iter_statements(program: list[Any]) -> list[Any]:
     return out
 
 
+def duplicate_declaration_diagnostics(
+    statements: list[Any],
+    path: str | None = None,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+
+    def check_scope(items: list[Any]) -> None:
+        seen_functions: set[str] = set()
+        seen_types: set[str] = set()
+        child_scopes: list[list[Any]] = []
+
+        for stmt in items:
+            if not isinstance(stmt, tuple) or not stmt:
+                continue
+            kind = stmt[0]
+            if kind in {"fn", "async_fn"}:
+                if stmt[1] in seen_functions:
+                    diagnostics.append(Diagnostic(
+                        "warning",
+                        f"Duplicate function name '{stmt[1]}' in this scope",
+                        path,
+                        stmt[4],
+                        stmt[5],
+                        "SPROUT_DUP_FUNCTION",
+                    ))
+                seen_functions.add(stmt[1])
+                child_scopes.append(stmt[3])
+            elif kind == "class":
+                if stmt[1] in seen_types:
+                    diagnostics.append(Diagnostic(
+                        "warning",
+                        f"Duplicate class name '{stmt[1]}' in this scope",
+                        path,
+                        stmt[6],
+                        stmt[7],
+                        "SPROUT_DUP_CLASS",
+                    ))
+                seen_types.add(stmt[1])
+                child_scopes.append(stmt[3])
+            elif kind == "enum":
+                if stmt[1] in seen_types:
+                    diagnostics.append(Diagnostic(
+                        "warning",
+                        f"Duplicate enum name '{stmt[1]}' in this scope",
+                        path,
+                        stmt[4],
+                        stmt[5],
+                        "SPROUT_DUP_ENUM",
+                    ))
+                seen_types.add(stmt[1])
+            elif kind == "test":
+                child_scopes.append(stmt[2])
+            elif kind == "if":
+                child_scopes.extend((stmt[2], stmt[3]))
+            elif kind in {"while", "for", "async_for"}:
+                child_scopes.append(stmt[-1])
+            elif kind == "try":
+                child_scopes.extend((stmt[1], stmt[3]))
+            elif kind == "taskgroup":
+                child_scopes.append(stmt[2])
+            elif kind == "match":
+                child_scopes.extend(case[2] for case in stmt[2])
+
+        for child_scope in child_scopes:
+            check_scope(child_scope)
+
+    check_scope(statements)
+    return diagnostics
+
+
 def lint_source(source: str, path: str | None = None, program: list[Any] | None = None, syntax_only: bool = False) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     lines = source.splitlines()
@@ -498,8 +568,7 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
         except SproutError as exc:
             return [diagnostic_from_error(exc, path)]
 
-    seen_functions: set[str] = set()
-    seen_classes: set[str] = set()
+    diagnostics.extend(duplicate_declaration_diagnostics(program, path))
     declared: dict[str, tuple[int, int]] = {}
     used: set[str] = set()
     unused_candidates: set[str] = set()
@@ -532,19 +601,10 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
     for stmt in iter_statements(program):
         kind = stmt[0]
         if kind in {"fn", "async_fn"}:
-            if stmt[1] in seen_functions:
-                diagnostics.append(Diagnostic("warning", f"Duplicate function name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_FUNCTION"))
-            seen_functions.add(stmt[1])
             declare(stmt[1], stmt[4], stmt[5])
         elif kind == "class":
-            if stmt[1] in seen_classes:
-                diagnostics.append(Diagnostic("warning", f"Duplicate class name '{stmt[1]}' in this scope", path, stmt[6], stmt[7], "SPROUT_DUP_CLASS"))
-            seen_classes.add(stmt[1])
             declare(stmt[1], stmt[6], stmt[7])
         elif kind == "enum":
-            if stmt[1] in seen_classes:
-                diagnostics.append(Diagnostic("warning", f"Duplicate enum name '{stmt[1]}' in this scope", path, stmt[4], stmt[5], "SPROUT_DUP_ENUM"))
-            seen_classes.add(stmt[1])
             declare(stmt[1], stmt[4], stmt[5])
         elif kind == "type_alias":
             declare(stmt[1], stmt[4], stmt[5])
@@ -558,9 +618,6 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
             match, line = assignment_matches[assignment_index] if assignment_index < len(assignment_matches) else (None, 1)
             assignment_index += 1
             col = match.start(2) + 1 if match else 1
-            if stmt[1][1] in declared:
-                previous_line, previous_col = declared[stmt[1][1]]
-                diagnostics.append(Diagnostic("warning", f"Assignment shadows earlier name '{stmt[1][1]}'", path, previous_line, previous_col, "SPROUT_SHADOW"))
             if stmt[1][1] not in declared:
                 declare(stmt[1][1], line, col, track_unused=True)
             scan_expr(stmt[2])

@@ -1841,7 +1841,7 @@ python3 sprout.py lint file.sprout
 python3 sprout.py lint file.sprout --json
 </code></pre>
 <p>
-Current lint foundations include syntax diagnostics, unknown imports, duplicate names, unreachable code after simple terminators, suspicious shadowing, tabs, and style hints that are practical to detect.
+Current lint foundations include syntax diagnostics, unknown imports, scope-aware duplicate names, unreachable code after simple terminators, tabs, and style hints that are practical to detect. Normal reassignment is not treated as shadowing.
 </p>
 <p>
 <code>fmt</code> is intentionally conservative:
@@ -1925,7 +1925,7 @@ VS Code diagnostics have four analysis modes:
   member access, and stricter unknown-name/member errors
 </p>
 <p>
-Set the mode with <code>sprout.analysis.typeCheckingMode</code>. Individual rules can be changed with <code>sprout.analysis.diagnosticSeverityOverrides</code>, using <code>none</code>, <code>hint</code>, <code>information</code>, <code>warning</code>, or <code>error</code>. Unused imports, parameters, and variables are tagged as unnecessary so supporting VS Code themes can fade them. The checker reports syntax, imports, unknown names and members, possibly missing dynamic members (<code>SPROUT_POSSIBLY_MISSING_MEMBER</code>), call argument counts and names, assignment and return types, generics, interfaces, enum patterns, async/generator mistakes, unreachable code, shadowing, and style warnings where the analyzer has enough information. Completion keeps conditional members available after required members and labels them as possibly missing. Hover shows inferred types, nilability, and required/conditional fields.
+Set the mode with <code>sprout.analysis.typeCheckingMode</code>. Individual rules can be changed with <code>sprout.analysis.diagnosticSeverityOverrides</code>, using <code>none</code>, <code>hint</code>, <code>information</code>, <code>warning</code>, or <code>error</code>. Unused imports, parameters, and variables are tagged as unnecessary so supporting VS Code themes can fade them. The checker reports syntax, imports, unknown names and members, possibly missing dynamic members (<code>SPROUT_POSSIBLY_MISSING_MEMBER</code>), call argument counts and names, assignment and return types, generics, interfaces, enum patterns, async/generator mistakes, unreachable code, duplicate declarations, and style warnings where the analyzer has enough information. Completion keeps conditional members available after required members and labels them as possibly missing. Hover shows inferred types, nilability, and required/conditional fields.
 </p>
 <p>
 Editor-style JSON queries are available through <code>intel</code>:

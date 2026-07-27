@@ -5,6 +5,13 @@ const path = require("path");
 const TYPING_SYNC_DEBOUNCE_MS = 45;
 const HEARTBEAT_RESYNC_MS = 2500;
 
+function languageServerCandidates(runnerPath, extensionPath) {
+  return [...new Set([
+    runnerPath ? path.join(path.dirname(runnerPath), "tools", "sprout_lsp.py") : undefined,
+    extensionPath ? path.join(extensionPath, "tools", "sprout_lsp.py") : undefined
+  ].filter(Boolean))];
+}
+
 class SproutLanguageClient {
   constructor(vscode, pythonPath, runnerPath, extensionPath, diagnostics, outputChannel) {
     this.vscode = vscode;
@@ -33,10 +40,7 @@ class SproutLanguageClient {
   }
 
   findServer() {
-    const candidates = [
-      path.join(this.extensionPath, "tools", "sprout_lsp.py"),
-      path.join(path.dirname(this.runnerPath), "tools", "sprout_lsp.py")
-    ];
+    const candidates = languageServerCandidates(this.runnerPath, this.extensionPath);
     return candidates.find((candidate) => fs.existsSync(candidate));
   }
 
@@ -78,6 +82,10 @@ class SproutLanguageClient {
     this.log(`Server: ${server}`);
     this.log(`Runner: ${this.runnerPath}`);
     this.log(`CWD: ${cwd}`);
+    const runnerServer = languageServerCandidates(this.runnerPath, undefined)[0];
+    if (runnerServer && path.resolve(server) !== path.resolve(runnerServer)) {
+      this.log("Selected runner has no matching language server; using the extension fallback.");
+    }
     this.process = childProcess.spawn(this.pythonPath, [server], {
       cwd,
       stdio: ["pipe", "pipe", "pipe"]
@@ -110,7 +118,7 @@ class SproutLanguageClient {
       name: folder.name
     }));
     const rootUri = folders[0]?.uri || null;
-    await this.request("initialize", {
+    const initializeResult = await this.request("initialize", {
       processId: process.pid,
       rootUri,
       workspaceFolders: folders,
@@ -130,6 +138,15 @@ class SproutLanguageClient {
         }
       }
     });
+    const sproutInfo = initializeResult?.sproutInfo;
+    if (sproutInfo) {
+      this.log(
+        `Server compatibility: runtime=${sproutInfo.runtimeVersion ?? "unknown"} ` +
+        `catalog=${sproutInfo.catalogVersion ?? "unknown"} ` +
+        `packSchema=${sproutInfo.languagePackSchemaVersion ?? "unknown"}`
+      );
+      if (sproutInfo.serverRoot) this.log(`Server root: ${sproutInfo.serverRoot}`);
+    }
     this.notify("initialized", {});
     this.ready = true;
     this.starting = false;
@@ -567,4 +584,4 @@ class SproutLanguageClient {
   }
 }
 
-module.exports = { SproutLanguageClient };
+module.exports = { SproutLanguageClient, languageServerCandidates };

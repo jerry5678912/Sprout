@@ -330,8 +330,16 @@ def validate_language_pack_data(data: Any) -> list[str]:
         errors.append("id must be a lowercase package id")
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", data["version"]):
         errors.append("version must use semantic versioning")
+    if not re.fullmatch(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", data["locale"]):
+        errors.append("locale must be a non-empty language tag")
     if not _supports_current_sprout(data["sprout"]):
         errors.append(f"unsupported Sprout constraint {data['sprout']!r}")
+    if not data["englishFallback"]:
+        missing = sorted(set(CATALOG) - set(data["entries"]))
+        if missing:
+            errors.append(
+                f"pack without English fallback is missing {len(missing)} catalog entries"
+            )
 
     seen: dict[tuple[str, str], str] = {}
     normalized_seen: dict[tuple[str, str], str] = {}
@@ -354,7 +362,12 @@ def validate_language_pack_data(data: Any) -> list[str]:
         if status not in {"reviewed", "generated", "fallback"}:
             errors.append(f"entry {concept_id!r} has invalid translation status")
         domain = "member" if CATALOG[concept_id].category == "method" else "lexical"
+        entry_spellings: set[str] = set()
         for spelling in [preferred, *aliases]:
+            if spelling in entry_spellings:
+                errors.append(f"entry {concept_id!r} repeats spelling {spelling!r}")
+                continue
+            entry_spellings.add(spelling)
             key = (domain, spelling)
             previous = seen.get(key)
             if (

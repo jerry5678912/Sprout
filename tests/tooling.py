@@ -126,15 +126,40 @@ def test_check_warnings_include_semantic_keyword_typos() -> None:
     assert "Did you mean 'import'?" in diagnostic["message"]
 
 
-def test_assignment_shadow_points_to_real_assignment_location() -> None:
+def test_normal_reassignment_is_not_reported_as_shadowing() -> None:
     with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
         fh.write("def bump():\n  score = 1\n  score = 2\n")
         path = fh.name
     result = run("lint", path, "--json")
     payload = json.loads(result.stdout)
-    shadow = next(item for item in payload["diagnostics"] if item["code"] == "SPROUT_SHADOW")
-    assert shadow["line"] == 2
-    assert shadow["col"] == 3
+    assert "SPROUT_SHADOW" not in {item["code"] for item in payload["diagnostics"]}
+
+
+def test_duplicate_declarations_are_checked_per_lexical_scope() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write(
+            "class First:\n"
+            "  def init():\n"
+            "    return nil\n"
+            "\n"
+            "class Second:\n"
+            "  def init():\n"
+            "    return nil\n"
+            "\n"
+            "def duplicate():\n"
+            "  return 1\n"
+            "def duplicate():\n"
+            "  return 2\n"
+        )
+        path = fh.name
+    result = run("lint", path, "--json")
+    payload = json.loads(result.stdout)
+    duplicates = [
+        item for item in payload["diagnostics"]
+        if item["code"] == "SPROUT_DUP_FUNCTION"
+    ]
+    assert len(duplicates) == 1
+    assert duplicates[0]["line"] == 11
 
 
 def test_trailing_whitespace_warning_is_reported() -> None:
@@ -212,7 +237,8 @@ def main() -> int:
     test_import_context_completion_suggests_modules()
     test_import_context_completion_does_not_fall_back_to_keywords()
     test_check_warnings_include_semantic_keyword_typos()
-    test_assignment_shadow_points_to_real_assignment_location()
+    test_normal_reassignment_is_not_reported_as_shadowing()
+    test_duplicate_declarations_are_checked_per_lexical_scope()
     test_trailing_whitespace_warning_is_reported()
     test_blank_indented_line_has_no_style_warning()
     test_pasted_indented_snippet_runs_cleanly()

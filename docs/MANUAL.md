@@ -1800,7 +1800,7 @@ python3 sprout.py lint file.sprout
 python3 sprout.py lint file.sprout --json
 ```
 
-Current lint foundations include syntax diagnostics, unknown imports, duplicate names, unreachable code after simple terminators, suspicious shadowing, tabs, and style hints that are practical to detect.
+Current lint foundations include syntax diagnostics, unknown imports, scope-aware duplicate names, unreachable code after simple terminators, tabs, and style hints that are practical to detect. Normal reassignment is not treated as shadowing.
 
 `fmt` is intentionally conservative:
 
@@ -1884,7 +1884,7 @@ variables are tagged as unnecessary so supporting VS Code themes can fade them.
 The checker reports syntax, imports, unknown names and members, possibly missing
 dynamic members (`SPROUT_POSSIBLY_MISSING_MEMBER`), call argument counts and
 names, assignment and return types, generics, interfaces, enum patterns,
-async/generator mistakes, unreachable code, shadowing, and style warnings where
+async/generator mistakes, unreachable code, duplicate declarations, and style warnings where
 the analyzer has enough information. Completion keeps conditional members
 available after required members and labels them as possibly missing. Hover
 shows inferred types, nilability, and required/conditional fields.

@@ -936,6 +936,31 @@ def test_extension_uses_offside_folding_for_blank_line_guides() -> None:
     assert configuration["folding"]["offSide"] is True
 
 
+def test_lsp_client_prefers_server_next_to_selected_runner() -> None:
+    script = (
+        "const path = require('path');"
+        "const client = require(process.argv[1]);"
+        "const candidates = client.languageServerCandidates("
+        "'/workspace/sprout.py', '/extension');"
+        "process.stdout.write(JSON.stringify(candidates));"
+    )
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "editor" / "vscode-sprout" / "lsp-client.js"),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    candidates = json.loads(result.stdout)
+    assert candidates[0] == str(Path("/workspace/tools/sprout_lsp.py"))
+    assert candidates[1] == str(Path("/extension/tools/sprout_lsp.py"))
+
+
 def test_extension_folding_supports_localized_garden_blocks() -> None:
     source = (
         "定义 问候(次数) 开始\n"
@@ -1000,6 +1025,7 @@ def main() -> int:
     test_cli_intelligence_queries()
     test_extension_folding_ranges_cover_dedents_and_block_styles()
     test_extension_uses_offside_folding_for_blank_line_guides()
+    test_lsp_client_prefers_server_next_to_selected_runner()
     test_extension_folding_supports_localized_garden_blocks()
     print("sprout intellisense tests passed")
     return 0
