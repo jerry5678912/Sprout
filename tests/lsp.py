@@ -448,6 +448,92 @@ def test_protocol_lifecycle_and_incremental_sync() -> None:
         assert server.handle({"jsonrpc": "2.0", "method": "exit", "params": {}}) is False
 
 
+def test_loose_file_open_defers_full_project_index_until_workspace_query() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        main = root / "main.sprout"
+        unrelated = root / "unrelated.sprout"
+        (root / "sprout.toml").write_text(
+            '[project]\nname = "latency-test"\nmain = "main.sprout"\n',
+            encoding="utf-8",
+        )
+        source = 'say "ready"\n'
+        main.write_text(source, encoding="utf-8")
+        unrelated.write_text("def hidden_workspace_symbol():\n  return 1\n", encoding="utf-8")
+        uri = main.resolve().as_uri()
+        output = io.BytesIO()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=output)
+
+        request(
+            server,
+            1,
+            "initialize",
+            {"rootUri": None, "workspaceFolders": []},
+        )
+        assert server.workspace_folders == []
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": source,
+                },
+            },
+        })
+
+        project_root = str(root.resolve())
+        initial_index = server.indexes[project_root]
+        assert str(main.resolve()) in initial_index.files
+        assert str(unrelated.resolve()) not in initial_index.files
+
+        symbols = request(
+            server,
+            2,
+            "workspace/symbol",
+            {"query": "hidden_workspace_symbol"},
+        )
+        assert [item["name"] for item in symbols["result"]] == [
+            "hidden_workspace_symbol"
+        ]
+        assert str(unrelated.resolve()) in server.indexes[project_root].files
+
+
+def test_blank_document_semantic_tokens_do_not_trigger_full_project_index() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        main = root / "main.sprout"
+        unrelated = root / "unrelated.sprout"
+        (root / "sprout.toml").write_text(
+            '[project]\nname = "blank-latency-test"\nmain = "main.sprout"\n',
+            encoding="utf-8",
+        )
+        main.write_text("", encoding="utf-8")
+        unrelated.write_text("def unrelated():\n  return 1\n", encoding="utf-8")
+        uri = main.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": None, "workspaceFolders": []})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": "",
+                },
+            },
+        })
+
+        assert server.semantic_tokens(uri) == {"data": []}
+        index = server.indexes[str(root.resolve())]
+        assert str(unrelated.resolve()) not in index.files
+
+
 def test_references_rename_and_protocol_errors() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1432,6 +1518,8 @@ def main() -> int:
     test_chinese_pack_completion_hover_and_semantic_tokens()
     test_project_default_language_pack_drives_semantic_tokens()
     test_protocol_lifecycle_and_incremental_sync()
+    test_loose_file_open_defers_full_project_index_until_workspace_query()
+    test_blank_document_semantic_tokens_do_not_trigger_full_project_index()
     test_references_rename_and_protocol_errors()
     test_prepare_rename_refuses_module_aliases()
     test_definition_resolves_imported_module_aliases_and_members()

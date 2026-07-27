@@ -942,7 +942,11 @@ def test_lsp_client_prefers_server_next_to_selected_runner() -> None:
         "const client = require(process.argv[1]);"
         "const candidates = client.languageServerCandidates("
         "'/workspace/sprout.py', '/extension');"
-        "process.stdout.write(JSON.stringify(candidates));"
+        "process.stdout.write(JSON.stringify({"
+        "candidates,"
+        "normalTimeout:client.requestTimeoutFor('textDocument/hover'),"
+        "workspaceTimeout:client.requestTimeoutFor('workspace/symbol')"
+        "}));"
     )
     result = subprocess.run(
         [
@@ -956,9 +960,12 @@ def test_lsp_client_prefers_server_next_to_selected_runner() -> None:
         capture_output=True,
         check=True,
     )
-    candidates = json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    candidates = payload["candidates"]
     assert candidates[0] == str(Path("/workspace/tools/sprout_lsp.py"))
     assert candidates[1] == str(Path("/extension/tools/sprout_lsp.py"))
+    assert payload["normalTimeout"] == 6000
+    assert payload["workspaceTimeout"] == 30000
 
 
 def test_extension_folding_supports_localized_garden_blocks() -> None:
