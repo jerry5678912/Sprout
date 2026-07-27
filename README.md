@@ -5,6 +5,11 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](ROADMAP.md)
 
+> **Experimental branch:** You are viewing `experiment/polyglot-language-packs`.
+> Read [README_POLYGLOT_EXPERIMENT.md](README_POLYGLOT_EXPERIMENT.md) before
+> testing or publishing this branch. This experiment does not change the
+> released Sprout language version.
+
 Sprout is an independent, general-purpose programming language with a stable
 tree-walk interpreter, an experimental bytecode VM, gradual typing, async I/O,
 project/package tooling, a language server, and a VS Code extension.
