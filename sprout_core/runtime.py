@@ -16,6 +16,7 @@ import types
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .languages import LanguagePack, load_language_pack
 from .lexer import Lexer
 from .application import (
     AsyncStream,
@@ -43,9 +44,15 @@ from .model import BreakSignal, ContinueSignal, ReturnSignal, SproutError, Sprou
 from .parser import Parser
 
 class Env:
-    def __init__(self, parent: Env | None = None, is_scope_boundary: bool = False):
+    def __init__(
+        self,
+        parent: Env | None = None,
+        is_scope_boundary: bool = False,
+        language_pack: LanguagePack | None = None,
+    ):
         self.parent = parent
         self.is_scope_boundary = is_scope_boundary
+        self.language_pack = language_pack
         self.values: dict[str, Any] = {}
 
     def define(self, name: str, value: Any) -> None:
@@ -92,6 +99,14 @@ class Env:
             names.extend(env.values.keys())
             env = env.parent
         return sorted(set(names))
+
+    def active_language_pack(self) -> LanguagePack:
+        env: Env | None = self
+        while env:
+            if env.language_pack is not None:
+                return env.language_pack
+            env = env.parent
+        return load_language_pack("english-pack")
 
 
 @dataclass
@@ -549,8 +564,16 @@ class Interpreter:
         argv: list[str] | None = None,
         module_cache: dict[str, SproutModule] | None = None,
         module_search_paths: list[str] | None = None,
+        language_pack: str | LanguagePack | None = None,
+        language_override: str | None = None,
+        language_default: str | None = None,
     ):
-        self.globals = Env(is_scope_boundary=True)
+        selected_pack = (
+            language_pack
+            if isinstance(language_pack, LanguagePack)
+            else load_language_pack(language_pack or "english-pack")
+        )
+        self.globals = Env(is_scope_boundary=True, language_pack=selected_pack)
         self._thread_state = threading.local()
         self.env = self.globals
         self.source_path = os.path.abspath(source_path) if source_path else None
@@ -558,8 +581,16 @@ class Interpreter:
         self.argv = argv or []
         self.module_cache = module_cache if module_cache is not None else {}
         self.module_search_paths = [os.path.abspath(path) for path in (module_search_paths or [])]
+        self.language_override = language_override
+        self.language_default = language_default
         self.task_lock = threading.RLock()
         self.install_builtins()
+        self.install_language_aliases(self.globals, selected_pack)
+
+    def install_language_aliases(self, env: Env, pack: LanguagePack) -> None:
+        for alias, canonical in pack.aliases_for_category("builtin").items():
+            if alias not in env.values and canonical in self.globals.values:
+                env.define(alias, self.globals.values[canonical])
 
     def install_builtins(self) -> None:
         self.globals.define("say", Builtin("say", None, lambda *xs: print(*map(format_value, xs))))
@@ -1385,7 +1416,14 @@ class Interpreter:
                 hint="Check the module path and the project's configured source folders.",
             ) from None
 
-        module_env = Env(self.globals, is_scope_boundary=True)
+        lexer = Lexer(
+            source,
+            language_pack=self.language_override,
+            default_language_pack=self.language_default,
+        )
+        module_pack = lexer.language_pack
+        module_env = Env(self.globals, is_scope_boundary=True, language_pack=module_pack)
+        self.install_language_aliases(module_env, module_pack)
         module = SproutModule(alias, resolved, module_env)
         self.module_cache[resolved] = module
         previous_dir = self.current_dir
@@ -1393,7 +1431,7 @@ class Interpreter:
         try:
             self.current_dir = os.path.dirname(resolved)
             self.source_path = resolved
-            self.execute_block(Parser(Lexer(source).tokenize()).parse(), module_env)
+            self.execute_block(Parser(lexer.tokenize()).parse(), module_env)
         except SproutError as exc:
             attach_error_source(exc, resolved, source)
             raise
@@ -1561,7 +1599,12 @@ class Interpreter:
                 raise SproutError("Unknown call keyword argument")
         return kwargs
 
-    def get_property(self, obj: Any, name: str) -> Any:
+    def get_property(
+        self,
+        obj: Any,
+        name: str,
+        language_pack: LanguagePack | None = None,
+    ) -> Any:
         if isinstance(obj, SproutInstance):
             return obj.get(name)
         if isinstance(obj, (SproutEnum, EnumValue)):
@@ -1577,6 +1620,8 @@ class Interpreter:
         if isinstance(obj, dict):
             if name in obj:
                 return obj[name]
+            pack = language_pack or self.env.active_language_pack()
+            name = pack.aliases_for_category("method").get(name, name)
             methods = {
                 "keys": DictMethodAlias("keys", 0, lambda: list(obj.keys())),
                 "values": DictMethodAlias("values", 0, lambda: list(obj.values())),
@@ -1588,6 +1633,8 @@ class Interpreter:
             if name in methods:
                 return methods[name]
         if isinstance(obj, list):
+            pack = language_pack or self.env.active_language_pack()
+            name = pack.aliases_for_category("method").get(name, name)
             methods = {
                 "append": NativeMethod("list.append", 1, lambda value: append_list_value(obj, value)),
                 "pop": NativeMethod("list.pop", 0, lambda: obj.pop()),
@@ -1597,6 +1644,8 @@ class Interpreter:
             if name in methods:
                 return methods[name]
         if isinstance(obj, str):
+            pack = language_pack or self.env.active_language_pack()
+            name = pack.aliases_for_category("method").get(name, name)
             methods = {
                 "upper": NativeMethod("str.upper", 0, obj.upper),
                 "lower": NativeMethod("str.lower", 0, obj.lower),

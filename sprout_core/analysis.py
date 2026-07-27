@@ -10,27 +10,44 @@ import time
 from typing import Any
 
 from .facts import ValueFacts
+from .languages import (
+    all_keyword_spellings,
+    bootstrap_language,
+    concept_spellings,
+    language_pack_for_source,
+)
 from .model import Diagnostic, KEYWORDS, resolve_module_file
 from .runtime import Interpreter
 from .tooling import module_search_paths_for, parse_source, project_for_path, read_source_file
 
 
-IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
-DECL_RE = re.compile(r"^\s*(?:(?:let|sprout)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[^=]+)?\s*=")
-FN_RE = re.compile(r"^\s*(?:async\s+)?(?:def|fn|bloom)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^\]]+\])?\s*\(")
-CLASS_RE = re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-ENUM_RE = re.compile(r"^\s*enum\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-TYPE_ALIAS_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
-IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
-SELF_ASSIGN_RE = re.compile(r"\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
-FIELD_ASSIGN_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s*=")
+IDENT_PATTERN = r"[^\W\d]\w*"
+
+
+def _concept_pattern(*concept_ids: str) -> str:
+    words: list[str] = []
+    for concept_id in concept_ids:
+        words.extend(concept_spellings(concept_id))
+    return "(?:" + "|".join(re.escape(word) for word in sorted(set(words), key=lambda item: (-len(item), item))) + ")"
+
+
+LANGUAGE_KEYWORDS = all_keyword_spellings()
+IDENT_RE = re.compile(rf"(?<!\w){IDENT_PATTERN}(?!\w)")
+DECL_RE = re.compile(rf"^\s*(?:(?:{_concept_pattern('syntax.let', 'syntax.sprout-loop')})\s+)?({IDENT_PATTERN})(?:\s*:\s*[^=]+)?\s*=")
+FN_RE = re.compile(rf"^\s*(?:{_concept_pattern('syntax.async')}\s+)?{_concept_pattern('syntax.function', 'syntax.function-value', 'syntax.bloom')}\s+({IDENT_PATTERN})(?:\s*\[[^\]]+\])?\s*\(")
+CLASS_RE = re.compile(rf"^\s*{_concept_pattern('syntax.class')}\s+({IDENT_PATTERN})(?!\w)")
+INTERFACE_RE = re.compile(rf"^\s*{_concept_pattern('syntax.interface')}\s+({IDENT_PATTERN})(?!\w)")
+ENUM_RE = re.compile(rf"^\s*{_concept_pattern('syntax.enum')}\s+({IDENT_PATTERN})(?!\w)")
+TYPE_ALIAS_RE = re.compile(rf"^\s*{_concept_pattern('syntax.type-alias')}\s+({IDENT_PATTERN})(?!\w)")
+IMPORT_RE = re.compile(rf'^\s*{_concept_pattern("syntax.import")}\s+(?:"([^"]+)"|({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*))(?:\s+{_concept_pattern("syntax.alias")}\s+({IDENT_PATTERN}))?')
+IMPORTPY_RE = re.compile(rf'^\s*{_concept_pattern("syntax.import-python")}\s+(?:"([^"]+)"|({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*))(?:\s+{_concept_pattern("syntax.alias")}\s+({IDENT_PATTERN}))?')
+SELF_ASSIGN_RE = re.compile(rf"\bself\.({IDENT_PATTERN})\s*=")
+FIELD_ASSIGN_RE = re.compile(rf"\b({IDENT_PATTERN}(?:\.{IDENT_PATTERN})+)\s*=")
 STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"')
-FOR_RE = re.compile(r"^\s*(?:async\s+)?(?:for|each)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
-CATCH_RE = re.compile(r"^\s*catch\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-TASKGROUP_RE = re.compile(r"^\s*taskgroup\s+([A-Za-z_][A-Za-z0-9_]*)\b")
-COMP_FOR_RE = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b")
+FOR_RE = re.compile(rf"^\s*(?:{_concept_pattern('syntax.async')}\s+)?{_concept_pattern('syntax.for', 'syntax.each')}\s+({IDENT_PATTERN})\s+{_concept_pattern('operator.in')}(?!\w)")
+CATCH_RE = re.compile(rf"^\s*{_concept_pattern('syntax.catch')}\s+({IDENT_PATTERN})(?!\w)")
+TASKGROUP_RE = re.compile(rf"^\s*{_concept_pattern('syntax.task-group')}\s+({IDENT_PATTERN})(?!\w)")
+COMP_FOR_RE = re.compile(rf"(?<!\w){_concept_pattern('syntax.for')}\s+({IDENT_PATTERN})\s+{_concept_pattern('operator.in')}(?!\w)")
 
 CORE_DIAGNOSTIC_CODES = {
     "SPROUT_ERROR",
@@ -142,11 +159,11 @@ def best_name_suggestion(name: str, choices: set[str] | list[str], *, max_distan
 
 
 def keyword_suggestion(name: str) -> str | None:
-    return best_name_suggestion(name, KEYWORDS)
+    return best_name_suggestion(name, LANGUAGE_KEYWORDS)
 
 
 def code_word_suggestion(name: str, choices: set[str] | list[str]) -> str | None:
-    return best_name_suggestion(name, set(KEYWORDS) | set(BUILTINS) | set(choices))
+    return best_name_suggestion(name, LANGUAGE_KEYWORDS | set(BUILTINS) | set(choices))
 
 
 def levenshtein_distance(left: str, right: str) -> int:
@@ -645,7 +662,12 @@ class WorkspaceIndex:
                         ref.location.col,
                         "SPROUT_UNKNOWN_MEMBER",
                         None,
-                        {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
+                        {
+                            "owner": ".".join(parts[:-1]),
+                            "member": member,
+                            "suggestion": suggestion,
+                            "replacement": suggestion,
+                        },
                     )
                 )
 
@@ -2005,7 +2027,10 @@ def build_lexical_scopes(lines: list[str], path: str) -> dict[str, LexicalScope]
             kind = "class"
         elif FN_RE.match(line):
             kind = "function"
-        elif re.match(r"^\s*(?:if|elif|else|while|whirl|async\s+for|for|each|try|catch|test|match|case|taskgroup)\b", line):
+        elif re.match(
+            rf"^\s*{_concept_pattern('syntax.if', 'syntax.elif', 'syntax.else', 'syntax.while', 'syntax.whirl', 'syntax.for', 'syntax.each', 'syntax.try', 'syntax.catch', 'syntax.test', 'syntax.match', 'syntax.case', 'syntax.task-group')}(?!\w)",
+            line,
+        ):
             kind = "block"
         if kind and (line.rstrip().endswith(":") or line.rstrip().endswith("{") or stripped.endswith("bloom")):
             serial += 1
@@ -2073,7 +2098,7 @@ def parameter_symbols(lines: list[str], path: str, scopes: dict[str, LexicalScop
         offset = open_paren + 1
         for item in params_text.split(","):
             raw = item.strip()
-            name_match = re.match(r"(?:\*\*|\*)?([A-Za-z_][A-Za-z0-9_]*)", raw)
+            name_match = re.match(rf"(?:\*\*|\*)?({IDENT_PATTERN})", raw)
             if not name_match:
                 offset += len(item) + 1
                 continue
@@ -2120,6 +2145,13 @@ def is_lexically_declared_symbol(symbol: SemanticSymbol) -> bool:
 
 
 def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
+    project = project_for_path(analysis.path)
+    language_pack = language_pack_for_source(
+        analysis.source,
+        language_default=project.language_default if project else None,
+    )
+    localized_builtins = language_pack.aliases_for_category("builtin")
+    language_declaration_line = bootstrap_language(analysis.source).declaration_line
     analysis.scopes = build_lexical_scopes(lines, analysis.path)
     declarations = declaration_token_locations(lines)
     canonical_symbols: dict[str, SemanticSymbol] = {}
@@ -2230,6 +2262,8 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             exact_symbols[(original.location.line, original.location.col, original.name)] = canonical
     for line_no, line in enumerate(lines, start=1):
         code = mask_strings_preserving_columns(line.split("#", 1)[0])
+        if line_no == language_declaration_line:
+            continue
         current_scope = scope_for_line(analysis.scopes, line_no)
         import_match = IMPORT_RE.match(code)
         if import_match:
@@ -2261,12 +2295,12 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
         )
         dotted_members = {
             match.start(1): match.group(1)
-            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\b", code)
+            for match in re.finditer(rf"(?<!\w)({IDENT_PATTERN}(?:\.{IDENT_PATTERN})+)(?!\w)", code)
         }
         for match in IDENT_RE.finditer(code):
             name = match.group(0)
             col = match.start() + 1
-            if name in KEYWORDS or (match.start() > 0 and code[match.start() - 1] == "."):
+            if name in LANGUAGE_KEYWORDS or (match.start() > 0 and code[match.start() - 1] == "."):
                 continue
             declaration_symbol = exact_symbols.get((line_no, col, name))
             if declaration_symbol is None and (line_no, col) in declarations:
@@ -2290,6 +2324,10 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
                 interface_signature
                 and signature_open < match.start() < signature_close
             )
+            canonical_builtin = localized_builtins.get(name)
+            if symbol is None and canonical_builtin in BUILTINS:
+                symbol = BUILTINS[canonical_builtin]
+                analysis.references[-1].symbol_id = symbol.symbol_id
             if symbol is None and name not in BUILTINS and name not in special_names and not signature_parameter:
                 visible_names = set(type_names) | special_names
                 if current_scope:
@@ -2314,7 +2352,11 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
                         col,
                         "SPROUT_UNKNOWN_NAME",
                         None,
-                        {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
+                        {
+                            "name": name,
+                            "suggestion": suggestion,
+                            "replacement": suggestion,
+                        },
                     )
                 )
         for start, dotted in dotted_members.items():
@@ -2355,8 +2397,12 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
 
 def analyze_source(source: str, path: str) -> FileAnalysis:
     resolved = normalize_path(path)
+    project = project_for_path(resolved)
     try:
-        program = parse_source(source)
+        program = parse_source(
+            source,
+            language_default=project.language_default if project else None,
+        )
     except Exception as exc:
         from .tooling import diagnostic_from_error
 
@@ -2606,7 +2652,12 @@ def analyze_source(source: str, path: str) -> FileAnalysis:
     for diagnostic in lint_source(source, resolved, program):
         if diagnostic.code != "SPROUT_UNUSED_NAME":
             add_diagnostic(diagnostic)
-    for diagnostic in typecheck_source(source, resolved):
+    for diagnostic in typecheck_source(
+        source,
+        resolved,
+        language_default=project.language_default if project else None,
+        program=program,
+    ):
         add_diagnostic(diagnostic)
 
     referenced_symbols = {
@@ -2908,12 +2959,12 @@ def python_module_members(module_name: str, parent: SemanticSymbol) -> dict[str,
 
 
 def completion_prefix(before: str) -> str:
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)$", before)
+    match = re.search(rf"({IDENT_PATTERN})$", before)
     return match.group(1) if match else ""
 
 
 def member_completion_parts(before: str) -> tuple[str | None, str]:
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$", before)
+    match = re.search(rf"({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*)\.((?:{IDENT_PATTERN})?)$", before)
     if not match:
         return (None, "")
     return (match.group(1), match.group(2))

@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import textwrap
 
-from .model import KEYWORDS, Token, SproutError
+from .languages import LanguagePack, bootstrap_language, load_language_pack
+from .model import Token, SproutError
 
 class Lexer:
-    def __init__(self, source: str):
-        self.source = self.normalize_pasted_indentation(source)
+    def __init__(
+        self,
+        source: str,
+        language_pack: str | LanguagePack | None = None,
+        default_language_pack: str | LanguagePack | None = None,
+    ):
+        bootstrap = bootstrap_language(source)
+        selected = language_pack or bootstrap.pack_id or default_language_pack or "english-pack"
+        self.language_pack = (
+            selected if isinstance(selected, LanguagePack) else load_language_pack(selected)
+        )
+        self.source = self.normalize_pasted_indentation(bootstrap.source)
         self.i = 0
         self.line = 1
         self.col = 1
@@ -136,7 +147,10 @@ class Lexer:
         while self.peek().isalnum() or self.peek() == "_":
             self.advance()
         raw = self.source[start:self.i]
-        return Token(raw.upper() if raw in KEYWORDS else "IDENT", raw, line, col)
+        keyword = self.language_pack.keyword(raw)
+        if keyword:
+            return Token(keyword.token_kind or "IDENT", keyword.canonical, line, col, raw)
+        return Token("IDENT", raw, line, col)
 
     def string(self) -> Token:
         line, col = self.line, self.col

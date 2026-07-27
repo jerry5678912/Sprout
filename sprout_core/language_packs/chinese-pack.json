@@ -1,0 +1,1248 @@
+{
+  "catalogVersion": 1,
+  "diagnostics": {
+    "SPROUT_POSSIBLY_MISSING_MEMBER": "“{owner}”可能缺少成员“{member}”",
+    "SPROUT_UNKNOWN_MEMBER": "“{owner}”没有成员“{member}”",
+    "SPROUT_UNKNOWN_NAME": "未知名称“{name}”"
+  },
+  "englishFallback": true,
+  "entries": {
+    "builtin.abs": {
+      "aliases": [],
+      "preferred": "绝对值",
+      "status": "reviewed"
+    },
+    "builtin.acos": {
+      "aliases": [],
+      "preferred": "反余弦",
+      "status": "reviewed"
+    },
+    "builtin.appendfile": {
+      "aliases": [],
+      "preferred": "追加到文件",
+      "status": "reviewed"
+    },
+    "builtin.array": {
+      "aliases": [],
+      "preferred": "数组",
+      "status": "reviewed"
+    },
+    "builtin.asin": {
+      "aliases": [],
+      "preferred": "反正弦",
+      "status": "reviewed"
+    },
+    "builtin.ask": {
+      "aliases": [],
+      "preferred": "输入",
+      "status": "reviewed"
+    },
+    "builtin.atan": {
+      "aliases": [],
+      "preferred": "反正切",
+      "status": "reviewed"
+    },
+    "builtin.atan2": {
+      "aliases": [],
+      "preferred": "双参数反正切",
+      "status": "reviewed"
+    },
+    "builtin.avg": {
+      "aliases": [],
+      "preferred": "平均值",
+      "status": "reviewed"
+    },
+    "builtin.basename": {
+      "aliases": [],
+      "preferred": "文件名",
+      "status": "reviewed"
+    },
+    "builtin.between": {
+      "aliases": [],
+      "preferred": "介于范围",
+      "status": "reviewed"
+    },
+    "builtin.bundle": {
+      "aliases": [],
+      "preferred": "成对组合",
+      "status": "reviewed"
+    },
+    "builtin.cancel_token": {
+      "aliases": [],
+      "preferred": "取消令牌",
+      "status": "reviewed"
+    },
+    "builtin.ceil": {
+      "aliases": [],
+      "preferred": "向上取整",
+      "status": "reviewed"
+    },
+    "builtin.chant": {
+      "aliases": [],
+      "preferred": "吟唱",
+      "status": "reviewed"
+    },
+    "builtin.chars": {
+      "aliases": [],
+      "preferred": "字符列表",
+      "status": "reviewed"
+    },
+    "builtin.choose": {
+      "aliases": [],
+      "preferred": "随机选择",
+      "status": "reviewed"
+    },
+    "builtin.chunks": {
+      "aliases": [],
+      "preferred": "分块",
+      "status": "reviewed"
+    },
+    "builtin.clamp": {
+      "aliases": [],
+      "preferred": "限定范围",
+      "status": "reviewed"
+    },
+    "builtin.clear": {
+      "aliases": [],
+      "preferred": "清屏",
+      "status": "reviewed"
+    },
+    "builtin.compact": {
+      "aliases": [],
+      "preferred": "移除空值",
+      "status": "reviewed"
+    },
+    "builtin.concat": {
+      "aliases": [],
+      "preferred": "合并序列",
+      "status": "reviewed"
+    },
+    "builtin.contains": {
+      "aliases": [],
+      "preferred": "包含值",
+      "status": "reviewed"
+    },
+    "builtin.copy": {
+      "aliases": [],
+      "preferred": "复制",
+      "status": "reviewed"
+    },
+    "builtin.cos": {
+      "aliases": [],
+      "preferred": "余弦",
+      "status": "reviewed"
+    },
+    "builtin.countby": {
+      "aliases": [],
+      "preferred": "分类计数",
+      "status": "reviewed"
+    },
+    "builtin.cwd": {
+      "aliases": [],
+      "preferred": "当前目录",
+      "status": "reviewed"
+    },
+    "builtin.degrees": {
+      "aliases": [],
+      "preferred": "转为角度",
+      "status": "reviewed"
+    },
+    "builtin.delkey": {
+      "aliases": [],
+      "preferred": "删除键",
+      "status": "reviewed"
+    },
+    "builtin.dice": {
+      "aliases": [],
+      "preferred": "掷骰子",
+      "status": "reviewed"
+    },
+    "builtin.dict": {
+      "aliases": [],
+      "preferred": "字典",
+      "status": "reviewed"
+    },
+    "builtin.dirname": {
+      "aliases": [],
+      "preferred": "目录名",
+      "status": "reviewed"
+    },
+    "builtin.dist": {
+      "aliases": [],
+      "preferred": "两点距离",
+      "status": "reviewed"
+    },
+    "builtin.drop": {
+      "aliases": [],
+      "preferred": "丢弃前项",
+      "status": "reviewed"
+    },
+    "builtin.endswith": {
+      "aliases": [],
+      "preferred": "以此结尾",
+      "status": "reviewed"
+    },
+    "builtin.ensure": {
+      "aliases": [],
+      "preferred": "确保",
+      "status": "reviewed"
+    },
+    "builtin.enumerate": {
+      "aliases": [],
+      "preferred": "带序号",
+      "status": "reviewed"
+    },
+    "builtin.exists": {
+      "aliases": [],
+      "preferred": "路径存在",
+      "status": "reviewed"
+    },
+    "builtin.exp": {
+      "aliases": [],
+      "preferred": "指数函数",
+      "status": "reviewed"
+    },
+    "builtin.expect": {
+      "aliases": [],
+      "preferred": "期望",
+      "status": "reviewed"
+    },
+    "builtin.extname": {
+      "aliases": [],
+      "preferred": "扩展名",
+      "status": "reviewed"
+    },
+    "builtin.fail": {
+      "aliases": [],
+      "preferred": "报错",
+      "status": "reviewed"
+    },
+    "builtin.fill": {
+      "aliases": [],
+      "preferred": "填充",
+      "status": "reviewed"
+    },
+    "builtin.first": {
+      "aliases": [],
+      "preferred": "首项",
+      "status": "reviewed"
+    },
+    "builtin.flatten": {
+      "aliases": [],
+      "preferred": "展平",
+      "status": "reviewed"
+    },
+    "builtin.floor": {
+      "aliases": [],
+      "preferred": "向下取整",
+      "status": "reviewed"
+    },
+    "builtin.force": {
+      "aliases": [],
+      "preferred": "力",
+      "status": "reviewed"
+    },
+    "builtin.frompairs": {
+      "aliases": [],
+      "preferred": "从键值对创建",
+      "status": "reviewed"
+    },
+    "builtin.functions": {
+      "aliases": [],
+      "preferred": "函数列表",
+      "status": "reviewed"
+    },
+    "builtin.get": {
+      "aliases": [],
+      "preferred": "获取值",
+      "status": "reviewed"
+    },
+    "builtin.grow": {
+      "aliases": [],
+      "preferred": "生长",
+      "status": "reviewed"
+    },
+    "builtin.harvest": {
+      "aliases": [],
+      "preferred": "收获",
+      "status": "reviewed"
+    },
+    "builtin.has": {
+      "aliases": [],
+      "preferred": "包含键",
+      "status": "reviewed"
+    },
+    "builtin.http_get": {
+      "aliases": [],
+      "preferred": "HTTP获取",
+      "status": "reviewed"
+    },
+    "builtin.http_get_async": {
+      "aliases": [],
+      "preferred": "异步HTTP获取",
+      "status": "reviewed"
+    },
+    "builtin.http_post": {
+      "aliases": [],
+      "preferred": "HTTP提交",
+      "status": "reviewed"
+    },
+    "builtin.http_post_async": {
+      "aliases": [],
+      "preferred": "异步HTTP提交",
+      "status": "reviewed"
+    },
+    "builtin.http_request": {
+      "aliases": [],
+      "preferred": "HTTP请求",
+      "status": "reviewed"
+    },
+    "builtin.http_request_async": {
+      "aliases": [],
+      "preferred": "异步HTTP请求",
+      "status": "reviewed"
+    },
+    "builtin.http_server": {
+      "aliases": [],
+      "preferred": "HTTP服务器",
+      "status": "reviewed"
+    },
+    "builtin.hypot": {
+      "aliases": [],
+      "preferred": "斜边长",
+      "status": "reviewed"
+    },
+    "builtin.indexof": {
+      "aliases": [],
+      "preferred": "查找索引",
+      "status": "reviewed"
+    },
+    "builtin.insert": {
+      "aliases": [],
+      "preferred": "插入",
+      "status": "reviewed"
+    },
+    "builtin.int": {
+      "aliases": [],
+      "preferred": "整数",
+      "status": "reviewed"
+    },
+    "builtin.interpolate": {
+      "aliases": [],
+      "preferred": "插值",
+      "status": "reviewed"
+    },
+    "builtin.is_array": {
+      "aliases": [],
+      "preferred": "是数组",
+      "status": "reviewed"
+    },
+    "builtin.is_bool": {
+      "aliases": [],
+      "preferred": "是布尔值",
+      "status": "reviewed"
+    },
+    "builtin.is_class": {
+      "aliases": [],
+      "preferred": "是类",
+      "status": "reviewed"
+    },
+    "builtin.is_dict": {
+      "aliases": [],
+      "preferred": "是字典",
+      "status": "reviewed"
+    },
+    "builtin.is_empty": {
+      "aliases": [],
+      "preferred": "为空",
+      "status": "reviewed"
+    },
+    "builtin.is_even": {
+      "aliases": [],
+      "preferred": "是偶数",
+      "status": "reviewed"
+    },
+    "builtin.is_function": {
+      "aliases": [],
+      "preferred": "是函数",
+      "status": "reviewed"
+    },
+    "builtin.is_instance": {
+      "aliases": [],
+      "preferred": "是实例",
+      "status": "reviewed"
+    },
+    "builtin.is_nil": {
+      "aliases": [],
+      "preferred": "是空值",
+      "status": "reviewed"
+    },
+    "builtin.is_number": {
+      "aliases": [],
+      "preferred": "是数值",
+      "status": "reviewed"
+    },
+    "builtin.is_odd": {
+      "aliases": [],
+      "preferred": "是奇数",
+      "status": "reviewed"
+    },
+    "builtin.is_string": {
+      "aliases": [],
+      "preferred": "是文本",
+      "status": "reviewed"
+    },
+    "builtin.isdir": {
+      "aliases": [],
+      "preferred": "是目录",
+      "status": "reviewed"
+    },
+    "builtin.isfile": {
+      "aliases": [],
+      "preferred": "是文件",
+      "status": "reviewed"
+    },
+    "builtin.items": {
+      "aliases": [],
+      "preferred": "键值对列表",
+      "status": "reviewed"
+    },
+    "builtin.join": {
+      "aliases": [],
+      "preferred": "拼接文本",
+      "status": "reviewed"
+    },
+    "builtin.joinpath": {
+      "aliases": [],
+      "preferred": "拼接路径",
+      "status": "reviewed"
+    },
+    "builtin.json_parse": {
+      "aliases": [],
+      "preferred": "解析JSON",
+      "status": "reviewed"
+    },
+    "builtin.json_stringify": {
+      "aliases": [],
+      "preferred": "转为JSON",
+      "status": "reviewed"
+    },
+    "builtin.keys": {
+      "aliases": [],
+      "preferred": "键列表",
+      "status": "reviewed"
+    },
+    "builtin.kinetic_energy": {
+      "aliases": [],
+      "preferred": "动能",
+      "status": "reviewed"
+    },
+    "builtin.last": {
+      "aliases": [],
+      "preferred": "末项",
+      "status": "reviewed"
+    },
+    "builtin.len": {
+      "aliases": [],
+      "preferred": "长度",
+      "status": "reviewed"
+    },
+    "builtin.lerp": {
+      "aliases": [],
+      "preferred": "线性插值",
+      "status": "reviewed"
+    },
+    "builtin.lines": {
+      "aliases": [],
+      "preferred": "文本行",
+      "status": "reviewed"
+    },
+    "builtin.listdir": {
+      "aliases": [],
+      "preferred": "列出目录",
+      "status": "reviewed"
+    },
+    "builtin.log": {
+      "aliases": [],
+      "preferred": "自然对数",
+      "status": "reviewed"
+    },
+    "builtin.log10": {
+      "aliases": [],
+      "preferred": "常用对数",
+      "status": "reviewed"
+    },
+    "builtin.lower": {
+      "aliases": [],
+      "preferred": "转为小写",
+      "status": "reviewed"
+    },
+    "builtin.ltrim": {
+      "aliases": [],
+      "preferred": "去除左侧空白",
+      "status": "reviewed"
+    },
+    "builtin.mat_mul": {
+      "aliases": [],
+      "preferred": "矩阵相乘",
+      "status": "reviewed"
+    },
+    "builtin.max": {
+      "aliases": [],
+      "preferred": "最大值",
+      "status": "reviewed"
+    },
+    "builtin.median": {
+      "aliases": [],
+      "preferred": "中位数",
+      "status": "reviewed"
+    },
+    "builtin.merge": {
+      "aliases": [],
+      "preferred": "合并映射",
+      "status": "reviewed"
+    },
+    "builtin.methods": {
+      "aliases": [],
+      "preferred": "方法列表",
+      "status": "reviewed"
+    },
+    "builtin.min": {
+      "aliases": [],
+      "preferred": "最小值",
+      "status": "reviewed"
+    },
+    "builtin.mirror": {
+      "aliases": [],
+      "preferred": "镜像",
+      "status": "reviewed"
+    },
+    "builtin.mkdir": {
+      "aliases": [],
+      "preferred": "创建目录",
+      "status": "reviewed"
+    },
+    "builtin.now": {
+      "aliases": [],
+      "preferred": "当前时间",
+      "status": "reviewed"
+    },
+    "builtin.num": {
+      "aliases": [],
+      "preferred": "数值",
+      "status": "reviewed"
+    },
+    "builtin.omit": {
+      "aliases": [],
+      "preferred": "排除键",
+      "status": "reviewed"
+    },
+    "builtin.padleft": {
+      "aliases": [],
+      "preferred": "左侧填充",
+      "status": "reviewed"
+    },
+    "builtin.padright": {
+      "aliases": [],
+      "preferred": "右侧填充",
+      "status": "reviewed"
+    },
+    "builtin.pick": {
+      "aliases": [],
+      "preferred": "选取键",
+      "status": "reviewed"
+    },
+    "builtin.plant": {
+      "aliases": [],
+      "preferred": "种下",
+      "status": "reviewed"
+    },
+    "builtin.pow": {
+      "aliases": [],
+      "preferred": "乘方",
+      "status": "reviewed"
+    },
+    "builtin.pressure": {
+      "aliases": [],
+      "preferred": "压强",
+      "status": "reviewed"
+    },
+    "builtin.prune": {
+      "aliases": [],
+      "preferred": "修剪",
+      "status": "reviewed"
+    },
+    "builtin.push": {
+      "aliases": [],
+      "preferred": "追加",
+      "status": "reviewed"
+    },
+    "builtin.py_available": {
+      "aliases": [],
+      "preferred": "Python模块可用",
+      "status": "reviewed"
+    },
+    "builtin.py_import": {
+      "aliases": [],
+      "preferred": "导入Python模块",
+      "status": "reviewed"
+    },
+    "builtin.queue_open": {
+      "aliases": [],
+      "preferred": "创建队列",
+      "status": "reviewed"
+    },
+    "builtin.radians": {
+      "aliases": [],
+      "preferred": "转为弧度",
+      "status": "reviewed"
+    },
+    "builtin.rand": {
+      "aliases": [],
+      "preferred": "随机小数",
+      "status": "reviewed"
+    },
+    "builtin.randint": {
+      "aliases": [],
+      "preferred": "随机整数",
+      "status": "reviewed"
+    },
+    "builtin.range": {
+      "aliases": [],
+      "preferred": "范围",
+      "status": "reviewed"
+    },
+    "builtin.readfile": {
+      "aliases": [],
+      "preferred": "读取文件",
+      "status": "reviewed"
+    },
+    "builtin.readfile_async": {
+      "aliases": [],
+      "preferred": "异步读取文件",
+      "status": "reviewed"
+    },
+    "builtin.readjson": {
+      "aliases": [],
+      "preferred": "读取JSON",
+      "status": "reviewed"
+    },
+    "builtin.remove": {
+      "aliases": [],
+      "preferred": "移除",
+      "status": "reviewed"
+    },
+    "builtin.repeat": {
+      "aliases": [],
+      "preferred": "重复",
+      "status": "reviewed"
+    },
+    "builtin.replace": {
+      "aliases": [],
+      "preferred": "替换",
+      "status": "reviewed"
+    },
+    "builtin.rest": {
+      "aliases": [],
+      "preferred": "其余项",
+      "status": "reviewed"
+    },
+    "builtin.reverse": {
+      "aliases": [],
+      "preferred": "倒序",
+      "status": "reviewed"
+    },
+    "builtin.round": {
+      "aliases": [],
+      "preferred": "四舍五入",
+      "status": "reviewed"
+    },
+    "builtin.rtrim": {
+      "aliases": [],
+      "preferred": "去除右侧空白",
+      "status": "reviewed"
+    },
+    "builtin.sample": {
+      "aliases": [],
+      "preferred": "随机抽取",
+      "status": "reviewed"
+    },
+    "builtin.say": {
+      "aliases": [],
+      "preferred": "输出",
+      "status": "reviewed"
+    },
+    "builtin.seed": {
+      "aliases": [],
+      "preferred": "设置随机种子",
+      "status": "reviewed"
+    },
+    "builtin.shout": {
+      "aliases": [],
+      "preferred": "高喊",
+      "status": "reviewed"
+    },
+    "builtin.shuffle": {
+      "aliases": [],
+      "preferred": "打乱",
+      "status": "reviewed"
+    },
+    "builtin.sign": {
+      "aliases": [],
+      "preferred": "符号",
+      "status": "reviewed"
+    },
+    "builtin.sin": {
+      "aliases": [],
+      "preferred": "正弦",
+      "status": "reviewed"
+    },
+    "builtin.sleep": {
+      "aliases": [],
+      "preferred": "休眠",
+      "status": "reviewed"
+    },
+    "builtin.sleep_async": {
+      "aliases": [],
+      "preferred": "异步休眠",
+      "status": "reviewed"
+    },
+    "builtin.slice": {
+      "aliases": [],
+      "preferred": "切片",
+      "status": "reviewed"
+    },
+    "builtin.sort": {
+      "aliases": [],
+      "preferred": "排序",
+      "status": "reviewed"
+    },
+    "builtin.sparkle": {
+      "aliases": [],
+      "preferred": "闪耀",
+      "status": "reviewed"
+    },
+    "builtin.sprinkle": {
+      "aliases": [],
+      "preferred": "播撒",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_begin": {
+      "aliases": [],
+      "preferred": "开始SQLite事务",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_close": {
+      "aliases": [],
+      "preferred": "关闭SQLite",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_commit": {
+      "aliases": [],
+      "preferred": "提交SQLite事务",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_exec": {
+      "aliases": [],
+      "preferred": "执行SQLite",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_open": {
+      "aliases": [],
+      "preferred": "打开SQLite",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_query": {
+      "aliases": [],
+      "preferred": "查询SQLite",
+      "status": "reviewed"
+    },
+    "builtin.sqlite_rollback": {
+      "aliases": [],
+      "preferred": "回滚SQLite事务",
+      "status": "reviewed"
+    },
+    "builtin.sqrt": {
+      "aliases": [],
+      "preferred": "平方根",
+      "status": "reviewed"
+    },
+    "builtin.startswith": {
+      "aliases": [],
+      "preferred": "以此开头",
+      "status": "reviewed"
+    },
+    "builtin.str": {
+      "aliases": [],
+      "preferred": "文本",
+      "status": "reviewed"
+    },
+    "builtin.stream_open": {
+      "aliases": [],
+      "preferred": "创建流",
+      "status": "reviewed"
+    },
+    "builtin.substr": {
+      "aliases": [],
+      "preferred": "子串",
+      "status": "reviewed"
+    },
+    "builtin.sum": {
+      "aliases": [],
+      "preferred": "求和",
+      "status": "reviewed"
+    },
+    "builtin.take": {
+      "aliases": [],
+      "preferred": "取前项",
+      "status": "reviewed"
+    },
+    "builtin.tan": {
+      "aliases": [],
+      "preferred": "正切",
+      "status": "reviewed"
+    },
+    "builtin.task_after": {
+      "aliases": [],
+      "preferred": "延时任务",
+      "status": "reviewed"
+    },
+    "builtin.task_spawn": {
+      "aliases": [],
+      "preferred": "启动任务",
+      "status": "reviewed"
+    },
+    "builtin.task_wait_all": {
+      "aliases": [],
+      "preferred": "等待全部任务",
+      "status": "reviewed"
+    },
+    "builtin.title": {
+      "aliases": [],
+      "preferred": "转为标题格式",
+      "status": "reviewed"
+    },
+    "builtin.trim": {
+      "aliases": [],
+      "preferred": "去除两端空白",
+      "status": "reviewed"
+    },
+    "builtin.type": {
+      "aliases": [],
+      "preferred": "类型",
+      "status": "reviewed"
+    },
+    "builtin.unique": {
+      "aliases": [],
+      "preferred": "去重",
+      "status": "reviewed"
+    },
+    "builtin.unit_convert": {
+      "aliases": [],
+      "preferred": "单位换算",
+      "status": "reviewed"
+    },
+    "builtin.upper": {
+      "aliases": [],
+      "preferred": "转为大写",
+      "status": "reviewed"
+    },
+    "builtin.values": {
+      "aliases": [],
+      "preferred": "值列表",
+      "status": "reviewed"
+    },
+    "builtin.vec_add": {
+      "aliases": [],
+      "preferred": "向量相加",
+      "status": "reviewed"
+    },
+    "builtin.vec_dot": {
+      "aliases": [],
+      "preferred": "向量点积",
+      "status": "reviewed"
+    },
+    "builtin.vec_magnitude": {
+      "aliases": [],
+      "preferred": "向量模长",
+      "status": "reviewed"
+    },
+    "builtin.vec_normalize": {
+      "aliases": [],
+      "preferred": "向量归一化",
+      "status": "reviewed"
+    },
+    "builtin.vec_sub": {
+      "aliases": [],
+      "preferred": "向量相减",
+      "status": "reviewed"
+    },
+    "builtin.weave": {
+      "aliases": [],
+      "preferred": "编织",
+      "status": "reviewed"
+    },
+    "builtin.whisper": {
+      "aliases": [],
+      "preferred": "低语",
+      "status": "reviewed"
+    },
+    "builtin.words": {
+      "aliases": [],
+      "preferred": "单词列表",
+      "status": "reviewed"
+    },
+    "builtin.wrap": {
+      "aliases": [],
+      "preferred": "文本换行",
+      "status": "reviewed"
+    },
+    "builtin.writefile": {
+      "aliases": [],
+      "preferred": "写入文件",
+      "status": "reviewed"
+    },
+    "builtin.writefile_async": {
+      "aliases": [],
+      "preferred": "异步写入文件",
+      "status": "reviewed"
+    },
+    "builtin.writejson": {
+      "aliases": [],
+      "preferred": "写入JSON",
+      "status": "reviewed"
+    },
+    "builtin.zipbud": {
+      "aliases": [],
+      "preferred": "组成字典",
+      "status": "reviewed"
+    },
+    "constant.false": {
+      "aliases": [],
+      "preferred": "假",
+      "status": "reviewed"
+    },
+    "constant.nil": {
+      "aliases": [],
+      "preferred": "空",
+      "status": "reviewed"
+    },
+    "constant.true": {
+      "aliases": [],
+      "preferred": "真",
+      "status": "reviewed"
+    },
+    "method.append": {
+      "aliases": [],
+      "preferred": "追加",
+      "status": "reviewed"
+    },
+    "method.collect": {
+      "aliases": [],
+      "preferred": "收集",
+      "status": "reviewed"
+    },
+    "method.contains": {
+      "aliases": [],
+      "preferred": "包含",
+      "status": "reviewed"
+    },
+    "method.get": {
+      "aliases": [],
+      "preferred": "获取",
+      "status": "reviewed"
+    },
+    "method.has": {
+      "aliases": [],
+      "preferred": "含键",
+      "status": "reviewed"
+    },
+    "method.items": {
+      "aliases": [],
+      "preferred": "键值对",
+      "status": "reviewed"
+    },
+    "method.join": {
+      "aliases": [],
+      "preferred": "拼接",
+      "status": "reviewed"
+    },
+    "method.keys": {
+      "aliases": [],
+      "preferred": "键",
+      "status": "reviewed"
+    },
+    "method.len": {
+      "aliases": [],
+      "preferred": "长度",
+      "status": "reviewed"
+    },
+    "method.lower": {
+      "aliases": [],
+      "preferred": "转为小写",
+      "status": "reviewed"
+    },
+    "method.next": {
+      "aliases": [],
+      "preferred": "下一个",
+      "status": "reviewed"
+    },
+    "method.pop": {
+      "aliases": [],
+      "preferred": "取出末项",
+      "status": "reviewed"
+    },
+    "method.set": {
+      "aliases": [],
+      "preferred": "设置",
+      "status": "reviewed"
+    },
+    "method.split": {
+      "aliases": [],
+      "preferred": "拆分",
+      "status": "reviewed"
+    },
+    "method.strip": {
+      "aliases": [],
+      "preferred": "去除两端空白",
+      "status": "reviewed"
+    },
+    "method.upper": {
+      "aliases": [],
+      "preferred": "转为大写",
+      "status": "reviewed"
+    },
+    "method.values": {
+      "aliases": [],
+      "preferred": "值",
+      "status": "reviewed"
+    },
+    "operator.and": {
+      "aliases": [],
+      "preferred": "且",
+      "status": "reviewed"
+    },
+    "operator.in": {
+      "aliases": [],
+      "preferred": "在",
+      "status": "reviewed"
+    },
+    "operator.is": {
+      "aliases": [],
+      "preferred": "是",
+      "status": "reviewed"
+    },
+    "operator.not": {
+      "aliases": [],
+      "preferred": "非",
+      "status": "reviewed"
+    },
+    "operator.or": {
+      "aliases": [],
+      "preferred": "或",
+      "status": "reviewed"
+    },
+    "syntax.alias": {
+      "aliases": [],
+      "preferred": "作为",
+      "status": "reviewed"
+    },
+    "syntax.async": {
+      "aliases": [],
+      "preferred": "异步",
+      "status": "reviewed"
+    },
+    "syntax.await": {
+      "aliases": [],
+      "preferred": "等待",
+      "status": "reviewed"
+    },
+    "syntax.bloom": {
+      "aliases": [],
+      "preferred": "开始",
+      "status": "reviewed"
+    },
+    "syntax.break": {
+      "aliases": [],
+      "preferred": "跳出",
+      "status": "reviewed"
+    },
+    "syntax.case": {
+      "aliases": [],
+      "preferred": "分支",
+      "status": "reviewed"
+    },
+    "syntax.catch": {
+      "aliases": [],
+      "preferred": "捕获",
+      "status": "reviewed"
+    },
+    "syntax.class": {
+      "aliases": [],
+      "preferred": "类",
+      "status": "reviewed"
+    },
+    "syntax.continue": {
+      "aliases": [],
+      "preferred": "继续",
+      "status": "reviewed"
+    },
+    "syntax.each": {
+      "aliases": [],
+      "preferred": "每个",
+      "status": "reviewed"
+    },
+    "syntax.elif": {
+      "aliases": [],
+      "preferred": "否则如果",
+      "status": "reviewed"
+    },
+    "syntax.else": {
+      "aliases": [],
+      "preferred": "否则",
+      "status": "reviewed"
+    },
+    "syntax.end": {
+      "aliases": [],
+      "preferred": "结束",
+      "status": "reviewed"
+    },
+    "syntax.enum": {
+      "aliases": [],
+      "preferred": "枚举",
+      "status": "reviewed"
+    },
+    "syntax.extends": {
+      "aliases": [],
+      "preferred": "继承",
+      "status": "reviewed"
+    },
+    "syntax.for": {
+      "aliases": [],
+      "preferred": "对于",
+      "status": "reviewed"
+    },
+    "syntax.function": {
+      "aliases": [
+        "函数"
+      ],
+      "preferred": "定义",
+      "status": "reviewed"
+    },
+    "syntax.function-value": {
+      "aliases": [],
+      "preferred": "匿名函数",
+      "status": "reviewed"
+    },
+    "syntax.if": {
+      "aliases": [],
+      "preferred": "如果",
+      "status": "reviewed"
+    },
+    "syntax.implements": {
+      "aliases": [],
+      "preferred": "实现",
+      "status": "reviewed"
+    },
+    "syntax.import": {
+      "aliases": [],
+      "preferred": "导入",
+      "status": "reviewed"
+    },
+    "syntax.import-python": {
+      "aliases": [],
+      "preferred": "导入Python",
+      "status": "reviewed"
+    },
+    "syntax.interface": {
+      "aliases": [],
+      "preferred": "接口",
+      "status": "reviewed"
+    },
+    "syntax.let": {
+      "aliases": [],
+      "preferred": "令",
+      "status": "reviewed"
+    },
+    "syntax.match": {
+      "aliases": [],
+      "preferred": "匹配",
+      "status": "reviewed"
+    },
+    "syntax.pluck": {
+      "aliases": [],
+      "preferred": "采收",
+      "status": "reviewed"
+    },
+    "syntax.raise": {
+      "aliases": [],
+      "preferred": "抛出",
+      "status": "reviewed"
+    },
+    "syntax.return": {
+      "aliases": [],
+      "preferred": "返回",
+      "status": "reviewed"
+    },
+    "syntax.say": {
+      "aliases": [],
+      "preferred": "输出",
+      "status": "reviewed"
+    },
+    "syntax.seed-function": {
+      "aliases": [],
+      "preferred": "生成器函数",
+      "status": "reviewed"
+    },
+    "syntax.sprout-loop": {
+      "aliases": [],
+      "preferred": "萌发",
+      "status": "reviewed"
+    },
+    "syntax.super": {
+      "aliases": [],
+      "preferred": "父类",
+      "status": "reviewed"
+    },
+    "syntax.task-group": {
+      "aliases": [],
+      "preferred": "任务组",
+      "status": "reviewed"
+    },
+    "syntax.test": {
+      "aliases": [],
+      "preferred": "测试",
+      "status": "reviewed"
+    },
+    "syntax.try": {
+      "aliases": [],
+      "preferred": "尝试",
+      "status": "reviewed"
+    },
+    "syntax.type-alias": {
+      "aliases": [],
+      "preferred": "类型别名",
+      "status": "reviewed"
+    },
+    "syntax.while": {
+      "aliases": [],
+      "preferred": "当",
+      "status": "reviewed"
+    },
+    "syntax.whirl": {
+      "aliases": [],
+      "preferred": "循环",
+      "status": "reviewed"
+    },
+    "syntax.yield": {
+      "aliases": [],
+      "preferred": "产出",
+      "status": "reviewed"
+    }
+  },
+  "id": "chinese-pack",
+  "locale": "zh-Hans",
+  "schemaVersion": 1,
+  "sprout": ">=0.3,<0.4",
+  "version": "1.0.0"
+}

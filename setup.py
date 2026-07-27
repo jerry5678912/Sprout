@@ -48,7 +48,7 @@ setup(
     ],
     packages=find_packages(include=["sprout_core", "sprout_core.*"]),
     py_modules=["sprout"],
-    package_data={"sprout_core": ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]},
+    package_data={"sprout_core": ["conformance/*.json", "conformance/*.sprout", "language_packs/*.json", "stdlib/*.sprout"]},
     include_package_data=True,
     entry_points={"console_scripts": ["sprout=sprout_core.cli:entrypoint"]},
     license_files=("LICENSE", "NOTICE"),

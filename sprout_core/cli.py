@@ -8,6 +8,13 @@ from typing import Any
 from .analysis import build_workspace_index
 from .bytecode import BytecodeUnsupported, benchmark_file, compile_file as compile_bytecode_file, debug_file, disassemble, profile_file, run_file_vm
 from .lexer import Lexer
+from .languages import (
+    install_language_pack,
+    list_language_packs,
+    sync_language_pack,
+    update_language_pack,
+    validate_language_pack,
+)
 from .model import SPROUT_VERSION, SproutError, SproutRaised
 from .package import doctor, ensure_release_docs, new_project, pkg_add, pkg_info, pkg_init, pkg_list, pkg_remove, release_check
 from .parser import Parser
@@ -115,16 +122,23 @@ def main(argv: list[str]) -> int:
         elif argv[1] in {"version", "--version", "-V"}:
             print(f"Sprout {SPROUT_VERSION}")
         elif argv[1] == "run":
-            if len(argv) < 3:
-                print("usage: sprout.py run [--vm] FILE.sprout|DIR [args]", file=sys.stderr)
+            values = argv[2:]
+            use_vm, language_override, target, program_args = parse_run_command(values)
+            if target is None:
+                print("usage: sprout.py run [--vm] [--language PACK] FILE.sprout|DIR [args]", file=sys.stderr)
                 return 2
-            if argv[2] == "--vm":
-                if len(argv) < 4:
-                    print("usage: sprout.py run --vm FILE.sprout [args]", file=sys.stderr)
-                    return 2
-                run_file_vm(argv[3], argv[4:])
+            if use_vm:
+                run_file_vm(
+                    target,
+                    program_args,
+                    language_override=language_override,
+                )
             else:
-                run_file(argv[2], argv[3:])
+                run_file(
+                    target,
+                    program_args,
+                    language_override=language_override,
+                )
         elif argv[1] == "compile":
             if len(argv) < 3:
                 print("usage: sprout.py compile FILE.sprout", file=sys.stderr)
@@ -395,6 +409,46 @@ def main(argv: list[str]) -> int:
             return uninstall_language(prefix=option_value(argv, "--prefix"))
         elif argv[1] == "language-package":
             package_language(option_value(argv, "--output"))
+        elif argv[1] == "language":
+            if len(argv) < 3:
+                print("usage: sprout.py language list|install|update|validate|sync [...]", file=sys.stderr)
+                return 2
+            command = argv[2]
+            if command == "list":
+                for item in list_language_packs():
+                    print(
+                        f"{item['id']} {item['version']} {item['locale']} "
+                        f"reviewed={item['reviewed']} generated={item['generated']} "
+                        f"fallback={item['fallback']}"
+                    )
+                return 0
+            if command == "install" and len(argv) >= 4:
+                result = install_language_pack(
+                    argv[3],
+                    registry=option_value(argv, "--registry"),
+                )
+                print(f"installed language pack {result['id']} {result['version']}")
+                return 0
+            if command == "update" and len(argv) >= 4:
+                result = update_language_pack(
+                    argv[3],
+                    registry=option_value(argv, "--registry"),
+                )
+                print(f"updated language pack {result['id']} {result['version']}")
+                return 0
+            if command == "validate" and len(argv) >= 4:
+                result = validate_language_pack(argv[3])
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
+            if command == "sync" and len(argv) >= 4:
+                result = sync_language_pack(
+                    argv[3],
+                    translator_command=option_value(argv, "--translator-command"),
+                )
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
+            print("usage: sprout.py language list | install PACK [--registry URL] | update PACK [--registry URL] | validate PATH | sync PATH [--translator-command CMD]", file=sys.stderr)
+            return 2
         elif argv[1] == "vscode-package":
             package_vscode_extension(option_value(argv, "--output"))
         elif argv[1] == "check":
@@ -494,6 +548,7 @@ def positional_value(values: list[str], default: str) -> str:
         if value in {
             "--registry", "--prefix", "--output", "--token", "--root", "--host",
             "--port", "--packages", "--manifest", "--iterations", "--seed",
+            "--language", "--translator-command",
         }:
             skip_next = True
             continue
@@ -501,3 +556,25 @@ def positional_value(values: list[str], default: str) -> str:
             continue
         return value
     return default
+
+
+def parse_run_command(
+    values: list[str],
+) -> tuple[bool, str | None, str | None, list[str]]:
+    use_vm = False
+    language_override: str | None = None
+    index = 0
+    while index < len(values):
+        value = values[index]
+        if value == "--vm":
+            use_vm = True
+            index += 1
+            continue
+        if value == "--language":
+            if index + 1 >= len(values):
+                return use_vm, None, None, []
+            language_override = values[index + 1]
+            index += 2
+            continue
+        return use_vm, language_override, value, values[index + 1:]
+    return use_vm, language_override, None, []

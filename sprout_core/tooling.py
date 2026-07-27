@@ -12,13 +12,24 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     tomllib = None
 
 from .lexer import Lexer
+from .languages import concept_spellings, language_pack_for_source
 from .model import Diagnostic, SproutError, SproutProject, Symbol, KEYWORDS, resolve_module_file, standard_library_paths
 from .parser import Parser
 from .runtime import Interpreter, attach_error_source, format_value, native_runtime_error
 
-IMPORT_RE = re.compile(r'^\s*import\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
-IMPORTPY_RE = re.compile(r'^\s*importpython\s+(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?')
-ASSIGN_RE = re.compile(r'^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=')
+IDENT_PATTERN = r"[^\W\d]\w*"
+
+
+def _concept_pattern(concept_id: str) -> str:
+    return "(?:" + "|".join(re.escape(word) for word in concept_spellings(concept_id)) + ")"
+
+
+IMPORT_WORD = _concept_pattern("syntax.import")
+IMPORTPY_WORD = _concept_pattern("syntax.import-python")
+ALIAS_WORD = _concept_pattern("syntax.alias")
+IMPORT_RE = re.compile(rf'^\s*{IMPORT_WORD}\s+(?:"([^"]+)"|({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*))(?:\s+{ALIAS_WORD}\s+({IDENT_PATTERN}))?')
+IMPORTPY_RE = re.compile(rf'^\s*{IMPORTPY_WORD}\s+(?:"([^"]+)"|({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*))(?:\s+{ALIAS_WORD}\s+({IDENT_PATTERN}))?')
+ASSIGN_RE = re.compile(rf'^(\s*)({IDENT_PATTERN})\s*=')
 
 
 def _levenshtein_distance(left: str, right: str) -> int:
@@ -211,6 +222,7 @@ def load_project(path: str) -> SproutProject | None:
     metadata = {**project_data, **package_data}
     paths_data = data.get("paths", {})
     tool_data = data.get("tool", {})
+    language_data = data.get("language", {})
     dependencies = data.get("dependencies", {})
     source_folders = paths_data.get("source", project_data.get("source_folders", project_data.get("src", ["."])))
     module_paths = paths_data.get("modules", project_data.get("module_paths", []))
@@ -230,6 +242,7 @@ def load_project(path: str) -> SproutProject | None:
         module_paths=[str(item) for item in module_paths],
         dependencies=dependencies,
         tool_settings=tool_data,
+        language_default=str(language_data.get("default", "english-pack")),
     )
 
 
@@ -249,11 +262,25 @@ def run_source(
     source_path: str | None = None,
     argv: list[str] | None = None,
     module_search_paths: list[str] | None = None,
+    language_override: str | None = None,
+    language_default: str | None = None,
 ) -> None:
     try:
-        tokens = Lexer(source).tokenize()
+        lexer = Lexer(
+            source,
+            language_pack=language_override,
+            default_language_pack=language_default,
+        )
+        tokens = lexer.tokenize()
         program = Parser(tokens).parse()
-        Interpreter(source_path=source_path, argv=argv, module_search_paths=module_search_paths).run(program)
+        Interpreter(
+            source_path=source_path,
+            argv=argv,
+            module_search_paths=module_search_paths,
+            language_pack=lexer.language_pack,
+            language_override=language_override,
+            language_default=language_default,
+        ).run(program)
     except SproutError as exc:
         attach_error_source(exc, source_path, source)
         raise
@@ -263,8 +290,18 @@ def run_source(
         raise error from None
 
 
-def parse_source(source: str) -> list[Any]:
-    return Parser(Lexer(source).tokenize()).parse()
+def parse_source(
+    source: str,
+    language_override: str | None = None,
+    language_default: str | None = None,
+) -> list[Any]:
+    return Parser(
+        Lexer(
+            source,
+            language_pack=language_override,
+            default_language_pack=language_default,
+        ).tokenize()
+    ).parse()
 
 
 def read_source_file(path: str) -> tuple[str, str]:
@@ -283,10 +320,21 @@ def resolve_run_target(path: str) -> tuple[str, SproutProject | None]:
     return path, project
 
 
-def run_file(path: str, args: list[str] | None = None) -> None:
+def run_file(
+    path: str,
+    args: list[str] | None = None,
+    language_override: str | None = None,
+) -> None:
     target, project = resolve_run_target(path)
     source, resolved = read_source_file(target)
-    run_source(source, source_path=resolved, argv=args or [], module_search_paths=module_search_paths_for(resolved, project))
+    run_source(
+        source,
+        source_path=resolved,
+        argv=args or [],
+        module_search_paths=module_search_paths_for(resolved, project),
+        language_override=language_override,
+        language_default=project.language_default if project else None,
+    )
 
 
 def parse_file(path: str) -> tuple[list[Any], str, str]:
@@ -603,9 +651,33 @@ def lint_source(source: str, path: str | None = None, program: list[Any] | None 
     return diagnostics
 
 
-def format_source(source: str) -> str:
+def format_source(source: str, language_default: str | None = None) -> str:
+    raw_lines = source.splitlines()
+    replacements: dict[int, list[tuple[int, int, str]]] = {}
+    try:
+        lexer = Lexer(source, default_language_pack=language_default)
+        for token in lexer.tokenize():
+            if not token.source_value:
+                continue
+            word = lexer.language_pack.keyword(str(token.source_value))
+            if not word:
+                continue
+            preferred = lexer.language_pack.preferred(word.concept_id)
+            if preferred == token.source_value:
+                continue
+            start = token.col - 1
+            replacements.setdefault(token.line - 1, []).append(
+                (start, start + len(str(token.source_value)), preferred)
+            )
+    except SproutError:
+        replacements = {}
     out = []
-    for line in source.splitlines():
+    for line_index, line in enumerate(raw_lines):
+        for start, end, replacement in sorted(
+            replacements.get(line_index, []),
+            reverse=True,
+        ):
+            line = line[:start] + replacement + line[end:]
         expanded = line.expandtabs(2).rstrip()
         out.append(expanded)
     formatted = "\n".join(out)
@@ -648,7 +720,11 @@ def format_file(path: str, write: bool = False) -> int:
                 format_file(file_path, write=False)
         return 0
     source, resolved = read_source_file(path)
-    formatted = format_source(source)
+    project = project_for_path(resolved)
+    formatted = format_source(
+        source,
+        language_default=project.language_default if project else None,
+    )
     if write:
         with open(resolved, "w", encoding="utf-8") as fh:
             fh.write(formatted)
@@ -699,7 +775,7 @@ def dotted_base_before(source: str, line: int, col: int) -> str | None:
     if line_index >= len(lines):
         return None
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.[A-Za-z0-9_]*$", before)
+    match = re.search(rf"({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*)\.(?:{IDENT_PATTERN})?$", before)
     return match.group(1) if match else None
 
 
@@ -709,7 +785,7 @@ def completion_prefix_before(source: str, line: int, col: int) -> str:
     if line_index >= len(lines):
         return ""
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)$", before)
+    match = re.search(rf"({IDENT_PATTERN})$", before)
     return match.group(1) if match else ""
 
 
@@ -719,29 +795,37 @@ def member_completion_parts_before(source: str, line: int, col: int) -> tuple[st
     if line_index >= len(lines):
         return (None, "")
     before = lines[line_index][: max(0, col - 1)]
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$", before)
+    match = re.search(rf"({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*)\.((?:{IDENT_PATTERN})?)$", before)
     if not match:
         return (None, "")
     return (match.group(1), match.group(2))
 
 
-def import_completion_context(source: str, line: int, col: int) -> dict[str, str] | None:
+def import_completion_context(
+    source: str,
+    line: int,
+    col: int,
+    language_default: str | None = None,
+) -> dict[str, str] | None:
     lines = source.splitlines()
     line_index = max(0, line - 1)
     if line_index >= len(lines):
         return None
     before = lines[line_index][: max(0, col - 1)]
-    bare_match = re.match(r"^\s*(import|importpython)\s+([A-Za-z_][A-Za-z0-9_.]*)?$", before)
+    pack = language_pack_for_source(source, language_default=language_default)
+    bare_match = re.match(rf"^\s*({IMPORT_WORD}|{IMPORTPY_WORD})\s+({IDENT_PATTERN}(?:\.{IDENT_PATTERN})*)?$", before)
     if bare_match:
+        word = pack.keyword(bare_match.group(1))
         return {
-            "kind": bare_match.group(1),
+            "kind": word.canonical if word else bare_match.group(1),
             "quoted": "false",
             "prefix": bare_match.group(2) or "",
         }
-    quoted_match = re.match(r'^\s*(import|importpython)\s+"([^"]*)?$', before)
+    quoted_match = re.match(rf'^\s*({IMPORT_WORD}|{IMPORTPY_WORD})\s+"([^"]*)?$', before)
     if quoted_match:
+        word = pack.keyword(quoted_match.group(1))
         return {
-            "kind": quoted_match.group(1),
+            "kind": word.canonical if word else quoted_match.group(1),
             "quoted": "true",
             "prefix": quoted_match.group(2) or "",
         }
@@ -751,13 +835,18 @@ def import_completion_context(source: str, line: int, col: int) -> dict[str, str
 def import_completion_symbols(path: str, source: str, line: int, col: int) -> list[Any]:
     from .analysis import Location, SemanticSymbol
 
-    context = import_completion_context(source, line, col)
+    project = project_for_path(path)
+    context = import_completion_context(
+        source,
+        line,
+        col,
+        language_default=project.language_default if project else None,
+    )
     if not context:
         return []
     if context["kind"] != "import":
         return []
     prefix = context["prefix"]
-    project = project_for_path(path)
     choices = sorted(available_module_names(path, project))
     if prefix:
         lowered = prefix.lower()
@@ -787,8 +876,18 @@ def import_completion_symbols(path: str, source: str, line: int, col: int) -> li
     return items
 
 
-def is_import_context(source: str, line: int, col: int) -> bool:
-    return import_completion_context(source, line, col) is not None
+def is_import_context(
+    source: str,
+    line: int,
+    col: int,
+    language_default: str | None = None,
+) -> bool:
+    return import_completion_context(
+        source,
+        line,
+        col,
+        language_default=language_default,
+    ) is not None
 
 
 def completion_ready_source(source: str, line: int, col: int) -> str:
@@ -797,7 +896,7 @@ def completion_ready_source(source: str, line: int, col: int) -> str:
     if line_index >= len(lines):
         return source
     before = lines[line_index][: max(0, col - 1)]
-    if re.search(r"[A-Za-z_][A-Za-z0-9_]*\.$", before):
+    if re.search(rf"{IDENT_PATTERN}\.$", before):
         lines[line_index] = before + "__sprout_completion__"
         return "\n".join(lines) + ("\n" if source.endswith("\n") else "")
     return source
@@ -830,7 +929,7 @@ def _scan_call_context(before: str) -> tuple[str, int] | None:
                 depth -= 1
                 continue
             prefix = before[:index]
-            match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*$", prefix)
+            match = re.search(rf"({IDENT_PATTERN}(?:\.{IDENT_PATTERN})?)\s*$", prefix)
             if not match:
                 return None
             return match.group(1), _active_argument_index(before[index + 1:])
@@ -937,9 +1036,15 @@ def intelligence_file(path: str, kind: str, line: int, col: int, source_path: st
 
     if kind == "completions":
         import_symbols = import_completion_symbols(resolved, source, line, col)
+        project = project_for_path(resolved)
         base, member_prefix = member_completion_parts_before(source, line, col)
         prefix = member_prefix if base else completion_prefix_before(source, line, col)
-        if is_import_context(source, line, col):
+        if is_import_context(
+            source,
+            line,
+            col,
+            language_default=project.language_default if project else None,
+        ):
             symbols = import_symbols
             base = None
         elif import_symbols:

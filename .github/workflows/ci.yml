@@ -51,6 +51,7 @@ jobs:
           python tests/debug_adapter.py
           python sprout.py conformance
           python tools/check_editor_coverage.py
+          python tools/check_language_pack_coverage.py
       - name: Build Python package
         run: |
           python -m build

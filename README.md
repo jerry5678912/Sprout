@@ -936,6 +936,7 @@ expose the original raw traceback while debugging Sprout itself.
 - `sprout_core/bytecode.py`: experimental bytecode compiler, disassembler, VM, and benchmark support
 - `sprout_core/tooling.py`: project loading, module search paths, check/lint/fmt helpers, symbol collection, and JSON diagnostics
 - `sprout_core/analysis.py`: semantic workspace indexing, completions, hovers, definitions, references, rename edits, signatures, and editor diagnostics
+- `sprout_core/languages.py`: canonical language catalog, bootstrap selection, data-only pack validation, installation, and synchronization
 - `sprout_core/cli.py`: command-line interface and REPL
 - `tools/sprout_lsp.py`: production stdio LSP server backed by the semantic workspace index
 - `examples/`: sample Sprout programs
@@ -944,6 +945,10 @@ expose the original raw traceback while debugging Sprout itself.
 - `examples/data/`: tiny data files for demos
 - `tests/`: smoke test script
 - `editor/vscode-sprout/`: local VS Code language package with highlighting, snippets, completions, and hover help
+
+The experimental polyglot language-pack architecture and Simplified Chinese
+reference pack are documented in
+[docs/POLYGLOT_LANGUAGE_PACKS.md](docs/POLYGLOT_LANGUAGE_PACKS.md).
 
 ## Editor Support
 

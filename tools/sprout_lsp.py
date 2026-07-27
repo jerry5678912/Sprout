@@ -79,6 +79,14 @@ def uri_from_path(path: str | None) -> str:
     return Path(path).resolve().as_uri()
 
 
+def language_pack_for_document(source: str, path: str | None = None) -> sprout.LanguagePack:
+    project = sprout.project_for_path(path) if path else None
+    return sprout.language_pack_for_source(
+        source,
+        language_default=project.language_default if project else None,
+    )
+
+
 def position(line: int, character: int) -> dict[str, int]:
     return {"line": max(0, line), "character": max(0, character)}
 
@@ -189,7 +197,7 @@ def word_span(source: str, line: int, character: int) -> tuple[str, int, int]:
 
 
 def dotted_base(text: str) -> str | None:
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z0-9_]*$", text)
+    match = re.search(r"([^\W\d]\w*)\.(?:[^\W\d]\w*)?$", text)
     return match.group(1) if match else None
 
 
@@ -264,7 +272,7 @@ def call_context(before: str) -> tuple[str, int] | None:
                 depth -= 1
                 continue
             prefix = before[:index]
-            match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*$", prefix)
+            match = re.search(r"([^\W\d]\w*(?:\.[^\W\d]\w*)?)\s*$", prefix)
             if not match:
                 return None
             return match.group(1), active_argument_index(before[index + 1:])
@@ -469,19 +477,33 @@ def duplicate_argument_edit_range(line: str, parameter: str) -> tuple[int, int] 
     return (start, remove_end)
 
 
-def lsp_diagnostic(diag: sprout.Diagnostic, source: str = "") -> dict[str, Any]:
+def lsp_diagnostic(
+    diag: sprout.Diagnostic,
+    source: str = "",
+    path: str | None = None,
+) -> dict[str, Any]:
     severity = {
         "error": 1,
         "warning": 2,
         "information": 3,
         "hint": 4,
     }.get(diag.severity, 2)
+    message = diag.message
+    if source:
+        try:
+            message = language_pack_for_document(source, path).diagnostic(
+                diag.code,
+                diag.message,
+                diag.data,
+            )
+        except sprout.SproutError:
+            pass
     payload = {
         "range": diagnostic_range(diag, source),
         "severity": severity,
         "code": diag.code,
         "source": "sprout",
-        "message": diag.message,
+        "message": message,
     }
     if diag.data:
         payload["data"] = diag.data
@@ -782,7 +804,8 @@ class SproutLanguageServer:
             self.notify("textDocument/publishDiagnostics", payload)
             return
         index = self.index_for_uri(uri, changed_paths=changed_paths, reason=reason)
-        file = index.files.get(os.path.realpath(path_from_uri(uri)))
+        path = os.path.realpath(path_from_uri(uri))
+        file = index.files.get(path)
         diagnostics = file.diagnostics if file else []
         diagnostics_settings = self.settings.get("diagnostics") or {}
         analysis_settings = self.settings.get("analysis") or {}
@@ -805,7 +828,7 @@ class SproutLanguageServer:
                 str(analysis_settings.get("typeCheckingMode", "basic")),
                 analysis_settings.get("diagnosticSeverityOverrides") or {},
             )
-        payload = [lsp_diagnostic(diag, source) for diag in diagnostics]
+        payload = [lsp_diagnostic(diag, source, path) for diag in diagnostics]
         deduped = {}
         for item in payload:
             start = item["range"]["start"]
@@ -951,13 +974,19 @@ class SproutLanguageServer:
 
     def completion(self, uri: str, pos: dict[str, int]) -> dict[str, Any]:
         source = self.source_for_uri(uri)
+        pack = language_pack_for_document(source, path_from_uri(uri))
         lines = source.splitlines()
         line_number = int(pos.get("line", 0))
         line = lines[line_number] if line_number < len(lines) else ""
         before = line[: int(pos.get("character", 0))]
         base, member_prefix = sprout.member_completion_parts(before)
         index = self.index_for_uri(uri, rebuild=False)
-        import_context = sprout.is_import_context(source, line_number + 1, int(pos.get("character", 0)) + 1)
+        import_context = sprout.is_import_context(
+            source,
+            line_number + 1,
+            int(pos.get("character", 0)) + 1,
+            language_default=pack.id,
+        )
         import_symbols = sprout.import_completion_symbols(path_from_uri(uri), source, line_number + 1, int(pos.get("character", 0)) + 1)
         prefix = member_prefix if base else sprout.completion_prefix(before)
         if import_context:
@@ -983,12 +1012,40 @@ class SproutLanguageServer:
         items = []
         for idx, symbol in enumerate(symbols):
             item = completion_item(symbol)
+            if symbol.kind == "builtin":
+                concept_id = f"builtin.{symbol.name}"
+                if concept_id in sprout.CATALOG:
+                    localized = pack.preferred(concept_id)
+                    item["label"] = localized
+                    if "insertText" in item:
+                        item["insertText"] = f"{localized}($1)"
+                    item["detail"] = f"{symbol.signature or symbol.name} · {pack.locale}"
             item["sortText"] = completion_sort_key(idx)
             items.append(item)
+        if not base and not import_context and not items:
+            for name, symbol in sorted(sprout.BUILTINS.items()):
+                concept_id = f"builtin.{name}"
+                if concept_id not in sprout.CATALOG:
+                    continue
+                localized = pack.preferred(concept_id)
+                if prefix and not localized.startswith(prefix):
+                    continue
+                item = completion_item(symbol)
+                item["label"] = localized
+                if "insertText" in item:
+                    item["insertText"] = f"{localized}($1)"
+                item["detail"] = f"{symbol.signature or name} · {pack.locale}"
+                item["sortText"] = completion_sort_key(len(items))
+                items.append(item)
         if not base and not import_context and (not prefix or not items):
             existing = {item["label"] for item in items}
             start_index = len(items)
-            for offset, word in enumerate(sorted(sprout.KEYWORDS)):
+            preferred_keywords = sorted({
+                pack.preferred(concept.id)
+                for concept in sprout.KEYWORD_CONCEPTS
+                if concept.token_kind != "IDENT"
+            })
+            for offset, word in enumerate(preferred_keywords):
                 if word in existing:
                     continue
                 items.append({
@@ -1001,6 +1058,11 @@ class SproutLanguageServer:
 
     def hover(self, uri: str, pos: dict[str, int]) -> dict[str, Any] | None:
         _index, _path, word, symbol = self.symbol_at(uri, pos)
+        source = self.source_for_uri(uri)
+        pack = language_pack_for_document(source, path_from_uri(uri))
+        localized_word = pack.word(word)
+        if symbol is None and localized_word and localized_word.concept_id.startswith("builtin."):
+            symbol = sprout.BUILTINS.get(localized_word.canonical)
         if symbol:
             title = symbol.signature or symbol.qualified_name
             docs = symbol.documentation or f"Sprout {symbol.kind}."
@@ -1026,8 +1088,16 @@ class SproutLanguageServer:
                 defined = f"\n\nDefined at `{symbol.location.path}:{symbol.location.line}:{symbol.location.col}`."
             meta = "\n".join(f"- {item}" for item in details)
             return {"contents": {"kind": "markdown", "value": f"```sprout\n{title}\n```\n\n{meta}\n\n{docs}{defined}"}}
-        if word in sprout.KEYWORDS:
-            return {"contents": {"kind": "markdown", "value": f"**{word}**\n\nSprout keyword."}}
+        keyword = pack.keyword(word)
+        if keyword:
+            concept = sprout.CATALOG[keyword.concept_id]
+            fallback = "" if word == concept.english else f"\n\nCanonical English: `{concept.english}`."
+            return {
+                "contents": {
+                    "kind": "markdown",
+                    "value": f"**{word}**\n\n{concept.context}{fallback}",
+                }
+            }
         return None
 
     def definition(self, uri: str, pos: dict[str, int]) -> list[dict[str, Any]]:
@@ -1067,7 +1137,7 @@ class SproutLanguageServer:
         }
 
     def rename(self, uri: str, pos: dict[str, int], new_name: str) -> dict[str, Any]:
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", new_name):
+        if not new_name.isidentifier():
             raise ValueError("New name must be a valid Sprout identifier")
         index, _path, word, symbol = self.symbol_at(uri, pos)
         if not word or not sprout.rename_safe(symbol):
@@ -1133,6 +1203,7 @@ class SproutLanguageServer:
         if not file:
             return {"data": []}
         lines = file.source.splitlines()
+        pack = language_pack_for_document(file.source, path)
         symbol_by_id = {symbol.symbol_id: symbol for symbol in file.symbols}
         raw_tokens: set[tuple[int, int, int, int, int]] = set()
 
@@ -1171,14 +1242,22 @@ class SproutLanguageServer:
                 add(line_index, match.start() + 1, len(match.group(0)), "string")
             for match in NUMBER_TOKEN_RE.finditer(masked):
                 add(line_index, match.start() + 1, len(match.group(0)), "number")
-            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()", masked):
+            builtin_aliases = pack.aliases_for_category("builtin")
+            for match in re.finditer(r"(?<!\w)([^\W\d]\w*)\s*(?=\()", masked):
                 word = match.group(1)
-                if word in sprout.BUILTINS:
+                if word in sprout.BUILTINS or builtin_aliases.get(word) in sprout.BUILTINS:
                     add(line_index, match.start(1) + 1, len(word), "function")
-            for match in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\b", masked):
-                word = match.group(0)
-                if word in sprout.KEYWORDS:
-                    add(line_index, match.start() + 1, len(word), "keyword")
+        try:
+            for token in sprout.Lexer(file.source, language_pack=pack).tokenize():
+                if token.kind in {
+                    concept.token_kind
+                    for concept in sprout.KEYWORD_CONCEPTS
+                    if concept.token_kind != "IDENT"
+                }:
+                    spelling = str(token.source_value or token.value)
+                    add(token.line, token.col, len(spelling), "keyword")
+        except sprout.SproutError:
+            pass
 
         ordered = sorted(raw_tokens)
         data: list[int] = []

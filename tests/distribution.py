@@ -104,6 +104,7 @@ def test_release_archives() -> None:
             assert f"sprout-{SPROUT_VERSION}/tests/smoke.sh" in names
         with zipfile.ZipFile(extension) as archive:
             names = archive.namelist()
+            assert not any(Path(name).name == ".DS_Store" for name in names)
             assert "[Content_Types].xml" in names
             assert "extension.vsixmanifest" in names
             assert b"<GalleryFlags>Public</GalleryFlags>" in archive.read("extension.vsixmanifest")
@@ -135,7 +136,7 @@ def test_python_package_metadata() -> None:
     assert 'license-files = ["LICENSE", "NOTICE"]' in metadata
     assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
     assert 'py-modules = ["sprout"]' in metadata
-    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]' in metadata
+    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout", "language_packs/*.json", "stdlib/*.sprout"]' in metadata
     module = subprocess.run(
         [sys.executable, "-m", "sprout_core", "version"],
         cwd=ROOT,

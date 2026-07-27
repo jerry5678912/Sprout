@@ -251,7 +251,7 @@ Current reserved words:
 </p>
 <pre><code class="language-text">
 True and as break bloom catch class continue def each elif else extends
-false fn for if import importpython in let nil none not or pluck raise
+false fn for if import importpython in let nil not or pluck raise
 return say sprout super try whirl while
 </code></pre>
 <p>
@@ -263,7 +263,7 @@ Keyword aliases:
 <li><code>let</code> and <code>sprout</code> declare variables.</li>
 <li><code>while</code> and <code>whirl</code> start while loops.</li>
 <li><code>for</code> and <code>each</code> start iterable loops.</li>
-<li><code>nil</code> and <code>none</code> mean no value.</li>
+<li><code>nil</code> means no value.</li>
 <li><code>True</code> and <code>false</code> are booleans.</li>
 </ul>
 <h2 id="5-values-and-types">5. Values and Types</h2>
@@ -410,7 +410,6 @@ No value:
 </p>
 <pre><code class="language-sprout">
 nil
-none
 </code></pre>
 <p>
 Only <code>false</code> and <code>nil</code> are falsey. Everything else is truthy, including <code>0</code>, empty strings, and empty arrays.

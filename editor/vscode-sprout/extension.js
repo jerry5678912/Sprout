@@ -23,6 +23,7 @@ const IMPORT_ALIAS_DEFAULT_KIND = "sprout";
 const importedModuleSymbolCache = new Map();
 const importPathCandidateCache = new Map();
 const installedRunnerCache = new Map();
+const staticLanguagePackCache = new Map();
 
 function findDebugAdapter(context, runner) {
   const candidates = [
@@ -291,7 +292,6 @@ const keywordEntries = [
   ["True", "Boolean true.", "True"],
   ["false", "Boolean false.", "false"],
   ["nil", "No value.", "nil"],
-  ["none", "No value alias.", "none"]
 ];
 
 const methodEntries = [
@@ -846,7 +846,7 @@ async function localCompletionFallback(context, document, lineText, position, im
   }
 
   const before = lineText.slice(0, position.character);
-  const memberAccess = before.match(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/);
+  const memberAccess = before.match(/([\p{L}_][\p{L}\p{N}_]*)\.([\p{L}\p{N}_]*)$/u);
   if (memberAccess) {
     const imported = await importAliasCompletions(
       context,
@@ -860,11 +860,43 @@ async function localCompletionFallback(context, document, lineText, position, im
     return [];
   }
 
+  const localizedEntries = staticLanguagePackEntries(context, document);
+  const fallbackEntries = localizedEntries.length > 0 ? localizedEntries : completeTopLevelEntries;
   return finalizeCompletionEntries(
-    completeTopLevelEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)),
+    fallbackEntries.map(([label, docs, insert, kind]) => completion(label, docs, insert, kind)),
     lineText,
     position.character
   );
+}
+
+function staticLanguagePackEntries(context, document) {
+  const source = document.getText();
+  const match = source.match(/^\uFEFF?(?:(?:#![^\n]*|[ \t]*#(?!\!)[^\n]*|[ \t]*)\r?\n)*[ \t]*language[ \t]+"([a-z0-9][a-z0-9._-]*)"/);
+  if (!match || match[1] === "english-pack") return [];
+  const packId = match[1];
+  if (staticLanguagePackCache.has(packId)) {
+    return staticLanguagePackCache.get(packId);
+  }
+  const packPath = path.join(context.extensionPath, "sprout_core", "language_packs", `${packId}.json`);
+  try {
+    const pack = JSON.parse(fs.readFileSync(packPath, "utf8"));
+    const localized = [];
+    for (const [conceptId, entry] of Object.entries(pack.entries || {})) {
+      const label = String(entry.preferred || "");
+      if (!label) continue;
+      if (/^(syntax|constant|operator)\./.test(conceptId)) {
+        localized.push([label, `Sprout ${pack.locale || packId} keyword.`, label, vscode.CompletionItemKind.Keyword]);
+      } else if (conceptId.startsWith("builtin.")) {
+        localized.push([label, `Sprout ${pack.locale || packId} built-in.`, `${label}($1)`, vscode.CompletionItemKind.Function]);
+      }
+    }
+    const result = uniqueEntries(localized);
+    staticLanguagePackCache.set(packId, result);
+    return result;
+  } catch (_error) {
+    staticLanguagePackCache.set(packId, []);
+    return [];
+  }
 }
 
 function installedModuleRunner(pythonPath) {
@@ -1525,17 +1557,17 @@ function inferDiagnosticRange(document, line, character) {
   const before = lineText.slice(0, Math.max(0, column));
   const after = lineText.slice(Math.max(0, column));
   let start = Math.max(0, Math.min(column, lineText.length - 1));
-  const beforeMatch = before.match(/([A-Za-z_][A-Za-z0-9_]*)$/);
+  const beforeMatch = before.match(/([\p{L}_][\p{L}\p{N}_]*)$/u);
   if (beforeMatch) {
     start = before.length - beforeMatch[1].length;
-  } else if (/^[A-Za-z_][A-Za-z0-9_]*/.test(after)) {
+  } else if (/^[\p{L}_][\p{L}\p{N}_]*/u.test(after)) {
     start = column;
   }
   const first = lineText[start] || "";
   let length = 1;
-  if (/[A-Za-z_]/.test(first)) {
+  if (/[\p{L}_]/u.test(first)) {
     let end = start + 1;
-    while (end < lineText.length && /[A-Za-z0-9_]/.test(lineText[end])) {
+    while (end < lineText.length && /[\p{L}\p{N}_]/u.test(lineText[end])) {
       end += 1;
     }
     length = Math.max(1, end - start);

@@ -1455,11 +1455,20 @@ class TypeChecker:
         return self.diagnostics
 
 
-def typecheck_source(source: str, path: str) -> list[Diagnostic]:
-    try:
-        program = Parser(Lexer(source).tokenize()).parse()
-    except SproutError as exc:
-        return [Diagnostic("error", str(exc), path, exc.line, exc.col, "SPROUT_SYNTAX")]
+def typecheck_source(
+    source: str,
+    path: str,
+    *,
+    language_default: str | None = None,
+    program: list[Any] | None = None,
+) -> list[Diagnostic]:
+    if program is None:
+        try:
+            program = Parser(
+                Lexer(source, default_language_pack=language_default).tokenize()
+            ).parse()
+        except SproutError as exc:
+            return [Diagnostic("error", str(exc), path, exc.line, exc.col, "SPROUT_SYNTAX")]
     return TypeChecker(path).check(program)
 
 
@@ -1476,10 +1485,19 @@ def source_files(target: str) -> list[Path]:
 
 
 def typecheck_path(target: str, *, json_mode: bool = False) -> int:
+    from .tooling import project_for_path
+
     diagnostics: list[Diagnostic] = []
     files = source_files(target)
     for path in files:
-        diagnostics.extend(typecheck_source(path.read_text(encoding="utf-8"), str(path)))
+        project = project_for_path(str(path))
+        diagnostics.extend(
+            typecheck_source(
+                path.read_text(encoding="utf-8"),
+                str(path),
+                language_default=project.language_default if project else None,
+            )
+        )
     payload = {
         "ok": not diagnostics,
         "files": len(files),

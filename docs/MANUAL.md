@@ -185,7 +185,7 @@ Current reserved words:
 
 ```text
 True and as break bloom catch class continue def each elif else extends
-false fn for if import importpython in let nil none not or pluck raise
+false fn for if import importpython in let nil not or pluck raise
 return say sprout super try whirl while
 ```
 
@@ -196,7 +196,7 @@ Keyword aliases:
 - `let` and `sprout` declare variables.
 - `while` and `whirl` start while loops.
 - `for` and `each` start iterable loops.
-- `nil` and `none` mean no value.
+- `nil` means no value.
 - `True` and `false` are booleans.
 
 ## 5. Values and Types
@@ -343,7 +343,6 @@ No value:
 
 ```sprout
 nil
-none
 ```
 
 Only `false` and `nil` are falsey. Everything else is truthy, including `0`, empty strings, and empty arrays.

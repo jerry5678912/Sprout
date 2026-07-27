@@ -24,26 +24,26 @@
   },
   "onEnterRules": [
     {
-      "beforeText": "^.*(\\{|:|\\bbloom)\\s*$",
+      "beforeText": "^.*(\\{|:|\\bbloom|开始)\\s*$",
       "action": {
         "indent": "indent"
       }
     },
     {
-      "beforeText": "^\\s*(\\}|end\\b).*$",
+      "beforeText": "^\\s*(\\}|end\\b|结束).*$",
       "action": {
         "indent": "outdent"
       }
     },
     {
-      "beforeText": "^\\s*(break|continue|return|pluck|raise)\\b.*$",
+      "beforeText": "^\\s*(break|continue|return|pluck|raise|跳出|继续|返回|采收|抛出)(?:\\b|(?=\\s)).*$",
       "action": {
         "indent": "outdent"
       }
     }
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^.*(\\{|:|\\bbloom)\\s*$",
-    "decreaseIndentPattern": "^\\s*(\\}|end\\b)"
+    "increaseIndentPattern": "^.*(\\{|:|\\bbloom|开始)\\s*$",
+    "decreaseIndentPattern": "^\\s*(\\}|end\\b|结束)"
   }
 }

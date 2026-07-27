@@ -14,6 +14,7 @@ from .tooling import check_file, example_files, load_project, parse_simple_toml
 
 
 RELEASE_TEST_SCRIPTS = [
+    "tests/languages.py",
     "tests/tooling.py",
     "tests/intellisense.py",
     "tests/vm.py",
@@ -53,7 +54,7 @@ def read_toml_file(path: str) -> dict[str, Any]:
 
 def dump_sprout_toml(data: dict[str, Any]) -> str:
     lines: list[str] = []
-    for section in ("project", "package", "paths", "dependencies", "build", "registry", "tool"):
+    for section in ("project", "package", "paths", "dependencies", "language", "build", "registry", "tool"):
         value = data.get(section)
         if not isinstance(value, dict):
             continue

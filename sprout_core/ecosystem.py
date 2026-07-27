@@ -539,6 +539,7 @@ def package_record(
     checksum: str,
 ) -> dict[str, Any]:
     return {
+        "type": metadata.get("type", "library"),
         "version": metadata["version"],
         "description": metadata.get("description", ""),
         "authors": metadata.get("authors", metadata.get("author", [])),

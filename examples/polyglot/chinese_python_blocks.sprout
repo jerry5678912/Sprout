@@ -1,0 +1,6 @@
+language "chinese-pack"
+
+定义 你好():
+  输出 "你好"
+
+你好()

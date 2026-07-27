@@ -47,7 +47,7 @@
       "patterns": [
         {
           "name": "meta.class.sprout",
-          "match": "\\b(class|interface|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "(?<![\\p{L}\\p{N}_])(class|interface|enum|类|接口|枚举)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": { "name": "keyword.control.class.sprout" },
             "2": { "name": "entity.name.type.class.sprout" }
@@ -55,7 +55,7 @@
         },
         {
           "name": "meta.function.sprout",
-          "match": "\\b(?:async\\s+)?(fn|def|bloom)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "(?<![\\p{L}\\p{N}_])(?:(?:async|异步)\\s+)?(fn|def|bloom|匿名函数|定义|函数|开始)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": { "name": "storage.type.function.sprout" },
             "2": { "name": "entity.name.function.sprout" }
@@ -63,7 +63,7 @@
         },
         {
           "name": "variable.other.assignment.sprout",
-          "match": "^\\s*(?:let\\s+|sprout\\s+)?([A-Za-z_][A-Za-z0-9_]*)(?=\\s*=)",
+          "match": "^\\s*(?:(?:let|sprout|令|萌发)\\s+)?([\\p{L}_][\\p{L}\\p{N}_]*)(?=\\s*=)",
           "captures": {
             "1": { "name": "variable.other.assignment.sprout" }
           }
@@ -78,11 +78,11 @@
         },
         {
           "name": "variable.other.property.sprout",
-          "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*"
+          "match": "(?<=\\.)[\\p{L}_][\\p{L}\\p{N}_]*"
         },
         {
           "name": "support.class.sprout",
-          "match": "\\b[A-Z][A-Za-z0-9_]*(?=\\s*\\()"
+          "match": "(?<![\\p{L}\\p{N}_])[\\p{L}_][\\p{L}\\p{N}_]*(?=\\s*\\()"
         }
       ]
     },
@@ -90,19 +90,19 @@
       "patterns": [
         {
           "name": "keyword.control.sprout",
-          "match": "\\b(if|elif|else|end|while|whirl|for|each|in|is|break|continue|return|yield|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|interface|enum|match|case|implements|extends|super|async|await|taskgroup)\\b"
+          "match": "(?<![\\p{L}\\p{N}_])(if|elif|else|end|while|whirl|for|each|in|is|break|continue|return|yield|pluck|try|catch|raise|test|import|importpython|as|and|or|not|class|interface|enum|match|case|implements|extends|super|async|await|taskgroup|如果|否则如果|否则|结束|当|循环|对于|每个|在|是|跳出|继续|返回|产出|采收|尝试|捕获|抛出|测试|导入|导入Python|作为|且|或|非|类|接口|枚举|匹配|分支|实现|继承|父类|异步|等待|任务组)(?![\\p{L}\\p{N}_])"
         },
         {
           "name": "storage.type.function.sprout",
-          "match": "\\b(fn|def|bloom|seedfn)\\b"
+          "match": "(?<![\\p{L}\\p{N}_])(fn|def|bloom|seedfn|匿名函数|定义|函数|开始|生成器函数)(?![\\p{L}\\p{N}_])"
         },
         {
           "name": "storage.modifier.sprout",
-          "match": "\\b(let|sprout)\\b"
+          "match": "(?<![\\p{L}\\p{N}_])(let|sprout|令|萌发)(?![\\p{L}\\p{N}_])"
         },
         {
           "name": "constant.language.sprout",
-          "match": "\\b(True|false|nil|none)\\b"
+          "match": "(?<![\\p{L}\\p{N}_])(True|false|nil|真|假|空)(?![\\p{L}\\p{N}_])"
         }
       ]
     },
@@ -122,11 +122,11 @@
       "patterns": [
         {
           "name": "entity.name.function.sprout",
-          "match": "(?<=\\b(?:fn|def|bloom)\\s+)[A-Za-z_][A-Za-z0-9_]*"
+          "match": "(?<=\\s)[\\p{L}_][\\p{L}\\p{N}_]*(?=\\s*\\()"
         },
         {
           "name": "support.function.method.sprout",
-          "match": "\\.[A-Za-z_][A-Za-z0-9_]*"
+          "match": "\\.[\\p{L}_][\\p{L}\\p{N}_]*"
         }
       ]
     },

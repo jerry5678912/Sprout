@@ -160,6 +160,128 @@ def test_imported_factory_partial_member_completion_stays_member_only() -> None:
         assert "not" not in labels
 
 
+def test_chinese_pack_completion_hover_and_semantic_tokens() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = (
+            'language "chinese-pack"\n'
+            "定义 问候(名字):\n"
+            '  输出 "你好，" + 名字\n'
+            "\n"
+            '问候("小明")\n'
+            "范\n"
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": source,
+                },
+            },
+        })
+
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 5, "character": 1},
+        })
+        labels = {item["label"] for item in completion["result"]["items"]}
+        assert "范围" in labels
+        assert "range" not in labels
+
+        hover = request(server, 3, "textDocument/hover", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 1, "character": 1},
+        })
+        assert "Named function" in hover["result"]["contents"]["value"]
+        assert "Canonical English" in hover["result"]["contents"]["value"]
+
+        semantic = request(server, 4, "textDocument/semanticTokens/full", {
+            "textDocument": {"uri": uri},
+        })
+        tokens = decode_semantic_token_data(semantic["result"]["data"])
+        keyword_type = LSP.SEMANTIC_TOKEN_TYPE_INDEX["keyword"]
+        function_type = LSP.SEMANTIC_TOKEN_TYPE_INDEX["function"]
+        assert any(line == 1 and start == 0 and length == 2 and kind == keyword_type for line, start, length, kind, _mods in tokens)
+        assert any(line == 2 and start == 2 and length == 2 and kind == keyword_type for line, start, length, kind, _mods in tokens)
+        assert any(line == 1 and start == 3 and length == 2 and kind == function_type for line, start, length, kind, _mods in tokens)
+        assert any(line == 4 and start == 0 and length == 2 and kind == function_type for line, start, length, kind, _mods in tokens)
+        localized = LSP.lsp_diagnostic(
+            LSP.sprout.Diagnostic(
+                "warning",
+                "Unknown name '东西'",
+                str(path),
+                5,
+                1,
+                "SPROUT_UNKNOWN_NAME",
+                data={"name": "东西"},
+            ),
+            source,
+        )
+        assert localized["message"] == "未知名称“东西”"
+
+
+def test_project_default_language_pack_drives_semantic_tokens() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "sprout.toml").write_text(
+            '[project]\nname = "localized"\nmain = "main.sprout"\n\n'
+            '[language]\ndefault = "chinese-pack"\n',
+            encoding="utf-8",
+        )
+        path = root / "main.sprout"
+        (root / "player.sprout").write_text('名字 = "小明"\n', encoding="utf-8")
+        source = '导入 pla\n定义 问候():\n  输出 "你好"\n'
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "sprout",
+                    "version": 1,
+                    "text": source,
+                },
+            },
+        })
+        semantic = request(server, 2, "textDocument/semanticTokens/full", {
+            "textDocument": {"uri": uri},
+        })
+        tokens = decode_semantic_token_data(semantic["result"]["data"])
+        keyword_type = LSP.SEMANTIC_TOKEN_TYPE_INDEX["keyword"]
+        assert any(
+            line == 0 and start == 0 and length == 2 and kind == keyword_type
+            for line, start, length, kind, _mods in tokens
+        )
+        assert any(
+            line == 1 and start == 0 and length == 2 and kind == keyword_type
+            for line, start, length, kind, _mods in tokens
+        )
+        assert any(
+            line == 2 and start == 2 and length == 2 and kind == keyword_type
+            for line, start, length, kind, _mods in tokens
+        )
+        completion = request(server, 3, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": 6},
+        })
+        assert "player" in {
+            item["label"] for item in completion["result"]["items"]
+        }
+
+
 def decode_messages(raw: bytes) -> list[dict]:
     messages = []
     offset = 0
@@ -1258,6 +1380,8 @@ def main() -> int:
     test_incremental_rebuild_and_navigation()
     test_inferred_hover_completion_and_conditional_diagnostics_agree()
     test_imported_factory_partial_member_completion_stays_member_only()
+    test_chinese_pack_completion_hover_and_semantic_tokens()
+    test_project_default_language_pack_drives_semantic_tokens()
     test_protocol_lifecycle_and_incremental_sync()
     test_references_rename_and_protocol_errors()
     test_prepare_rename_refuses_module_aliases()

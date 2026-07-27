@@ -90,6 +90,15 @@ def test_instruction_source_maps() -> None:
     assert all(instruction.line == 1 for instruction in compact.instructions)
 
 
+def test_break_statement_compiles_without_eager_source_pattern_access() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("while True:\n  break\nsay \"done\"\n")
+        path = fh.name
+    result = run(["run", "--vm", path], check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "done\n"
+
+
 def test_benchmark_command() -> None:
     bench = run(["bench", "examples/vm_expanded.sprout"]).stdout
     assert "tree-walk:" in bench
@@ -117,6 +126,7 @@ def main() -> int:
     test_expanded_disassembler()
     test_vm_error_locations()
     test_instruction_source_maps()
+    test_break_statement_compiles_without_eager_source_pattern_access()
     test_benchmark_command()
     print("sprout vm tests passed")
     return 0

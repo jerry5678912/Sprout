@@ -936,6 +936,22 @@ def test_extension_uses_offside_folding_for_blank_line_guides() -> None:
     assert configuration["folding"]["offSide"] is True
 
 
+def test_extension_folding_supports_localized_garden_blocks() -> None:
+    source = (
+        "定义 问候(次数) 开始\n"
+        "  如果 次数 > 0 开始\n"
+        "    输出 次数\n"
+        "  结束\n"
+        "结束\n"
+        "\n"
+        "结果 = 3\n"
+    )
+    ranges = extension_folding_ranges(source)
+    assert {"start": 0, "end": 4, "kind": "region"} in ranges
+    assert {"start": 1, "end": 3, "kind": "region"} in ranges
+    assert all(item["end"] < 6 for item in ranges)
+
+
 def main() -> int:
     test_value_facts_join_tracks_conditional_members_and_nilability()
     test_semantic_symbol_json_exposes_inferred_facts()
@@ -984,6 +1000,7 @@ def main() -> int:
     test_cli_intelligence_queries()
     test_extension_folding_ranges_cover_dedents_and_block_styles()
     test_extension_uses_offside_folding_for_blank_line_guides()
+    test_extension_folding_supports_localized_garden_blocks()
     print("sprout intellisense tests passed")
     return 0
 

@@ -37,63 +37,13 @@ def resolve_module_file(path: str, current_dir: str, search_paths: list[str] | N
     return next((candidate for candidate in module_file_candidates(path, current_dir, search_paths) if os.path.isfile(candidate)), None)
 
 
-KEYWORDS = {
-    "True",
-    "and",
-    "as",
-    "async",
-    "await",
-    "break",
-    "bloom",
-    "case",
-    "catch",
-    "class",
-    "continue",
-    "def",
-    "each",
-    "elif",
-    "else",
-    "end",
-    "enum",
-    "extends",
-    "false",
-    "fn",
-    "for",
-    "if",
-    "implements",
-    "import",
-    "importpython",
-    "in",
-    "interface",
-    "is",
-    "let",
-    "match",
-    "nil",
-    "none",
-    "not",
-    "or",
-    "pluck",
-    "raise",
-    "return",
-    "say",
-    "seedfn",
-    "sprout",
-    "super",
-    "test",
-    "taskgroup",
-    "try",
-    "whirl",
-    "while",
-    "yield",
-}
-
-
 @dataclass
 class Token:
     kind: str
     value: Any
     line: int
     col: int
+    source_value: Any = None
 
 
 @dataclass
@@ -151,6 +101,7 @@ class SproutProject:
     module_paths: list[str] | None = None
     dependencies: dict[str, Any] | None = None
     tool_settings: dict[str, Any] | None = None
+    language_default: str = "english-pack"
 
     def __post_init__(self) -> None:
         self.root = os.path.abspath(self.root)
@@ -255,3 +206,9 @@ class ContinueSignal(Exception):
 class SproutRaised(Exception):
     def __init__(self, value: Any):
         self.value = value
+
+
+# Compatibility view generated from the canonical language catalog.
+from .languages import keyword_compatibility_view  # noqa: E402
+
+KEYWORDS = keyword_compatibility_view()

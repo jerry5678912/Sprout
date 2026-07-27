@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": 1,
+  "id": "english-pack",
+  "version": "1.0.0",
+  "locale": "en",
+  "sprout": "0.3.4",
+  "englishFallback": true,
+  "entries": {},
+  "diagnostics": {}
+}

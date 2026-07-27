@@ -9,7 +9,8 @@ function indentationWidth(text) {
 }
 
 function isContinuationHeader(trimmed) {
-  return /^(elif|else|catch|case)\b/.test(trimmed);
+  return /^(?:elif|else|catch|case)\b/.test(trimmed)
+    || /^(?:否则如果|否则|捕获|分支)(?=\s|:|开始|\{)/.test(trimmed);
 }
 
 function previousContentLine(lines, index) {
@@ -42,7 +43,7 @@ function computeSproutFoldingRangesFromLines(lines) {
     const trimmed = text.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
 
-    if (trimmed === "}" || trimmed === "end") {
+    if (trimmed === "}" || trimmed === "end" || trimmed === "结束") {
       const opener = explicitStack.pop();
       if (opener) {
         const endLine = previousContentLine(lines, index);
@@ -55,7 +56,7 @@ function computeSproutFoldingRangesFromLines(lines) {
 
     if (/\{$/.test(trimmed)) {
       explicitStack.push({ start: index, kind: "brace" });
-    } else if (/\bbloom\s*$/.test(trimmed)) {
+    } else if (/(?:\bbloom|开始)\s*$/.test(trimmed)) {
       explicitStack.push({ start: index, kind: "bloom" });
     }
 

@@ -31,6 +31,7 @@ LANGUAGE_FILES = [
 LANGUAGE_DIRECTORIES = ["sprout_core", "docs", "editor", "examples", "tools"]
 RELEASE_DIRECTORIES = LANGUAGE_DIRECTORIES + ["tests"]
 IGNORED_PARTS = {
+    ".DS_Store",
     ".git",
     ".idea",
     ".sprout",

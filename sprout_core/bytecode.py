@@ -10,7 +10,10 @@ import threading
 import time
 from typing import Any
 
+from .languages import load_language_pack
+from .lexer import Lexer
 from .model import SproutError, SproutRaised, module_file_candidates, resolve_module_file
+from .parser import Parser
 from .runtime import (
     Builtin,
     Env,
@@ -35,7 +38,13 @@ from .runtime import (
     value_matches_type,
 )
 from .application import submit_task
-from .tooling import module_search_paths_for, parse_source, read_source_file, run_file
+from .tooling import (
+    module_search_paths_for,
+    project_for_path,
+    read_source_file,
+    resolve_run_target,
+    run_file,
+)
 
 
 class BytecodeUnsupported(SproutError):
@@ -61,6 +70,7 @@ class CodeObject:
     ast_body: list[Any] | None = None
     is_async: bool = False
     is_generator: bool = False
+    language_pack_id: str = "english-pack"
 
 
 @dataclass
@@ -224,9 +234,19 @@ class VMInstance:
 
 
 class Compiler:
-    def __init__(self, source_path: str | None = None, source: str | None = None):
+    def __init__(
+        self,
+        source_path: str | None = None,
+        source: str | None = None,
+        language_pack_id: str = "english-pack",
+    ):
         self.source_path = source_path
-        self.code = CodeObject("<module>", source_path=source_path)
+        self.language_pack_id = language_pack_id
+        self.code = CodeObject(
+            "<module>",
+            source_path=source_path,
+            language_pack_id=language_pack_id,
+        )
         self.loop_stack: list[tuple[list[int], list[int]]] = []
         self.source_lines = (source or "").splitlines()
         self.scan_line = 0
@@ -260,8 +280,12 @@ class Compiler:
         self.code.instructions[index].arg = target
 
     def expression_code(self, expr: Any, name: str) -> CodeObject:
-        child = Compiler(self.source_path)
-        child.code = CodeObject(name, source_path=self.source_path)
+        child = Compiler(self.source_path, language_pack_id=self.language_pack_id)
+        child.code = CodeObject(
+            name,
+            source_path=self.source_path,
+            language_pack_id=self.language_pack_id,
+        )
         child.source_lines = self.source_lines
         child.scan_line = self.scan_line
         child.current_line = self.current_line
@@ -282,13 +306,8 @@ class Compiler:
             self.scan_line = max(self.scan_line, stmt[3])
             return stmt[3], stmt[4]
         patterns = {
-            "let": rf"^\s*(?:let|sprout)\s+{re.escape(str(stmt[1]))}\b",
             "import": r"^\s*import\b",
             "importpython": r"^\s*importpython\b",
-            "class": rf"^\s*class\s+{re.escape(str(stmt[1]))}\b",
-            "interface": rf"^\s*interface\s+{re.escape(str(stmt[1]))}\b",
-            "enum": rf"^\s*enum\s+{re.escape(str(stmt[1]))}\b",
-            "type_alias": rf"^\s*type\s+{re.escape(str(stmt[1]))}\b",
             "match": r"^\s*match\b",
             "if": r"^\s*(?:if|elif|else\s+if)\b",
             "while": r"^\s*(?:while|whirl)\b",
@@ -304,7 +323,13 @@ class Compiler:
             "assign": r"^\s*[A-Za-z_][A-Za-z0-9_.\[\]:]*\s*=",
             "expr": r"^\s*\S",
         }
-        pattern = patterns.get(kind)
+        if kind == "let":
+            pattern = rf"^\s*(?:let|sprout)\s+{re.escape(str(stmt[1]))}\b"
+        elif kind in {"class", "interface", "enum", "type_alias"}:
+            keyword = "type" if kind == "type_alias" else kind
+            pattern = rf"^\s*{keyword}\s+{re.escape(str(stmt[1]))}\b"
+        else:
+            pattern = patterns.get(kind)
         if not pattern:
             return self.current_line, self.current_col
         for index in range(self.scan_line, len(self.source_lines)):
@@ -444,9 +469,10 @@ class Compiler:
             for index in continues:
                 self.patch(index, loop_start)
             self.emit("JUMP", loop_start)
-            loop_end = len(self.code.instructions)
-            self.patch(jump_false, loop_end)
+            condition_cleanup = len(self.code.instructions)
+            self.patch(jump_false, condition_cleanup)
             self.emit("POP")
+            loop_end = len(self.code.instructions)
             for index in breaks:
                 self.patch(index, loop_end)
             self.loop_stack.pop()
@@ -480,7 +506,7 @@ class Compiler:
             self.loop_stack[-1][1].append(self.emit("JUMP", None))
         elif kind in {"fn", "async_fn"}:
             params = stmt[2]
-            child = Compiler(self.source_path)
+            child = Compiler(self.source_path, language_pack_id=self.language_pack_id)
             child.code = CodeObject(
                 stmt[1],
                 params=params,
@@ -488,6 +514,7 @@ class Compiler:
                 ast_body=stmt[3],
                 is_async=kind == "async_fn",
                 is_generator=contains_yield(stmt[3]),
+                language_pack_id=self.language_pack_id,
             )
             child.source_lines = self.source_lines
             child.scan_line = self.scan_line
@@ -506,7 +533,7 @@ class Compiler:
                 self.emit("LOAD_CONST", None)
             method_codes = []
             for method in stmt[3]:
-                child = Compiler(self.source_path)
+                child = Compiler(self.source_path, language_pack_id=self.language_pack_id)
                 child.code = CodeObject(
                     f"{stmt[1]}.{method[1]}",
                     params=method[2],
@@ -514,6 +541,7 @@ class Compiler:
                     ast_body=method[3],
                     is_async=method[0] == "async_fn",
                     is_generator=contains_yield(method[3]),
+                    language_pack_id=self.language_pack_id,
                 )
                 child.source_lines = self.source_lines
                 child.scan_line = max(self.scan_line, method[4])
@@ -568,8 +596,13 @@ class Compiler:
                 self.expression(value)
             self.emit("BUILD_DICT", len(expr[1]))
         elif kind == "seedfn":
-            child = Compiler(self.source_path)
-            child.code = CodeObject("<seedfn>", params=expr[1], source_path=self.source_path)
+            child = Compiler(self.source_path, language_pack_id=self.language_pack_id)
+            child.code = CodeObject(
+                "<seedfn>",
+                params=expr[1],
+                source_path=self.source_path,
+                language_pack_id=self.language_pack_id,
+            )
             child.source_lines = self.source_lines
             child.scan_line = max(self.scan_line, expr[3])
             child.current_line = expr[3]
@@ -657,8 +690,17 @@ class BytecodeVM:
         debug: bool = False,
         breakpoints: set[tuple[str | None, int]] | None = None,
         debug_controller: Any = None,
+        language_override: str | None = None,
+        language_default: str | None = None,
+        module_search_paths: list[str] | None = None,
     ):
-        self.interpreter = Interpreter(source_path=source_path, argv=argv or [], module_search_paths=module_search_paths_for(source_path))
+        self.interpreter = Interpreter(
+            source_path=source_path,
+            argv=argv or [],
+            module_search_paths=module_search_paths or module_search_paths_for(source_path),
+            language_override=language_override,
+            language_default=language_default,
+        )
         self.interpreter._bytecode_vm = self
         self.globals = self.interpreter.globals
         self.stack: list[Any] = []
@@ -687,7 +729,9 @@ class BytecodeVM:
         return child
 
     def run(self, code: CodeObject) -> Any:
-        env = Env(self.globals, is_scope_boundary=True)
+        pack = load_language_pack(code.language_pack_id)
+        env = Env(self.globals, is_scope_boundary=True, language_pack=pack)
+        self.interpreter.install_language_aliases(env, pack)
         return self.run_code(code, env)
 
     def run_code(self, code: CodeObject, env: Env) -> Any:
@@ -944,7 +988,15 @@ class BytecodeVM:
             self.stack.append(obj[start_value:end_value])
         elif op == "GET_PROPERTY":
             obj = self.pop()
-            self.stack.append(obj.get(instr.arg) if isinstance(obj, VMInstance) else self.interpreter.get_property(obj, instr.arg))
+            self.stack.append(
+                obj.get(instr.arg)
+                if isinstance(obj, VMInstance)
+                else self.interpreter.get_property(
+                    obj,
+                    instr.arg,
+                    language_pack=env.active_language_pack(),
+                )
+            )
         elif op == "SET_PROPERTY":
             value = self.pop()
             obj = self.pop()
@@ -1188,10 +1240,17 @@ class BytecodeVM:
                 source = handle.read()
         except OSError as exc:
             raise SproutError(f"Could not import Sprout module '{path}': {exc}") from None
-        env = Env(self.globals, is_scope_boundary=True)
+        code = compile_source(
+            source,
+            resolved,
+            language_override=self.interpreter.language_override,
+            language_default=self.interpreter.language_default,
+        )
+        pack = load_language_pack(code.language_pack_id)
+        env = Env(self.globals, is_scope_boundary=True, language_pack=pack)
+        self.interpreter.install_language_aliases(env, pack)
         module = SproutModule(alias, resolved, env)
         self.module_cache[resolved] = module
-        code = compile_source(source, resolved)
         with self.execution_lock:
             self.run_code(code, env)
         return module
@@ -1246,9 +1305,23 @@ def evaluate_binary_value(op: str, left: Any, right: Any) -> Any:
     raise SproutError(f"Unknown operator {op}")
 
 
-def compile_source(source: str, source_path: str | None = None) -> CodeObject:
+def compile_source(
+    source: str,
+    source_path: str | None = None,
+    language_override: str | None = None,
+    language_default: str | None = None,
+) -> CodeObject:
     try:
-        return Compiler(source_path, source).compile(parse_source(source))
+        lexer = Lexer(
+            source,
+            language_pack=language_override,
+            default_language_pack=language_default,
+        )
+        return Compiler(
+            source_path,
+            source,
+            language_pack_id=lexer.language_pack.id,
+        ).compile(Parser(lexer.tokenize()).parse())
     except SproutError as exc:
         attach_error_source(exc, source_path, source)
         raise
@@ -1313,18 +1386,36 @@ def indent(text: str) -> str:
     return "\n".join("  " + line for line in text.splitlines())
 
 
-def run_file_vm(path: str, args: list[str] | None = None, fallback: bool = True) -> None:
-    source, resolved = read_source_file(path)
+def run_file_vm(
+    path: str,
+    args: list[str] | None = None,
+    fallback: bool = True,
+    language_override: str | None = None,
+) -> None:
+    target, project = resolve_run_target(path)
+    source, resolved = read_source_file(target)
+    language_default = project.language_default if project else None
     try:
-        code = compile_source(source, resolved)
+        code = compile_source(
+            source,
+            resolved,
+            language_override=language_override,
+            language_default=language_default,
+        )
     except BytecodeUnsupported as exc:
         if fallback:
             print(f"warning: VM fallback to stable interpreter: {exc}", file=sys.stderr)
-            run_file(path, args or [])
+            run_file(path, args or [], language_override=language_override)
             return
         raise
     try:
-        BytecodeVM(resolved, argv=args or []).run(code)
+        BytecodeVM(
+            resolved,
+            argv=args or [],
+            language_override=language_override,
+            language_default=language_default,
+            module_search_paths=module_search_paths_for(resolved, project),
+        ).run(code)
     except SproutError as exc:
         attach_error_source(exc, resolved, source)
         raise
