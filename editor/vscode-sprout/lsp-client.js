@@ -4,6 +4,16 @@ const path = require("path");
 
 const TYPING_SYNC_DEBOUNCE_MS = 45;
 const HEARTBEAT_RESYNC_MS = 2500;
+const LONG_REQUEST_METHODS = new Set([
+  "workspace/symbol",
+  "textDocument/references",
+  "textDocument/rename",
+  "sprout/rebuildWorkspaceIndex"
+]);
+
+function requestTimeoutFor(method) {
+  return LONG_REQUEST_METHODS.has(method) ? 30000 : 6000;
+}
 
 class SproutLanguageClient {
   constructor(vscode, pythonPath, runnerPath, extensionPath, diagnostics, outputChannel) {
@@ -17,7 +27,6 @@ class SproutLanguageClient {
     this.buffer = Buffer.alloc(0);
     this.nextId = 1;
     this.pending = new Map();
-    this.requestTimeoutMs = 6000;
     this.ready = false;
     this.starting = false;
     this.stopping = false;
@@ -158,7 +167,7 @@ class SproutLanguageClient {
           this.log(`Request timed out: ${method} id=${id}`);
           reject(new Error(`Sprout language server request timeout: ${method}`));
         }
-      }, this.requestTimeoutMs);
+      }, requestTimeoutFor(method));
       this.pending.set(id, { resolve, reject, timer, method, startedAt });
       this.send({ jsonrpc: "2.0", id, method, params });
       if (token) {
@@ -567,4 +576,7 @@ class SproutLanguageClient {
   }
 }
 
-module.exports = { SproutLanguageClient };
+module.exports = {
+  SproutLanguageClient,
+  requestTimeoutFor
+};

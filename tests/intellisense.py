@@ -936,6 +936,31 @@ def test_extension_uses_offside_folding_for_blank_line_guides() -> None:
     assert configuration["folding"]["offSide"] is True
 
 
+def test_lsp_client_uses_longer_workspace_request_timeouts() -> None:
+    script = (
+        "const client = require(process.argv[1]);"
+        "process.stdout.write(JSON.stringify({"
+        "normalTimeout:client.requestTimeoutFor('textDocument/hover'),"
+        "workspaceTimeout:client.requestTimeoutFor('workspace/symbol')"
+        "}));"
+    )
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "editor" / "vscode-sprout" / "lsp-client.js"),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["normalTimeout"] == 6000
+    assert payload["workspaceTimeout"] == 30000
+
+
 def main() -> int:
     test_value_facts_join_tracks_conditional_members_and_nilability()
     test_semantic_symbol_json_exposes_inferred_facts()
@@ -984,6 +1009,7 @@ def main() -> int:
     test_cli_intelligence_queries()
     test_extension_folding_ranges_cover_dedents_and_block_styles()
     test_extension_uses_offside_folding_for_blank_line_guides()
+    test_lsp_client_uses_longer_workspace_request_timeouts()
     print("sprout intellisense tests passed")
     return 0
 

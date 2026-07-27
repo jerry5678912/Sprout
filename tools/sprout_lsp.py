@@ -723,6 +723,7 @@ class SproutLanguageServer:
         changed_paths: list[str] | None = None,
         reason: str = "query",
         force_full: bool = False,
+        document_only: bool = False,
     ) -> sprout.WorkspaceIndex:
         path = path_from_uri(uri)
         root = self.root_for_path(path)
@@ -736,21 +737,39 @@ class SproutLanguageServer:
         previous = self.indexes.get(root)
         if not rebuild and previous:
             return previous
+        if not rebuild:
+            document_only = True
         open_documents = {
             path_from_uri(item.uri): item.text
             for item in self.documents.values()
             if self.root_for_path(path_from_uri(item.uri)) == root
         }
+        options = self.current_analysis_options()
+        if document_only:
+            options["diagnosticMode"] = "openFilesOnly"
         index = sprout.build_workspace_index(
             build_target,
             open_documents,
             previous=None if force_full else previous,
             changed_paths=changed_paths,
-            options=self.current_analysis_options(),
+            options=options,
             reason=reason,
         )
         self.indexes[root] = index
         return index
+
+    def full_index_for_uri(self, uri: str) -> sprout.WorkspaceIndex:
+        root = self.root_for_path(path_from_uri(uri))
+        current = self.indexes.get(root)
+        if current and current.options.diagnostic_mode == "workspace":
+            return current
+        log(f"building full workspace index root={root}")
+        return self.index_for_uri(
+            uri,
+            rebuild=True,
+            reason="workspace-query",
+            force_full=True,
+        )
 
     def source_for_uri(self, uri: str) -> str:
         document = self.documents.get(uri)
@@ -781,8 +800,14 @@ class SproutLanguageServer:
             log(f"diagnostics {uri}: 0 blank")
             self.notify("textDocument/publishDiagnostics", payload)
             return
-        index = self.index_for_uri(uri, changed_paths=changed_paths, reason=reason)
-        file = index.files.get(os.path.realpath(path_from_uri(uri)))
+        index = self.index_for_uri(
+            uri,
+            changed_paths=changed_paths,
+            reason=reason,
+            document_only=True,
+        )
+        path = os.path.realpath(path_from_uri(uri))
+        file = index.files.get(path)
         diagnostics = file.diagnostics if file else []
         diagnostics_settings = self.settings.get("diagnostics") or {}
         analysis_settings = self.settings.get("analysis") or {}
@@ -922,8 +947,11 @@ class SproutLanguageServer:
         if roots:
             self.workspace_folders = [os.path.realpath(os.path.abspath(root)) for root in roots]
             workspace_root = self.workspace_folders[0]
+        else:
+            self.workspace_folders = []
         self.initialized = True
-        log(f"initialize root={workspace_root} folders={len(self.workspace_folders)}")
+        root_label = workspace_root if self.workspace_folders else "<loose-files>"
+        log(f"initialize root={root_label} folders={len(self.workspace_folders)}")
         return {
             "capabilities": {
                 "positionEncoding": "utf-16",
@@ -1038,6 +1066,7 @@ class SproutLanguageServer:
         return [location] if location else []
 
     def references(self, uri: str, pos: dict[str, int], include_declaration: bool) -> list[dict[str, Any]]:
+        self.full_index_for_uri(uri)
         index, path, word, symbol = self.symbol_at(uri, pos)
         if not word:
             return []
@@ -1069,6 +1098,7 @@ class SproutLanguageServer:
     def rename(self, uri: str, pos: dict[str, int], new_name: str) -> dict[str, Any]:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", new_name):
             raise ValueError("New name must be a valid Sprout identifier")
+        self.full_index_for_uri(uri)
         index, _path, word, symbol = self.symbol_at(uri, pos)
         if not word or not sprout.rename_safe(symbol):
             return {"changes": {}}
@@ -1195,9 +1225,22 @@ class SproutLanguageServer:
     def workspace_symbols(self, query: str) -> list[dict[str, Any]]:
         lowered = query.lower()
         out = []
-        for root in self.workspace_folders:
-            uri = uri_from_path(root)
-            index = self.indexes.get(root) or self.index_for_uri(uri)
+        roots = list(self.workspace_folders)
+        if not roots:
+            roots = sorted({
+                self.root_for_path(path_from_uri(document.uri))
+                for document in self.documents.values()
+            })
+        for root in roots:
+            document_uri = next(
+                (
+                    document.uri
+                    for document in self.documents.values()
+                    if self.root_for_path(path_from_uri(document.uri)) == root
+                ),
+                uri_from_path(root),
+            )
+            index = self.full_index_for_uri(document_uri)
             for file in index.files.values():
                 for symbol in file.symbols:
                     if lowered and lowered not in symbol.qualified_name.lower():
@@ -1359,13 +1402,7 @@ class SproutLanguageServer:
                 self.error(message, LSP_SERVER_NOT_INITIALIZED, "Sprout language server is not initialized")
             return True
         if method == "initialized":
-            log("initialized notification received; building workspace indexes")
-            for root in self.workspace_folders:
-                self.indexes[root] = sprout.build_workspace_index(
-                    root,
-                    options=self.current_analysis_options(),
-                    reason="initialized",
-                )
+            log("initialized notification received; workspace indexes will build on demand")
             return True
         if method == "shutdown":
             self.shutdown_requested = True
@@ -1414,7 +1451,7 @@ class SproutLanguageServer:
             self.documents.pop(uri, None)
             documents.pop(uri, None)
             self.last_published_diagnostics.pop(uri, None)
-            self.index_for_uri(uri)
+            self.index_for_uri(uri, reason="didClose", document_only=True)
             self.notify("textDocument/publishDiagnostics", {"uri": uri, "diagnostics": []})
             log(f"didClose {uri}")
             return True
