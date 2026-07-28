@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from contextlib import redirect_stdout
 from dataclasses import dataclass, field
-import io
 import json
 import os
 from pathlib import Path
@@ -11,11 +9,9 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
-from .lexer import Lexer
 from .model import SproutError
-from .parser import Parser
 
 
 ERROR_HEADER = re.compile(r"^error:\s+([^:]+):\s+(.*)$", re.MULTILINE)
@@ -83,6 +79,10 @@ def normalize_engine_result(
     stderr: str,
     timed_out: bool = False,
 ) -> EngineResult:
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
     fallback_used = VM_FALLBACK_MARKER.lower() in stderr.lower()
     unsupported_index = stderr.lower().find(VM_UNSUPPORTED_PREFIX.lower())
     error_type = None
@@ -227,25 +227,6 @@ def compare_engine_results(stable: EngineResult, vm: EngineResult) -> list[str]:
     return list(dict.fromkeys(failures))
 
 
-def run_sprout(path: Path, *, vm: bool = False, timeout: float = 10.0) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, "-m", "sprout_core", "run"]
-    if vm:
-        command.append("--vm")
-    command.append(str(path))
-    python_path = os.pathsep.join(
-        item for item in [str(repository_root()), os.environ.get("PYTHONPATH", "")] if item
-    )
-    return subprocess.run(
-        command,
-        cwd=path.parent,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
-        env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": python_path},
-    )
-
-
 def vm_expectation(case: dict[str, Any]) -> tuple[str, str | None]:
     value = case.get("vm", False)
     if isinstance(value, bool):
@@ -385,37 +366,123 @@ def print_conformance(report: dict[str, Any], *, json_mode: bool = False) -> int
     return 0 if report["ok"] else 1
 
 
-def generated_program(rng: random.Random) -> str:
+def generated_program(rng: random.Random, family: int = 0) -> tuple[str, str]:
     left = rng.randint(-100, 100)
     right = rng.randint(1, 100)
     extra = rng.randint(-20, 20)
     values = [rng.randint(-30, 30) for _ in range(4)]
-    relation = "<" if left < right else ">="
-    return (
-        f"left = {left}\n"
-        f"right = {right}\n"
-        f"values = {values}\n"
-        "def combine(a, b, bonus=0):\n"
-        "  return (a * 3) + b - bonus\n"
-        f"say combine(left, right, {extra})\n"
-        "say values[1:3]\n"
-        f"if left {relation} right:\n"
-        '  say "branch"\n'
-        "else:\n"
-        '  say "wrong"\n'
+    family %= 6
+    if family == 0:
+        relation = "<" if left < right else ">="
+        return "arithmetic", (
+            f"left = {left}\n"
+            f"right = {right}\n"
+            f"values = {values}\n"
+            "def combine(a, b, bonus=0):\n"
+            "  return (a * 3) + b - bonus\n"
+            f"say combine(left, right, {extra})\n"
+            "say values[1:3]\n"
+            f"if left {relation} right:\n"
+            '  say "branch"\n'
+            "else:\n"
+            '  say "wrong"\n'
+        )
+    if family == 1:
+        limit = rng.randint(3, 12)
+        return "scopes-loops", (
+            "total = 0\n"
+            f"for value in range({limit}):\n"
+            "  if value % 2 == 0:\n"
+            "    continue\n"
+            "  total = total + value\n"
+            "count = 0\n"
+            "while count < 3:\n"
+            "  count = count + 1\n"
+            "say total, count\n"
+        )
+    if family == 2:
+        start = rng.randint(-10, 20)
+        step = rng.randint(1, 6)
+        return "functions-closures", (
+            "def make(start):\n"
+            "  value = start\n"
+            "  def advance(step=1):\n"
+            "    value = value + step\n"
+            "    return value\n"
+            "  return advance\n"
+            f"counter = make({start})\n"
+            f"say counter(), counter({step})\n"
+            "double = seedfn value: value * 2\n"
+            f"say double({step})\n"
+        )
+    if family == 3:
+        threshold = rng.randint(-10, 10)
+        return "collections", (
+            f"values = {values}\n"
+            "values[1:3] = [7, 8]\n"
+            f"selected = [value * 2 for value in values if value > {threshold}]\n"
+            f"mapped = {{str(value): value + 1 for value in values if value > {threshold}}}\n"
+            'record = {"items": values, "name": "seed"}\n'
+            "say record.name, record.items[1:], selected, mapped\n"
+        )
+    if family == 4:
+        amount = rng.randint(1, 9)
+        return "classes", (
+            "class Counter:\n"
+            "  def init(self, value=0):\n"
+            "    self.value = value\n"
+            "  def add(self, amount):\n"
+            "    self.value = self.value + amount\n"
+            "    return self.value\n"
+            "class LoudCounter extends Counter:\n"
+            "  def add(self, amount):\n"
+            "    return super.add(amount) * 2\n"
+            f"counter = LoudCounter({left})\n"
+            f"say counter.add({amount}), counter.value\n"
+        )
+    return "exceptions", (
+        f"value = {left}\n"
+        "try:\n"
+        "  if value < 0:\n"
+        '    raise "negative"\n'
+        '  say "positive", value\n'
+        "catch error:\n"
+        '  say "caught", error\n'
     )
 
 
-def malformed_source(rng: random.Random) -> str:
-    atoms = [
-        "def", "if", "class", "say", "return", "async", "await", "taskgroup",
-        "(", ")", "[", "]", "{", "}", ":", ",", "=", "+", '"unterminated',
-        str(rng.randint(-99, 99)), "name",
+def malformed_source(rng: random.Random, family: int = 0) -> str:
+    name = f"name_{rng.randint(0, 999)}"
+    cases = [
+        f"def {name}(:\n  say 1\n",
+        f"if {name}:\n",
+        f"say [1, 2, {rng.randint(0, 9)}\n",
+        f"1 = {rng.randint(0, 9)}\n",
+        f'class {name} {{\n  def run(self):\n    say "mixed"\nend\n',
+        f'say "unterminated {name}\n',
     ]
-    lines = []
-    for _ in range(rng.randint(1, 6)):
-        lines.append(" ".join(rng.choice(atoms) for _ in range(rng.randint(1, 8))))
-    return "\n".join(lines) + "\n"
+    return cases[family % len(cases)]
+
+
+def reduce_mismatch_source(
+    source: str,
+    preserves_failure: Callable[[str], bool],
+    *,
+    max_attempts: int = 100,
+) -> tuple[str, int]:
+    lines = source.splitlines(keepends=True)
+    attempts = 0
+    index = 0
+    while len(lines) > 1 and index < len(lines) and attempts < max_attempts:
+        candidate_lines = lines[:index] + lines[index + 1:]
+        candidate = "".join(candidate_lines)
+        attempts += 1
+        if candidate.strip() and preserves_failure(candidate):
+            lines = candidate_lines
+            index = 0
+        else:
+            index += 1
+    return "".join(lines), attempts
 
 
 def fuzz_suite(iterations: int = 100, seed: int = 1337) -> dict[str, Any]:
@@ -425,47 +492,89 @@ def fuzz_suite(iterations: int = 100, seed: int = 1337) -> dict[str, Any]:
     failures: list[dict[str, Any]] = []
     valid_checked = 0
     malformed_checked = 0
+    families: dict[str, int] = {}
     with tempfile.TemporaryDirectory(prefix="sprout-fuzz-") as tmp:
         path = Path(tmp) / "case.sprout"
         for index in range(iterations):
-            source = generated_program(rng)
+            family, source = generated_program(rng, index)
+            families[family] = families.get(family, 0) + 1
             path.write_text(source, encoding="utf-8")
-            try:
-                stable = run_sprout(path, timeout=5)
-                vm = run_sprout(path, vm=True, timeout=5)
-            except subprocess.TimeoutExpired:
-                failures.append({"iteration": index, "kind": "timeout", "source": source})
-                continue
+            stable = run_engine(path, engine="interpreter", timeout=5)
+            vm = run_engine(path, engine="vm", allow_fallback=False, timeout=5)
             valid_checked += 1
-            if stable.returncode != 0 or (stable.returncode, stable.stdout) != (vm.returncode, vm.stdout):
+            classifications = compare_engine_results(stable, vm)
+            if stable.exit_code != 0 and not classifications:
+                classifications.append("interpreter-failure")
+            if classifications:
+                expected_classification = classifications[0]
+
+                def preserves_failure(candidate: str) -> bool:
+                    path.write_text(candidate, encoding="utf-8")
+                    reduced_stable = run_engine(path, engine="interpreter", timeout=2)
+                    reduced_vm = run_engine(path, engine="vm", allow_fallback=False, timeout=2)
+                    reduced = compare_engine_results(reduced_stable, reduced_vm)
+                    if reduced_stable.exit_code != 0 and not reduced:
+                        reduced.append("interpreter-failure")
+                    return expected_classification in reduced
+
+                minimized, attempts = reduce_mismatch_source(source, preserves_failure)
                 failures.append({
                     "iteration": index,
-                    "kind": "differential",
+                    "kind": expected_classification,
+                    "classification": expected_classification,
+                    "classifications": classifications,
+                    "family": family,
                     "source": source,
-                    "stable": {"exit": stable.returncode, "stdout": stable.stdout, "stderr": stable.stderr},
-                    "vm": {"exit": vm.returncode, "stdout": vm.stdout, "stderr": vm.stderr},
+                    "engine_results": {
+                        "interpreter": stable.to_json(),
+                        "vm": vm.to_json(),
+                    },
+                    "minimized_reproduction": {
+                        "source": minimized,
+                        "attempts": attempts,
+                    },
                 })
 
-            malformed = malformed_source(rng)
+            malformed = malformed_source(rng, index)
+            path.write_text(malformed, encoding="utf-8")
             malformed_checked += 1
-            try:
-                with redirect_stdout(io.StringIO()):
-                    Parser(Lexer(malformed).tokenize()).parse()
-            except SproutError:
-                pass
-            except Exception as exc:
+            malformed_result = run_engine(path, engine="interpreter", timeout=5)
+            malformed_lines = malformed.splitlines()
+            malformed_failure = None
+            if malformed_result.timed_out:
+                malformed_failure = "timeout"
+            elif "Traceback (most recent call last)" in malformed_result.stderr:
+                malformed_failure = "parser-crash"
+            elif malformed_result.exit_code == 0 or malformed_result.error_type is None:
+                malformed_failure = "parser-crash"
+            elif malformed_result.line is not None:
+                line = malformed_result.line
+                col = malformed_result.col
+                if not (1 <= line <= len(malformed_lines) + 1):
+                    malformed_failure = "parser-crash"
+                elif line == len(malformed_lines) + 1 and col not in {None, 1}:
+                    malformed_failure = "parser-crash"
+                elif line <= len(malformed_lines) and col is not None:
+                    if not (1 <= col <= len(malformed_lines[line - 1]) + 1):
+                        malformed_failure = "parser-crash"
+            if malformed_failure:
                 failures.append({
                     "iteration": index,
-                    "kind": "parser-crash",
+                    "kind": malformed_failure,
+                    "classification": malformed_failure,
+                    "family": "malformed",
                     "source": malformed,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "engine_results": {"interpreter": malformed_result.to_json()},
+                    "minimized_reproduction": None,
                 })
     return {
+        "schema": 2,
         "ok": not failures,
         "seed": seed,
         "iterations": iterations,
         "valid_programs": valid_checked,
         "malformed_programs": malformed_checked,
+        "families": families,
         "failures": failures,
     }
 

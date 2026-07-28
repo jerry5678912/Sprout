@@ -18,6 +18,7 @@ from sprout_core.quality import (  # noqa: E402
     conformance_suite,
     fuzz_suite,
     normalize_engine_result,
+    reduce_mismatch_source,
     run_engine,
     vm_coverage_report,
 )
@@ -52,6 +53,18 @@ def test_seeded_fuzzer_is_repeatable() -> None:
     assert first == second
     assert first["valid_programs"] == 20
     assert first["malformed_programs"] == 20
+    assert len(first["families"]) == 6
+
+
+def test_mismatch_reducer_is_bounded_and_preserves_failure() -> None:
+    source = "setup = 1\nsay setup\nsay mismatch\ncleanup = 2\n"
+    reduced, attempts = reduce_mismatch_source(
+        source,
+        lambda candidate: "say mismatch" in candidate,
+        max_attempts=20,
+    )
+    assert reduced == "say mismatch\n"
+    assert 1 <= attempts <= 20
 
 
 def test_machine_readable_commands() -> None:
@@ -142,8 +155,23 @@ def test_engine_comparison_classifies_differences() -> None:
         stdout="two\n",
         stderr="",
     )
+    timed_out = normalize_engine_result(
+        engine="vm",
+        returncode=None,
+        stdout="",
+        stderr="",
+        timed_out=True,
+    )
+    unsupported = normalize_engine_result(
+        engine="vm",
+        returncode=1,
+        stdout="",
+        stderr="error: experimental VM does not support this yet: feature\n",
+    )
     assert compare_engine_results(stable, same) == []
     assert compare_engine_results(stable, different) == ["output-mismatch"]
+    assert "timeout" in compare_engine_results(stable, timed_out)
+    assert "vm-unsupported" in compare_engine_results(stable, unsupported)
 
 
 def test_vm_runtime_error_locations_match_interpreter() -> None:
@@ -172,6 +200,7 @@ def main() -> int:
     test_conformance_corpus()
     test_vm_construct_coverage()
     test_seeded_fuzzer_is_repeatable()
+    test_mismatch_reducer_is_bounded_and_preserves_failure()
     test_machine_readable_commands()
     test_engine_result_normalizes_user_visible_errors()
     test_strict_vm_reports_unsupported_without_fallback()
