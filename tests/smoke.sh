@@ -261,7 +261,7 @@ grep -q "^readjson$" /tmp/sprout_stdlib_cmd.out
 grep -q "^grow$" /tmp/sprout_stdlib_cmd.out
 grep -q "^py_available$" /tmp/sprout_stdlib_cmd.out
 grep -q "examples/tictactoe.sprout" /tmp/sprout_examples_cmd.out
-grep -q "Sprout 0.3.4" /tmp/sprout_version.out
+grep -q "Sprout 0.3.5" /tmp/sprout_version.out
 grep -q "ok python >= 3.9" /tmp/sprout_doctor.out
 grep -q "\\[0, 1, 1, 2, 3, 5, 8, 13\\]" /tmp/sprout_repl.out
 grep -q '"snippets"' /tmp/sprout_vscode_package.out

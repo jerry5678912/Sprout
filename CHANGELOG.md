@@ -1,8 +1,27 @@
 # Changelog
 
+## 0.3.5
+
+- Added strict isolated interpreter/VM differential execution with normalized
+  output, diagnostics, source locations, stack frames, timeout state, support
+  state, and fallback detection.
+- Added `sprout run --vm --no-fallback FILE` while preserving ordinary VM
+  fallback behavior.
+- Expanded the conformance corpus to 16 strict VM cases and added an explicit
+  required/unsupported/not-applicable construct inventory.
+- Fixed VM function and imported-error locations and stack frames to match the
+  authoritative tree-walk interpreter.
+- Replaced arithmetic-only fuzzing with six bounded valid-program families,
+  guaranteed-malformed parser cases, classified JSON failures, and bounded
+  mismatch reduction.
+- Added repeated-median JSON benchmarks for startup, compilation, loops, calls,
+  collections, object fields, exceptions, and imports.
+- Hardened invalid assignment-target diagnostics and packaged all benchmark,
+  conformance, and nested module fixtures.
+
 ## VS Code Extension 0.4.0
 
-The Sprout runtime and PyPI package remain at version `0.3.4`.
+This extension release was paired with Sprout runtime `0.3.4`.
 
 - Unified scalar/container type inference and dynamic object-shape inference so
   completions, hover details, and member diagnostics use the same bounded

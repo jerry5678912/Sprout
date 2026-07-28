@@ -302,7 +302,7 @@ python3 sprout.py app package .
 
 `vscode-package` creates `dist/sprout-language-VERSION.vsix`. The VSIX includes the Sprout runner and core, so diagnostics and IntelliSense work without separately configuring `sprout.runnerPath`.
 
-GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching runtime version tag, such as `v0.3.4`, verifies the language release and publishes the ZIP and VSIX as GitHub release assets. The VS Code extension is versioned independently in `editor/vscode-sprout/package.json`.
+GitHub Actions runs the test matrix on macOS, Linux, and Windows. Pushing a matching runtime version tag, such as `v0.3.5`, verifies the language release and publishes the ZIP and VSIX as GitHub release assets. The VS Code extension is versioned independently in `editor/vscode-sprout/package.json`.
 
 ## Experimental Bytecode VM
 
