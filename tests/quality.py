@@ -19,6 +19,7 @@ from sprout_core.quality import (  # noqa: E402
     conformance_suite,
     fuzz_suite,
     normalize_engine_result,
+    parser_construct_kinds,
     reduce_mismatch_source,
     run_engine,
     vm_coverage_report,
@@ -43,7 +44,21 @@ def test_vm_construct_coverage() -> None:
     report = vm_coverage_report()
     assert report["ok"], report
     assert report["counts"]["required"] >= 40, report
-    assert report["counts"]["not-applicable"] == 1, report
+    assert report["counts"]["not-applicable"] == 3, report
+
+
+def test_vm_construct_coverage_is_derived_from_parser() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        parser_path = Path(tmp) / "parser.py"
+        parser_path.write_text(
+            "class Parser:\n"
+            "    def statement(self):\n"
+            "        return ('future_statement',)\n",
+            encoding="utf-8",
+        )
+        constructs, unclassified = parser_construct_kinds(parser_path)
+    assert constructs["statements"] == {"future_statement"}
+    assert unclassified == []
 
 
 def test_seeded_fuzzer_is_repeatable() -> None:
@@ -228,6 +243,7 @@ def test_engine_runs_isolate_module_caches() -> None:
 def main() -> int:
     test_conformance_corpus()
     test_vm_construct_coverage()
+    test_vm_construct_coverage_is_derived_from_parser()
     test_seeded_fuzzer_is_repeatable()
     test_mismatch_reducer_is_bounded_and_preserves_failure()
     test_machine_readable_commands()

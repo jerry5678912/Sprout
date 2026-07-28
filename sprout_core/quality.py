@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
 import json
 import os
@@ -20,22 +21,31 @@ ERROR_HEADER = re.compile(r"^error:\s+([^:]+):\s+(.*)$", re.MULTILINE)
 ERROR_LOCATION = re.compile(r"^\s*-->\s+(.+?):(\d+)(?::(\d+))?\s*$", re.MULTILINE)
 VM_UNSUPPORTED_PREFIX = "error: experimental VM does not support this yet:"
 VM_FALLBACK_MARKER = "warning: VM fallback to stable interpreter:"
-VM_CONSTRUCT_KINDS = {
-    "statements": {
-        "let", "type_alias", "importpython", "import", "test", "taskgroup",
-        "break", "continue", "raise", "return", "yield", "say", "assign",
-        "expr", "class", "interface", "enum", "match", "if", "while", "for",
-        "async_for", "try", "fn", "async_fn",
-    },
-    "expressions": {
-        "literal", "var", "array", "dict", "seedfn", "unary", "binary",
-        "index", "slice", "get", "call", "super", "await", "is_type",
-        "list_comp", "dict_comp",
-    },
-    "patterns": {
-        "literal_pattern", "array_pattern", "wildcard_pattern",
-        "variant_pattern", "binding_pattern",
-    },
+PARSER_CONSTRUCT_CATEGORIES = {
+    "statement": "statements",
+    "function_decl": "statements",
+    "class_decl": "statements",
+    "interface_decl": "statements",
+    "enum_decl": "statements",
+    "match_stmt": "statements",
+    "if_stmt": "statements",
+    "while_stmt": "statements",
+    "for_stmt": "statements",
+    "async_for_stmt": "statements",
+    "try_stmt": "statements",
+    "union_type_annotation": "annotations",
+    "named_type_annotation": "annotations",
+    "seedfn_expr": "expressions",
+    "or_expr": "expressions",
+    "and_expr": "expressions",
+    "equality": "expressions",
+    "comparison": "expressions",
+    "term": "expressions",
+    "factor": "expressions",
+    "unary": "expressions",
+    "call": "expressions",
+    "primary": "expressions",
+    "pattern": "patterns",
 }
 BENCHMARK_WORKLOADS = (
     "startup",
@@ -257,7 +267,64 @@ def vm_expectation(case: dict[str, Any]) -> tuple[str, str | None]:
     return expectation, reason
 
 
-def vm_coverage_report(path: str | None = None) -> dict[str, Any]:
+def parser_construct_kinds(
+    parser_path: str | Path | None = None,
+) -> tuple[dict[str, set[str]], list[str]]:
+    source_path = Path(parser_path or Path(__file__).resolve().parent / "parser.py")
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    parser_class = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "Parser"
+        ),
+        None,
+    )
+    if parser_class is None:
+        raise ValueError(f"Parser class not found in {source_path}")
+
+    constructs: dict[str, set[str]] = {
+        category: set() for category in set(PARSER_CONSTRUCT_CATEGORIES.values())
+    }
+    unclassified_methods: list[str] = []
+    for method in parser_class.body:
+        if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        kinds: set[str] = set()
+        for node in ast.walk(method):
+            tuple_value = None
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple):
+                tuple_value = node.value
+            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Tuple):
+                if any(
+                    isinstance(target, ast.Name) and target.id in {"expr", "nil"}
+                    for target in node.targets
+                ):
+                    tuple_value = node.value
+            if tuple_value is None or not tuple_value.elts:
+                continue
+            first = tuple_value.elts[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                kinds.add(first.value)
+            elif isinstance(first, ast.IfExp):
+                for value in (first.body, first.orelse):
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        kinds.add(value.value)
+        if not kinds:
+            continue
+        category = PARSER_CONSTRUCT_CATEGORIES.get(method.name)
+        if category is None:
+            unclassified_methods.append(method.name)
+            continue
+        constructs[category].update(kinds)
+    return constructs, sorted(unclassified_methods)
+
+
+def vm_coverage_report(
+    path: str | None = None,
+    *,
+    parser_path: str | Path | None = None,
+) -> dict[str, Any]:
     coverage_path = Path(
         path or Path(__file__).resolve().parent / "conformance" / "vm_coverage.json"
     ).resolve()
@@ -265,7 +332,10 @@ def vm_coverage_report(path: str | None = None) -> dict[str, Any]:
     failures: list[str] = []
     counts = {"required": 0, "unsupported": 0, "not-applicable": 0}
     valid_statuses = set(counts)
-    for category, expected_kinds in VM_CONSTRUCT_KINDS.items():
+    parser_kinds, unclassified_methods = parser_construct_kinds(parser_path)
+    for method in unclassified_methods:
+        failures.append(f"parser method {method!r} produces unclassified constructs")
+    for category, expected_kinds in parser_kinds.items():
         entries = data.get(category)
         if not isinstance(entries, dict):
             failures.append(f"missing {category} construct map")
@@ -618,7 +688,8 @@ def benchmark_suite(repeat: int = 5) -> dict[str, Any]:
         path = root / f"{name}.sprout"
         stable = run_engine(path, engine="interpreter")
         vm = run_engine(path, engine="vm", allow_fallback=False)
-        failures = compare_engine_results(stable, vm)
+        parity_failures = compare_engine_results(stable, vm)
+        failures = list(parity_failures)
         metrics = benchmark_file(str(path), repeat=repeat)
         ratio = metrics["speed_ratio"]
         if metrics["vm_supported"] is not True:
@@ -650,8 +721,8 @@ def benchmark_suite(repeat: int = 5) -> dict[str, Any]:
             "ok": not failures,
             "failures": list(dict.fromkeys(failures)),
             "parity": {
-                "ok": not compare_engine_results(stable, vm),
-                "failures": compare_engine_results(stable, vm),
+                "ok": not parity_failures,
+                "failures": parity_failures,
             },
             "engine_results": {
                 "interpreter": stable.to_json(),

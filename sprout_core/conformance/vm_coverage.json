@@ -48,6 +48,16 @@
     "list_comp": {"status": "required"},
     "dict_comp": {"status": "required"}
   },
+  "annotations": {
+    "type": {
+      "status": "not-applicable",
+      "reason": "Runtime type annotations are erased before bytecode execution."
+    },
+    "union": {
+      "status": "not-applicable",
+      "reason": "Runtime type annotations are erased before bytecode execution."
+    }
+  },
   "patterns": {
     "literal_pattern": {"status": "required"},
     "array_pattern": {"status": "required"},
