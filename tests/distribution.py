@@ -135,7 +135,14 @@ def test_python_package_metadata() -> None:
     assert 'license-files = ["LICENSE", "NOTICE"]' in metadata
     assert 'sprout = "sprout_core.cli:entrypoint"' in metadata
     assert 'py-modules = ["sprout"]' in metadata
-    assert 'sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]' in metadata
+    for package_glob in (
+        '"benchmarks/*.sprout"',
+        '"conformance/*.json"',
+        '"conformance/*.sprout"',
+        '"conformance/modules/*.sprout"',
+        '"stdlib/*.sprout"',
+    ):
+        assert package_glob in metadata
     module = subprocess.run(
         [sys.executable, "-m", "sprout_core", "version"],
         cwd=ROOT,
