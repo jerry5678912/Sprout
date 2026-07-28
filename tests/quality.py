@@ -19,14 +19,29 @@ from sprout_core.quality import (  # noqa: E402
     fuzz_suite,
     normalize_engine_result,
     run_engine,
+    vm_coverage_report,
 )
 
 
 def test_conformance_corpus() -> None:
     report = conformance_suite()
     assert report["ok"], report
-    assert report["total"] >= 6
-    assert sum(1 for case in report["cases"] if case["vm_checked"]) >= 4
+    assert report["schema"] == 2
+    assert report["total"] >= 8
+    assert all(case["vm_expectation"] == "required" for case in report["cases"])
+    assert all(case["vm_checked"] for case in report["cases"])
+    assert all(case["parity"]["ok"] for case in report["cases"])
+    assert all(not case["fallback_used"] for case in report["cases"])
+    assert all("interpreter" in case["engine_results"] for case in report["cases"])
+    assert all("vm" in case["engine_results"] for case in report["cases"])
+    assert report["vm_coverage"]["ok"], report
+
+
+def test_vm_construct_coverage() -> None:
+    report = vm_coverage_report()
+    assert report["ok"], report
+    assert report["counts"]["required"] >= 40, report
+    assert report["counts"]["not-applicable"] == 1, report
 
 
 def test_seeded_fuzzer_is_repeatable() -> None:
@@ -131,13 +146,38 @@ def test_engine_comparison_classifies_differences() -> None:
     assert compare_engine_results(stable, different) == ["output-mismatch"]
 
 
+def test_vm_runtime_error_locations_match_interpreter() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "function_error.sprout"
+        path.write_text(
+            "def crash():\n"
+            "  return missing_value\n"
+            "crash()\n",
+            encoding="utf-8",
+        )
+        stable = run_engine(path, engine="interpreter")
+        vm = run_engine(path, engine="vm")
+    assert compare_engine_results(stable, vm) == [], (stable, vm)
+
+
+def test_engine_runs_isolate_module_caches() -> None:
+    path = ROOT / "sprout_core" / "conformance" / "modules.sprout"
+    first = run_engine(path, engine="interpreter")
+    second = run_engine(path, engine="interpreter")
+    assert first.exit_code == second.exit_code == 0
+    assert first.stdout == second.stdout == "1\n1\n1\n"
+
+
 def main() -> int:
     test_conformance_corpus()
+    test_vm_construct_coverage()
     test_seeded_fuzzer_is_repeatable()
     test_machine_readable_commands()
     test_engine_result_normalizes_user_visible_errors()
     test_strict_vm_reports_unsupported_without_fallback()
     test_engine_comparison_classifies_differences()
+    test_vm_runtime_error_locations_match_interpreter()
+    test_engine_runs_isolate_module_caches()
     print("sprout quality tests passed")
     return 0
 

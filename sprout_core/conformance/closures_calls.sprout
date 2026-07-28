@@ -1,0 +1,18 @@
+def make_counter(start=0):
+  value = start
+  def next(step=1):
+    value = value + step
+    return value
+  return next
+
+def describe(name, *tags, **options):
+  return name + ":" + tags.join(",") + ":" + options.mood
+
+double = seedfn value: value * 2
+counter = make_counter(3)
+args = ["leaf", "sun"]
+options = {"mood": "bright"}
+
+say counter(), counter(2)
+say describe("Ada", *args, **options)
+say double(6)

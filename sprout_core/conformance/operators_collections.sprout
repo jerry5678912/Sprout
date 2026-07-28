@@ -1,0 +1,10 @@
+values = [1, 2, 3, 4, 5]
+values[1:4] = [8, 9]
+record = {"name": "Ada", "score": 7}
+record.score = record.score + 1
+
+say -values[0], not false, 7 % 4
+say values, values[1:], values[:2]
+say record.name, record["score"]
+say [value * 2 for value in values if value > 1]
+say {str(value): value * value for value in values if value > 1}

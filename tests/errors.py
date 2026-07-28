@@ -95,8 +95,9 @@ def test_vm_error_context() -> None:
     result = run_source("def crash():\n  return missing_name\n\ncrash()\n", vm=True)
     assert_clean_failure(result)
     assert "error: NameError: Undefined variable 'missing_name'" in result.stderr
-    assert "2 |   return missing_name" in result.stderr
+    assert "4 | crash()" in result.stderr
     assert "stack:" in result.stderr
+    assert "at crash" in result.stderr
 
 
 def main() -> int:

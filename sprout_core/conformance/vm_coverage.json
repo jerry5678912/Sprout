@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "statements": {
+    "let": {"status": "required"},
+    "type_alias": {"status": "required"},
+    "importpython": {"status": "required"},
+    "import": {"status": "required"},
+    "test": {
+      "status": "not-applicable",
+      "reason": "Test declarations are metadata and are intentionally skipped by both run engines."
+    },
+    "taskgroup": {"status": "required"},
+    "break": {"status": "required"},
+    "continue": {"status": "required"},
+    "raise": {"status": "required"},
+    "return": {"status": "required"},
+    "yield": {"status": "required"},
+    "say": {"status": "required"},
+    "assign": {"status": "required"},
+    "expr": {"status": "required"},
+    "class": {"status": "required"},
+    "interface": {"status": "required"},
+    "enum": {"status": "required"},
+    "match": {"status": "required"},
+    "if": {"status": "required"},
+    "while": {"status": "required"},
+    "for": {"status": "required"},
+    "async_for": {"status": "required"},
+    "try": {"status": "required"},
+    "fn": {"status": "required"},
+    "async_fn": {"status": "required"}
+  },
+  "expressions": {
+    "literal": {"status": "required"},
+    "var": {"status": "required"},
+    "array": {"status": "required"},
+    "dict": {"status": "required"},
+    "seedfn": {"status": "required"},
+    "unary": {"status": "required"},
+    "binary": {"status": "required"},
+    "index": {"status": "required"},
+    "slice": {"status": "required"},
+    "get": {"status": "required"},
+    "call": {"status": "required"},
+    "super": {"status": "required"},
+    "await": {"status": "required"},
+    "is_type": {"status": "required"},
+    "list_comp": {"status": "required"},
+    "dict_comp": {"status": "required"}
+  },
+  "patterns": {
+    "literal_pattern": {"status": "required"},
+    "array_pattern": {"status": "required"},
+    "wildcard_pattern": {"status": "required"},
+    "variant_pattern": {"status": "required"},
+    "binding_pattern": {"status": "required"}
+  }
+}

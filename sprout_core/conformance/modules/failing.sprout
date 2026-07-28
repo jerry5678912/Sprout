@@ -1,0 +1,4 @@
+def crash():
+  return missing_value
+
+crash()

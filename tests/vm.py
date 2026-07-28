@@ -58,12 +58,13 @@ def test_vm_error_locations() -> None:
     with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
         fh.write("def crash():\n  return missing_name\n\ncrash()\n")
         path = fh.name
-    result = run(["run", "--vm", path], check=False)
-    assert result.returncode == 1
-    assert "Undefined variable 'missing_name'" in result.stderr
-    assert f"{path}:2:" in result.stderr
-    assert f"{path}:4:" in result.stderr
-    assert "at crash" in result.stderr
+    stable = run(["run", path], check=False)
+    vm = run(["run", "--vm", "--no-fallback", path], check=False)
+    assert stable.returncode == vm.returncode == 1
+    assert vm.stderr == stable.stderr
+    assert "Undefined variable 'missing_name'" in vm.stderr
+    assert f"{path}:4:" in vm.stderr
+    assert "at crash" in vm.stderr
 
 
 def test_no_fallback_flag_reports_unsupported_vm_feature() -> None:

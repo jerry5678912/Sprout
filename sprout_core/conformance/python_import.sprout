@@ -1,0 +1,3 @@
+importpython math
+
+say math.sqrt(81)

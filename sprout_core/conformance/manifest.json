@@ -1,61 +1,110 @@
 {
-  "schema": 1,
+  "schema": 2,
   "cases": [
     {
       "name": "values and collections",
       "file": "values.sprout",
       "exit": 0,
       "stdout": "7\n[2, 3]\nAda\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "functions and control flow",
       "file": "functions.sprout",
       "exit": 0,
       "stdout": "21\nlarge\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "classes, inheritance, and super",
       "file": "classes.sprout",
       "exit": 0,
       "stdout": "hello Mina!\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "exceptions",
       "file": "exceptions.sprout",
       "exit": 0,
       "stdout": "caught boom\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "structured async",
       "file": "async.sprout",
       "exit": 0,
       "stdout": "42\n2\n",
-      "vm": false
+      "vm": {"expectation": "required"}
     },
     {
       "name": "typed abstractions are runtime-erased",
       "file": "typed.sprout",
       "exit": 0,
       "stdout": "hello Mina\n42\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "advanced enums, matching, generators, and comprehensions",
       "file": "advanced.sprout",
       "exit": 0,
       "stdout": "4\n[4, 6]\n",
-      "vm": true
+      "vm": {"expectation": "required"}
     },
     {
       "name": "clean syntax diagnostics",
       "file": "syntax_error.sprout",
       "exit": 1,
       "stderr_contains": "Expected a line ending after say",
-      "vm": false
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "operators, collections, slicing, and comprehensions",
+      "file": "operators_collections.sprout",
+      "exit": 0,
+      "stdout": "-1 True 3\n[1, 8, 9, 5] [8, 9, 5] [1, 8]\nAda 8\n[16, 18, 10]\n{8: 64, 9: 81, 5: 25}\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "closures, defaults, variadics, spreads, and seed functions",
+      "file": "closures_calls.sprout",
+      "exit": 0,
+      "stdout": "4 5\nAda:leaf,sun:bright\n12\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "loops and pattern forms",
+      "file": "loops_patterns.sprout",
+      "exit": 0,
+      "stdout": "5 2\n1 [2, 3]\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "deterministic Python standard-library import",
+      "file": "python_import.sprout",
+      "exit": 0,
+      "stdout": "9.0\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "relative and repeated imports share module identity",
+      "file": "modules.sprout",
+      "exit": 0,
+      "stdout": "1\n1\n1\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "circular imports preserve partially initialized module identity",
+      "file": "circular_imports.sprout",
+      "exit": 0,
+      "stdout": "AB BA\n",
+      "vm": {"expectation": "required"}
+    },
+    {
+      "name": "imported runtime errors retain source and stack",
+      "file": "imported_error.sprout",
+      "exit": 1,
+      "stderr_contains": "Undefined variable 'missing_value'",
+      "vm": {"expectation": "required"}
     }
   ]
 }

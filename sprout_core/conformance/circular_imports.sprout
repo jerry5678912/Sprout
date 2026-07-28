@@ -1,0 +1,4 @@
+import "modules/circular_a.sprout" as first
+import "modules/circular_b.sprout" as second
+
+say first.label(), second.label()

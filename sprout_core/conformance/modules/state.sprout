@@ -1,0 +1,5 @@
+counter = {"value": 0}
+
+def bump():
+  counter.value = counter.value + 1
+  return counter.value

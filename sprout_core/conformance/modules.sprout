@@ -1,0 +1,7 @@
+import "modules/state.sprout" as first
+import "modules/state.sprout" as second
+import "modules/relative.sprout" as relative
+
+say first.bump()
+say second.counter.value
+say relative.current()

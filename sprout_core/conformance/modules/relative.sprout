@@ -1,0 +1,4 @@
+import "state.sprout" as state
+
+def current():
+  return state.counter.value

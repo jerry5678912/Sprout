@@ -1,0 +1,5 @@
+value = "B"
+import "circular_a.sprout" as other
+
+def label():
+  return value + other.value

@@ -22,6 +22,23 @@ ERROR_HEADER = re.compile(r"^error:\s+([^:]+):\s+(.*)$", re.MULTILINE)
 ERROR_LOCATION = re.compile(r"^\s*-->\s+(.+?):(\d+)(?::(\d+))?\s*$", re.MULTILINE)
 VM_UNSUPPORTED_PREFIX = "error: experimental VM does not support this yet:"
 VM_FALLBACK_MARKER = "warning: VM fallback to stable interpreter:"
+VM_CONSTRUCT_KINDS = {
+    "statements": {
+        "let", "type_alias", "importpython", "import", "test", "taskgroup",
+        "break", "continue", "raise", "return", "yield", "say", "assign",
+        "expr", "class", "interface", "enum", "match", "if", "while", "for",
+        "async_for", "try", "fn", "async_fn",
+    },
+    "expressions": {
+        "literal", "var", "array", "dict", "seedfn", "unary", "binary",
+        "index", "slice", "get", "call", "super", "await", "is_type",
+        "list_comp", "dict_comp",
+    },
+    "patterns": {
+        "literal_pattern", "array_pattern", "wildcard_pattern",
+        "variant_pattern", "binding_pattern",
+    },
+}
 
 
 @dataclass
@@ -190,6 +207,7 @@ def compare_engine_results(stable: EngineResult, vm: EngineResult) -> list[str]:
         stable_error = (
             stable.error_type,
             stable.error_message,
+            stable.source_path,
             stable.line,
             stable.col,
             stable.frames,
@@ -197,6 +215,7 @@ def compare_engine_results(stable: EngineResult, vm: EngineResult) -> list[str]:
         vm_error = (
             vm.error_type,
             vm.error_message,
+            vm.source_path,
             vm.line,
             vm.col,
             vm.frames,
@@ -227,19 +246,76 @@ def run_sprout(path: Path, *, vm: bool = False, timeout: float = 10.0) -> subpro
     )
 
 
+def vm_expectation(case: dict[str, Any]) -> tuple[str, str | None]:
+    value = case.get("vm", False)
+    if isinstance(value, bool):
+        return ("required" if value else "not-applicable", None)
+    if isinstance(value, str):
+        expectation, reason = value, None
+    elif isinstance(value, dict):
+        expectation = str(value.get("expectation", "not-applicable"))
+        reason = str(value["reason"]) if value.get("reason") else None
+    else:
+        raise ValueError(f"Invalid VM expectation for conformance case {case.get('name')!r}")
+    if expectation not in {"required", "unsupported", "not-applicable"}:
+        raise ValueError(f"Unknown VM expectation {expectation!r} for conformance case {case.get('name')!r}")
+    if expectation != "required" and not reason:
+        raise ValueError(f"VM expectation {expectation!r} requires a reason for case {case.get('name')!r}")
+    return expectation, reason
+
+
+def vm_coverage_report(path: str | None = None) -> dict[str, Any]:
+    coverage_path = Path(
+        path or Path(__file__).resolve().parent / "conformance" / "vm_coverage.json"
+    ).resolve()
+    data = json.loads(coverage_path.read_text(encoding="utf-8"))
+    failures: list[str] = []
+    counts = {"required": 0, "unsupported": 0, "not-applicable": 0}
+    valid_statuses = set(counts)
+    for category, expected_kinds in VM_CONSTRUCT_KINDS.items():
+        entries = data.get(category)
+        if not isinstance(entries, dict):
+            failures.append(f"missing {category} construct map")
+            continue
+        actual_kinds = set(entries)
+        for missing in sorted(expected_kinds - actual_kinds):
+            failures.append(f"{category} construct {missing!r} is not classified")
+        for unknown in sorted(actual_kinds - expected_kinds):
+            failures.append(f"unknown {category} construct {unknown!r}")
+        for kind, entry in entries.items():
+            if not isinstance(entry, dict):
+                failures.append(f"{category} construct {kind!r} must be an object")
+                continue
+            status = entry.get("status")
+            reason = entry.get("reason")
+            if status not in valid_statuses:
+                failures.append(f"{category} construct {kind!r} has invalid status {status!r}")
+                continue
+            counts[status] += 1
+            if status != "required" and not reason:
+                failures.append(f"{category} construct {kind!r} requires a reason")
+    return {
+        "ok": not failures,
+        "schema": int(data.get("schema", 1)),
+        "path": str(coverage_path),
+        "counts": counts,
+        "failures": failures,
+    }
+
+
 def conformance_suite(manifest_path: str | None = None) -> dict[str, Any]:
     manifest = Path(manifest_path or Path(__file__).resolve().parent / "conformance" / "manifest.json").resolve()
     data = json.loads(manifest.read_text(encoding="utf-8"))
     results: list[dict[str, Any]] = []
     for case in data.get("cases", []):
         source = (manifest.parent / str(case["file"])).resolve()
-        stable = run_sprout(source)
+        stable = run_engine(source, engine="interpreter")
         failures: list[str] = []
         expected_exit = int(case.get("exit", 0))
         expected_stdout = case.get("stdout")
         expected_error = case.get("stderr_contains")
-        if stable.returncode != expected_exit:
-            failures.append(f"exit {stable.returncode}, expected {expected_exit}")
+        if stable.exit_code != expected_exit:
+            failures.append(f"exit {stable.exit_code}, expected {expected_exit}")
         if expected_stdout is not None and stable.stdout != str(expected_stdout):
             failures.append(f"stdout {stable.stdout!r}, expected {expected_stdout!r}")
         if expected_error and str(expected_error) not in stable.stderr:
@@ -247,29 +323,46 @@ def conformance_suite(manifest_path: str | None = None) -> dict[str, Any]:
         if "Traceback (most recent call last)" in stable.stderr:
             failures.append("raw Python traceback leaked")
 
-        vm_checked = bool(case.get("vm", False))
-        if vm_checked:
-            vm = run_sprout(source, vm=True)
-            if (vm.returncode, vm.stdout) != (stable.returncode, stable.stdout):
-                failures.append(
-                    "VM parity mismatch: "
-                    f"stable=({stable.returncode}, {stable.stdout!r}) "
-                    f"vm=({vm.returncode}, {vm.stdout!r})"
-                )
-            if "Traceback (most recent call last)" in vm.stderr:
-                failures.append("VM leaked a raw Python traceback")
+        expectation, unsupported_reason = vm_expectation(case)
+        vm = None
+        parity_failures: list[str] = []
+        if expectation in {"required", "unsupported"}:
+            vm = run_engine(source, engine="vm", allow_fallback=False)
+            if expectation == "required":
+                parity_failures = compare_engine_results(stable, vm)
+            else:
+                if vm.timed_out:
+                    parity_failures.append("timeout")
+                if vm.vm_supported is not False:
+                    parity_failures.append("unsupported-feature-drift")
+                if vm.fallback_used:
+                    parity_failures.append("unexpected-fallback")
+            if parity_failures:
+                failures.append(f"VM parity failed: {', '.join(parity_failures)}")
         results.append({
             "name": str(case["name"]),
             "path": str(source),
             "ok": not failures,
-            "vm_checked": vm_checked,
+            "vm_expectation": expectation,
+            "vm_checked": expectation == "required",
+            "vm_supported": vm.vm_supported if vm else None,
+            "fallback_used": vm.fallback_used if vm else False,
+            "unsupported_reason": unsupported_reason,
+            "engine_results": {
+                "interpreter": stable.to_json(),
+                **({"vm": vm.to_json()} if vm else {}),
+            },
+            "parity": {"ok": not parity_failures, "failures": parity_failures},
             "failures": failures,
         })
+    coverage = vm_coverage_report()
     return {
-        "ok": all(item["ok"] for item in results),
+        "schema": int(data.get("schema", 1)),
+        "ok": all(item["ok"] for item in results) and coverage["ok"],
         "manifest": str(manifest),
         "passed": sum(1 for item in results if item["ok"]),
         "total": len(results),
+        "vm_coverage": coverage,
         "cases": results,
     }
 
@@ -278,6 +371,10 @@ def print_conformance(report: dict[str, Any], *, json_mode: bool = False) -> int
     if json_mode:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
+        if not report["vm_coverage"]["ok"]:
+            print("FAIL VM construct coverage")
+            for failure in report["vm_coverage"]["failures"]:
+                print(f"  {failure}")
         for case in report["cases"]:
             status = "ok" if case["ok"] else "FAIL"
             vm = " + vm" if case["vm_checked"] else ""

@@ -30,6 +30,7 @@ from .runtime import (
     native_runtime_error,
     truthy,
     contains_yield,
+    display_path,
     async_next,
     match_pattern,
     value_matches_type,
@@ -58,6 +59,8 @@ class CodeObject:
     instructions: list[Instruction] = field(default_factory=list)
     params: list[tuple[str, Any, bool, bool]] = field(default_factory=list)
     source_path: str | None = None
+    declaration_line: int | None = None
+    declaration_col: int | None = None
     ast_body: list[Any] | None = None
     is_async: bool = False
     is_generator: bool = False
@@ -132,6 +135,21 @@ class VMFunction:
     code: CodeObject
     closure: Env
 
+    def frame_label(self) -> str:
+        name = self.code.name
+        path = self.code.source_path
+        line = self.code.declaration_line
+        col = self.code.declaration_col
+        if path and line:
+            try:
+                path = os.path.relpath(path, os.getcwd())
+            except ValueError:
+                pass
+            return f"{name} ({path}:{line}:{col})" if col else f"{name} ({path}:{line})"
+        if line:
+            return f"{name} (<repl>:{line}:{col})" if col else f"{name} (<repl>:{line})"
+        return name
+
     def call(self, vm: "BytecodeVM", args: list[Any], kwargs: dict[str, Any] | None = None) -> Any:
         if isinstance(vm, Interpreter):
             bridged = getattr(vm, "_bytecode_vm", None)
@@ -158,6 +176,9 @@ class VMFunction:
         try:
             with vm.execution_lock:
                 return vm.run_code(self.code, env)
+        except SproutError as exc:
+            exc.add_frame(self.frame_label())
+            raise
         finally:
             vm.call_times[self.name] = vm.call_times.get(self.name, 0.0) + (time.perf_counter() - started)
 
@@ -490,6 +511,8 @@ class Compiler:
                 stmt[1],
                 params=params,
                 source_path=self.source_path,
+                declaration_line=stmt[4],
+                declaration_col=stmt[5],
                 ast_body=stmt[3],
                 is_async=kind == "async_fn",
                 is_generator=contains_yield(stmt[3]),
@@ -516,6 +539,8 @@ class Compiler:
                     f"{stmt[1]}.{method[1]}",
                     params=method[2],
                     source_path=self.source_path,
+                    declaration_line=method[4],
+                    declaration_col=method[5],
                     ast_body=method[3],
                     is_async=method[0] == "async_fn",
                     is_generator=contains_yield(method[3]),
@@ -574,7 +599,13 @@ class Compiler:
             self.emit("BUILD_DICT", len(expr[1]))
         elif kind == "seedfn":
             child = Compiler(self.source_path)
-            child.code = CodeObject("<seedfn>", params=expr[1], source_path=self.source_path)
+            child.code = CodeObject(
+                "<seedfn>",
+                params=expr[1],
+                source_path=self.source_path,
+                declaration_line=expr[3],
+                declaration_col=expr[4],
+            )
             child.source_lines = self.source_lines
             child.scan_line = max(self.scan_line, expr[3])
             child.current_line = expr[3]
@@ -736,19 +767,6 @@ class BytecodeVM:
                 if instr.op == "HALT":
                     return None
             return None
-        except SproutError as exc:
-            instr = instructions[self.ip - 1] if instructions and self.ip else None
-            if instr and instr.source and instr.line:
-                if exc.line is None:
-                    exc.path = exc.path or instr.source
-                    exc.line = instr.line
-                    exc.col = instr.col
-                location = self.location_label(instr)
-                if code.name == "<module>":
-                    exc.add_frame(f"called at {location}")
-                else:
-                    exc.add_frame(f"at {code.name} ({location})")
-            raise
         finally:
             self.debug_frames.pop()
             self.stack = previous_stack
@@ -810,12 +828,7 @@ class BytecodeVM:
                 state.done = True
                 return None
             except SproutError as exc:
-                instr = code.instructions[self.ip - 1] if code.instructions and self.ip else None
-                if instr and instr.source and instr.line:
-                    exc.path = exc.path or instr.source
-                    exc.line = exc.line or instr.line
-                    exc.col = exc.col or instr.col
-                    exc.add_frame(f"at {code.name} ({self.location_label(instr)})")
+                exc.add_frame(VMFunction(code.name, code, current_env).frame_label())
                 state.done = True
                 raise
             finally:
@@ -826,12 +839,7 @@ class BytecodeVM:
                 self.handlers = previous_handlers
 
     def location_label(self, instr: Instruction) -> str:
-        path = instr.source or "<unknown>"
-        if path != "<unknown>":
-            try:
-                path = os.path.relpath(path, os.getcwd())
-            except ValueError:
-                pass
+        path = display_path(instr.source) if instr.source else "<unknown>"
         return f"{path}:{instr.line}:{instr.col}" if instr.col else f"{path}:{instr.line}"
 
     def debug_hook(self, instr: Instruction, env: Env) -> None:
@@ -1097,7 +1105,16 @@ class BytecodeVM:
             kwargs = self.pop()
             args = self.pop()
             callee = self.pop()
-            self.stack.append(call_value(self, callee, list(args), dict(kwargs)))
+            try:
+                value = call_value(self, callee, list(args), dict(kwargs))
+            except SproutError as exc:
+                if exc.line is None:
+                    exc.path = exc.path or instr.source
+                    exc.line = instr.line
+                    exc.col = instr.col
+                exc.add_frame(f"called at {self.location_label(instr)}")
+                raise
+            self.stack.append(value)
         elif op == "CALL":
             argc = instr.arg
             args = self.stack[-argc:] if argc else []

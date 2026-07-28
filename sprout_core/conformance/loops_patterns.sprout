@@ -1,0 +1,27 @@
+enum Result:
+  Ok(value)
+  Error(message)
+
+total = 0
+for value in range(6):
+  if value == 1:
+    continue
+  if value == 4:
+    break
+  total = total + value
+
+count = 0
+while count < 2:
+  count = count + 1
+
+match Result.Ok(total):
+  case Result.Ok(value) if value > 0:
+    say value, count
+  case Result.Error(message):
+    say message
+  case _:
+    say "none"
+
+match [1, 2, 3]:
+  case [first, *rest]:
+    say first, rest
