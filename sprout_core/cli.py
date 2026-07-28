@@ -36,7 +36,14 @@ from .distribution import (
 from .application import STANDARD_LIBRARY_GROUPS
 from .registry_server import create_registry_token, list_registry_tokens, revoke_registry_token, serve_registry
 from .standalone import build_standalone, package_standalone, run_standalone, verify_standalone
-from .quality import conformance_suite, fuzz_suite, print_conformance, print_fuzz
+from .quality import (
+    benchmark_suite,
+    conformance_suite,
+    fuzz_suite,
+    print_benchmark_suite,
+    print_conformance,
+    print_fuzz,
+)
 from .typesystem import typecheck_path
 from .tooling import builtin_function_names, check_file, example_files, format_file, intelligence_file, lint_file, print_help, run_file
 
@@ -143,13 +150,21 @@ def main(argv: list[str]) -> int:
             print(disassemble(compile_bytecode_file(argv[2])))
         elif argv[1] == "bench":
             if len(argv) < 3:
-                print("usage: sprout.py bench FILE.sprout [--repeat N]", file=sys.stderr)
+                print("usage: sprout.py bench FILE.sprout|--suite [--repeat N] [--json]", file=sys.stderr)
                 return 2
-            repeat = 1
+            repeat = 5
             if "--repeat" in argv[3:]:
                 index = argv.index("--repeat")
                 repeat = int(argv[index + 1])
+            if argv[2] == "--suite":
+                return print_benchmark_suite(
+                    benchmark_suite(repeat=repeat),
+                    json_mode="--json" in argv[3:],
+                )
             result = benchmark_file(argv[2], repeat=repeat)
+            if "--json" in argv[3:]:
+                print(json.dumps(result, indent=2, sort_keys=True))
+                return 0
             print(f"path: {result['path']}")
             print(f"repeat: {result['repeat']}")
             print(f"compile: {result['compile_seconds']:.6f}s")

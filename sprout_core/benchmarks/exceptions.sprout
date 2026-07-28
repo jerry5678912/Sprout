@@ -1,0 +1,11 @@
+def checked(value):
+  try:
+    if value % 5 == 0:
+      raise "skip"
+    return value
+  catch error:
+    return 0
+
+total = 0
+for value in range(300):
+  total = total + checked(value)

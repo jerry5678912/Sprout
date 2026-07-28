@@ -2515,8 +2515,9 @@ python3 sprout.py conformance
 python3 sprout.py conformance --json
 ```
 
-Cases live under `sprout_core/conformance/` and declare expected output, exit status,
-diagnostic fragments, and whether interpreter/VM parity is required.
+Cases live under `sprout_core/conformance/` and declare expected output, exit
+status, diagnostic fragments, and an explicit VM expectation: `required`,
+`unsupported`, or `not-applicable`. Required cases run with fallback disabled.
 
 The deterministic fuzzer generates both valid and malformed programs:
 
@@ -2526,10 +2527,23 @@ python3 sprout.py fuzz --iterations 500 --seed 20260606
 python3 sprout.py fuzz --iterations 100 --seed 42 --json
 ```
 
-Valid generated programs must produce the same exit status and output in the
-stable interpreter and experimental VM. Malformed inputs may produce Sprout
-diagnostics, but may not crash the lexer/parser with internal exceptions. The
-reported seed makes every run reproducible.
+Valid generated programs must produce the same exit status, output, and
+normalized user-visible errors in the stable interpreter and experimental VM.
+Malformed inputs may produce Sprout diagnostics, but may not crash or hang the
+lexer/parser, leak Python tracebacks, or report invalid source ranges. JSON
+failures include both normalized engine results and a bounded minimized
+reproduction. The reported seed makes every run reproducible.
+
+Run the repeated-median benchmark suite:
+
+```sh
+python3 sprout.py bench --suite --repeat 5
+python3 sprout.py bench --suite --repeat 5 --json
+```
+
+The suite covers startup, compilation, loops, calls, collections, object fields,
+exceptions, and imports. It records relative interpreter/VM timings and raw
+samples without machine-specific absolute timing gates.
 
 Security regression tests are separate from ordinary behavior tests:
 

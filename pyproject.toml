@@ -45,4 +45,10 @@ py-modules = ["sprout"]
 include = ["sprout_core*"]
 
 [tool.setuptools.package-data]
-sprout_core = ["conformance/*.json", "conformance/*.sprout", "stdlib/*.sprout"]
+sprout_core = [
+  "benchmarks/*.sprout",
+  "conformance/*.json",
+  "conformance/*.sprout",
+  "conformance/modules/*.sprout",
+  "stdlib/*.sprout",
+]

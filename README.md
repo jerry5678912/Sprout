@@ -442,8 +442,21 @@ python3 sprout.py fuzz --iterations 100 --seed 42 --json
 ```
 
 Each seed generates valid programs for interpreter/VM comparison and malformed
-programs that must never crash the parser with an internal exception. A failed
+programs that must never crash the parser with an internal exception. VM runs
+are strict and never fall back during differential checks. JSON failures include
+the normalized engine results and a bounded minimized reproduction. A failed
 seed can be replayed exactly.
+
+Run the median benchmark suite:
+
+```sh
+python3 sprout.py bench --suite --repeat 5
+python3 sprout.py bench --suite --repeat 5 --json
+```
+
+The suite covers startup, compilation, loops, calls, collections, object fields,
+exceptions, and imports. It records relative interpreter/VM timings and raw
+samples without imposing machine-specific absolute timing thresholds.
 
 Security regression tests cover hostile source input, package traversal,
 symlinks, archive file-count and expansion limits, forged package hashes, and

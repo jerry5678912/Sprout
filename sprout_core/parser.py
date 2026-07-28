@@ -133,6 +133,12 @@ class Parser:
         expr = self.expression()
         if self.match("="):
             target = expr
+            equals = self.previous()
+            if target[0] not in {"var", "get", "index", "slice"}:
+                raise SproutError(
+                    "Expected a variable, property, index, or slice assignment target "
+                    f"at {equals.line}:{equals.col}"
+                )
             value = self.expression()
             self.terminator("Expected a line ending after assignment")
             return ("assign", target, value)

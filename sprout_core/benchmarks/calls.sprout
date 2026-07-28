@@ -1,0 +1,9 @@
+def add(left, right):
+  return left + right
+
+def chain(value):
+  return add(add(value, 1), 2)
+
+total = 0
+for value in range(300):
+  total = total + chain(value)

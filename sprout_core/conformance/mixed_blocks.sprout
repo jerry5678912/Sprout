@@ -1,0 +1,10 @@
+def collect() bloom
+  values = []
+  if True:
+    for value in [1, 2, 3] {
+      values.append(value)
+    }
+  return values
+end
+
+say collect()

@@ -100,12 +100,28 @@ def test_vm_error_context() -> None:
     assert "at crash" in result.stderr
 
 
+def test_parser_regression_cases_fail_cleanly() -> None:
+    cases = [
+        "if True:\n",
+        "say ([1, 2)\n",
+        "call() = 1\n",
+        "def outer():\n  def inner(:\n",
+        "if True {\n  say 1\nend\n",
+    ]
+    for source in cases:
+        result = run_source(source)
+        assert_clean_failure(result)
+        assert "error:" in result.stderr
+        assert "-->" in result.stderr
+
+
 def main() -> int:
     test_syntax_context()
     test_runtime_math_error()
     test_python_bridge_error()
     test_bridged_python_location_is_translated()
     test_vm_error_context()
+    test_parser_regression_cases_fail_cleanly()
     print("sprout error reporting tests passed")
     return 0
 

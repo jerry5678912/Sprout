@@ -1,0 +1,7 @@
+import "import_helper.sprout" as helper
+import "import_helper.sprout" as same_helper
+
+total = 0
+for value in range(200):
+  total = total + helper.square(value)
+total = total + same_helper.square(2)

@@ -1,0 +1,10 @@
+class Counter:
+  def init(self):
+    self.value = 0
+
+  def bump(self):
+    self.value = self.value + 1
+
+counter = Counter()
+for value in range(500):
+  counter.bump()

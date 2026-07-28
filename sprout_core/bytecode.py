@@ -5,6 +5,7 @@ import contextlib
 import io
 import os
 import re
+import statistics
 import sys
 import threading
 import time
@@ -1392,39 +1393,46 @@ def profile_file(path: str, args: list[str] | None = None) -> dict[str, Any]:
 
 
 def benchmark_file(path: str, args: list[str] | None = None, repeat: int = 1) -> dict[str, Any]:
+    if repeat < 1:
+        raise SproutError("Benchmark repeat count must be at least 1")
     source, resolved = read_source_file(path)
     compile_error = None
     code = None
-    compile_seconds = None
-    compile_started = time.perf_counter()
-    try:
-        code = compile_source(source, resolved)
-    except BytecodeUnsupported as exc:
-        compile_error = str(exc)
-    finally:
-        compile_seconds = time.perf_counter() - compile_started
+    compile_samples: list[float] = []
+    for _ in range(repeat):
+        compile_started = time.perf_counter()
+        try:
+            code = compile_source(source, resolved)
+        except BytecodeUnsupported as exc:
+            compile_error = str(exc)
+            code = None
+        compile_samples.append(time.perf_counter() - compile_started)
 
-    start = time.perf_counter()
-    with contextlib.redirect_stdout(io.StringIO()):
-        for _ in range(repeat):
-            run_file(path, args or [])
-    tree_time = time.perf_counter() - start
-
-    vm_time = None
-    vm_instruction_count = None
-    if code is not None:
+    tree_samples: list[float] = []
+    for _ in range(repeat):
         start = time.perf_counter()
-        instruction_count = 0
         with contextlib.redirect_stdout(io.StringIO()):
-            for _ in range(repeat):
+            run_file(path, args or [])
+        tree_samples.append(time.perf_counter() - start)
+
+    vm_samples: list[float] = []
+    vm_instruction_samples: list[int] = []
+    if code is not None:
+        for _ in range(repeat):
+            start = time.perf_counter()
+            with contextlib.redirect_stdout(io.StringIO()):
                 vm = BytecodeVM(resolved, argv=args or [])
                 vm.run(code)
-                instruction_count += vm.instruction_count
-        vm_time = time.perf_counter() - start
-        vm_instruction_count = instruction_count
+            vm_samples.append(time.perf_counter() - start)
+            vm_instruction_samples.append(vm.instruction_count)
 
+    compile_seconds = statistics.median(compile_samples)
+    tree_time = statistics.median(tree_samples)
+    vm_time = statistics.median(vm_samples) if vm_samples else None
+    vm_instruction_count = int(statistics.median(vm_instruction_samples)) if vm_instruction_samples else None
     ratio = None if vm_time in (None, 0) else tree_time / vm_time
     return {
+        "schema": 2,
         "path": resolved,
         "repeat": repeat,
         "compile_seconds": compile_seconds,
@@ -1435,4 +1443,10 @@ def benchmark_file(path: str, args: list[str] | None = None, repeat: int = 1) ->
         "vm_supported": code is not None,
         "vm_unsupported": compile_error,
         "fallback_used": False,
+        "samples": {
+            "compile_seconds": compile_samples,
+            "tree_walk_seconds": tree_samples,
+            "vm_seconds": vm_samples,
+            "vm_instruction_count": vm_instruction_samples,
+        },
     }

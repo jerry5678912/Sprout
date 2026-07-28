@@ -1,0 +1,23 @@
+interface Named:
+  def name(self) -> String
+
+enum Result:
+  Ok(value: Int)
+  Error(message: String)
+
+class Box implements Named:
+  def init(self, value):
+    self.value = value
+
+  def name(self):
+    return "box"
+
+def transform(values):
+  return [value * 2 for value in values if value > 2]
+
+result = Result.Ok(transform([1, 2, 3, 4])[0])
+match result:
+  case Result.Ok(value):
+    value = value + Box(value).value
+  case Result.Error(message):
+    value = len(message)

@@ -1,0 +1,8 @@
+total = 0
+for value in range(1000):
+  if value % 2 == 0:
+    total = total + value
+
+count = 0
+while count < 100:
+  count = count + 1

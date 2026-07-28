@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sprout_core.quality import (  # noqa: E402
+    benchmark_suite,
     compare_engine_results,
     conformance_suite,
     fuzz_suite,
@@ -95,6 +96,34 @@ def test_machine_readable_commands() -> None:
     payload = json.loads(fuzz.stdout)
     assert payload["ok"] is True
     assert payload["seed"] == 7
+    benchmark = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "sprout.py"),
+            "bench",
+            "--suite",
+            "--repeat",
+            "2",
+            "--json",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    benchmark_payload = json.loads(benchmark.stdout)
+    assert benchmark_payload["ok"] is True
+    assert benchmark_payload["total"] == 8
+
+
+def test_benchmark_suite_uses_medians_and_strict_parity() -> None:
+    report = benchmark_suite(repeat=3)
+    assert report["ok"], report
+    assert report["total"] == 8
+    assert all(item["parity"]["ok"] for item in report["benchmarks"])
+    assert all(item["metrics"]["repeat"] == 3 for item in report["benchmarks"])
+    assert all(len(item["metrics"]["samples"]["compile_seconds"]) == 3 for item in report["benchmarks"])
+    assert all(not item["metrics"]["fallback_used"] for item in report["benchmarks"])
 
 
 def test_engine_result_normalizes_user_visible_errors() -> None:
@@ -202,6 +231,7 @@ def main() -> int:
     test_seeded_fuzzer_is_repeatable()
     test_mismatch_reducer_is_bounded_and_preserves_failure()
     test_machine_readable_commands()
+    test_benchmark_suite_uses_medians_and_strict_parity()
     test_engine_result_normalizes_user_visible_errors()
     test_strict_vm_reports_unsupported_without_fallback()
     test_engine_comparison_classifies_differences()

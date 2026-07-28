@@ -6,9 +6,11 @@ import os
 from pathlib import Path
 import random
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Callable
 
 from .model import SproutError
@@ -35,6 +37,16 @@ VM_CONSTRUCT_KINDS = {
         "variant_pattern", "binding_pattern",
     },
 }
+BENCHMARK_WORKLOADS = (
+    "startup",
+    "compilation",
+    "loops",
+    "calls",
+    "collections",
+    "object_fields",
+    "exceptions",
+    "imports",
+)
 
 
 @dataclass
@@ -592,4 +604,81 @@ def print_fuzz(report: dict[str, Any], *, json_mode: bool = False) -> int:
             print(f"fuzz FAILED seed={report['seed']} failures={len(report['failures'])}")
             for failure in report["failures"][:10]:
                 print(f"  iteration {failure['iteration']}: {failure['kind']}")
+    return 0 if report["ok"] else 1
+
+
+def benchmark_suite(repeat: int = 5) -> dict[str, Any]:
+    if repeat < 1:
+        raise SproutError("Benchmark repeat count must be at least 1")
+    from .bytecode import benchmark_file
+
+    root = Path(__file__).resolve().parent / "benchmarks"
+    results: list[dict[str, Any]] = []
+    for name in BENCHMARK_WORKLOADS:
+        path = root / f"{name}.sprout"
+        stable = run_engine(path, engine="interpreter")
+        vm = run_engine(path, engine="vm", allow_fallback=False)
+        failures = compare_engine_results(stable, vm)
+        metrics = benchmark_file(str(path), repeat=repeat)
+        ratio = metrics["speed_ratio"]
+        if metrics["vm_supported"] is not True:
+            failures.append("vm-unsupported")
+        if metrics["fallback_used"]:
+            failures.append("unexpected-fallback")
+        if ratio is not None and not (0.001 <= ratio <= 1000):
+            failures.append("benchmark-sanity")
+
+        process_samples: dict[str, list[float]] | None = None
+        if name == "startup":
+            process_samples = {"interpreter": [], "vm": []}
+            for engine in ("interpreter", "vm"):
+                for _ in range(repeat):
+                    started = time.perf_counter()
+                    result = run_engine(path, engine=engine, allow_fallback=False)
+                    process_samples[engine].append(time.perf_counter() - started)
+                    if result.timed_out:
+                        failures.append("timeout")
+            metrics["process_startup_seconds"] = {
+                engine: statistics.median(samples)
+                for engine, samples in process_samples.items()
+            }
+            metrics["samples"]["process_startup_seconds"] = process_samples
+
+        results.append({
+            "name": name,
+            "path": str(path),
+            "ok": not failures,
+            "failures": list(dict.fromkeys(failures)),
+            "parity": {
+                "ok": not compare_engine_results(stable, vm),
+                "failures": compare_engine_results(stable, vm),
+            },
+            "engine_results": {
+                "interpreter": stable.to_json(),
+                "vm": vm.to_json(),
+            },
+            "metrics": metrics,
+        })
+    return {
+        "schema": 1,
+        "ok": all(item["ok"] for item in results),
+        "repeat": repeat,
+        "passed": sum(1 for item in results if item["ok"]),
+        "total": len(results),
+        "benchmarks": results,
+    }
+
+
+def print_benchmark_suite(report: dict[str, Any], *, json_mode: bool = False) -> int:
+    if json_mode:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        for item in report["benchmarks"]:
+            status = "ok" if item["ok"] else "FAIL"
+            ratio = item["metrics"]["speed_ratio"]
+            ratio_text = "unsupported" if ratio is None else f"{ratio:.3f}x"
+            print(f"{status} {item['name']}: tree/vm {ratio_text}")
+            for failure in item["failures"]:
+                print(f"  {failure}")
+        print(f"{report['passed']}/{report['total']} benchmark workloads passed")
     return 0 if report["ok"] else 1

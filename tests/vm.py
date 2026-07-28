@@ -103,7 +103,7 @@ def test_instruction_source_maps() -> None:
 
 
 def test_benchmark_command() -> None:
-    bench = run(["bench", "examples/vm_expanded.sprout"]).stdout
+    bench = run(["bench", "examples/vm_expanded.sprout", "--repeat", "2"]).stdout
     assert "tree-walk:" in bench
     assert "vm:" in bench
     assert "ratio tree/vm:" in bench
@@ -111,6 +111,10 @@ def test_benchmark_command() -> None:
     assert "vm instructions:" in bench
     assert "vm supported: true" in bench
     assert "fallback used: false" in bench
+    payload = run(["bench", "examples/vm_expanded.sprout", "--repeat", "2", "--json"]).stdout
+    parsed = __import__("json").loads(payload)
+    assert parsed["schema"] == 2
+    assert len(parsed["samples"]["tree_walk_seconds"]) == 2
 
 
 def test_debug_and_profile_commands() -> None:

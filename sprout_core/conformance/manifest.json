@@ -79,6 +79,13 @@
       "vm": {"expectation": "required"}
     },
     {
+      "name": "nested Python, garden, and brace block styles",
+      "file": "mixed_blocks.sprout",
+      "exit": 0,
+      "stdout": "[1, 2, 3]\n",
+      "vm": {"expectation": "required"}
+    },
+    {
       "name": "deterministic Python standard-library import",
       "file": "python_import.sprout",
       "exit": 0,

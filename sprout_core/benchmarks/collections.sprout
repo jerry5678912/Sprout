@@ -1,0 +1,4 @@
+values = [value for value in range(500) if value % 3 == 0]
+mapped = {str(value): value * 2 for value in values}
+window = values[10:80]
+window[0:5] = [1, 2, 3]
