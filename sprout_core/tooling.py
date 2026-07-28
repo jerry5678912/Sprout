@@ -1015,6 +1015,7 @@ def print_help() -> None:
         "  python3 sprout.py FILE.sprout [args]    Run a file\n"
         "  python3 sprout.py run FILE|DIR [args]   Run a file or sprout.toml project\n"
         "  python3 sprout.py run --vm FILE [args]  Run with the experimental bytecode VM\n"
+        "                    [--no-fallback]        Fail when the VM cannot compile a feature\n"
         "  python3 sprout.py compile FILE          Compile to experimental bytecode\n"
         "  python3 sprout.py dis FILE              Show experimental bytecode\n"
         "  python3 sprout.py bench FILE            Time tree-walk vs VM when supported\n"

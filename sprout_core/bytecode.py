@@ -281,30 +281,35 @@ class Compiler:
         if kind == "test":
             self.scan_line = max(self.scan_line, stmt[3])
             return stmt[3], stmt[4]
-        patterns = {
-            "let": rf"^\s*(?:let|sprout)\s+{re.escape(str(stmt[1]))}\b",
-            "import": r"^\s*import\b",
-            "importpython": r"^\s*importpython\b",
-            "class": rf"^\s*class\s+{re.escape(str(stmt[1]))}\b",
-            "interface": rf"^\s*interface\s+{re.escape(str(stmt[1]))}\b",
-            "enum": rf"^\s*enum\s+{re.escape(str(stmt[1]))}\b",
-            "type_alias": rf"^\s*type\s+{re.escape(str(stmt[1]))}\b",
-            "match": r"^\s*match\b",
-            "if": r"^\s*(?:if|elif|else\s+if)\b",
-            "while": r"^\s*(?:while|whirl)\b",
-            "for": r"^\s*(?:for|each)\b",
-            "async_for": r"^\s*async\s+for\b",
-            "try": r"^\s*try\b",
-            "raise": r"^\s*raise\b",
-            "return": r"^\s*(?:return|pluck)\b",
-            "yield": r"^\s*yield\b",
-            "break": r"^\s*break\b",
-            "continue": r"^\s*continue\b",
-            "say": r"^\s*say\b",
-            "assign": r"^\s*[A-Za-z_][A-Za-z0-9_.\[\]:]*\s*=",
-            "expr": r"^\s*\S",
+        named_patterns = {
+            "let": r"^\s*(?:let|sprout)\s+{name}\b",
+            "class": r"^\s*class\s+{name}\b",
+            "interface": r"^\s*interface\s+{name}\b",
+            "enum": r"^\s*enum\s+{name}\b",
+            "type_alias": r"^\s*type\s+{name}\b",
         }
-        pattern = patterns.get(kind)
+        if kind in named_patterns:
+            pattern = named_patterns[kind].format(name=re.escape(str(stmt[1])))
+        else:
+            patterns = {
+                "import": r"^\s*import\b",
+                "importpython": r"^\s*importpython\b",
+                "match": r"^\s*match\b",
+                "if": r"^\s*(?:if|elif|else\s+if)\b",
+                "while": r"^\s*(?:while|whirl)\b",
+                "for": r"^\s*(?:for|each)\b",
+                "async_for": r"^\s*async\s+for\b",
+                "try": r"^\s*try\b",
+                "raise": r"^\s*raise\b",
+                "return": r"^\s*(?:return|pluck)\b",
+                "yield": r"^\s*yield\b",
+                "break": r"^\s*break\b",
+                "continue": r"^\s*continue\b",
+                "say": r"^\s*say\b",
+                "assign": r"^\s*[A-Za-z_][A-Za-z0-9_.\[\]:]*\s*=",
+                "expr": r"^\s*\S",
+            }
+            pattern = patterns.get(kind)
         if not pattern:
             return self.current_line, self.current_col
         for index in range(self.scan_line, len(self.source_lines)):

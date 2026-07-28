@@ -66,6 +66,17 @@ def test_vm_error_locations() -> None:
     assert "at crash" in result.stderr
 
 
+def test_no_fallback_flag_reports_unsupported_vm_feature() -> None:
+    with tempfile.NamedTemporaryFile("w", suffix=".sprout", delete=False) as fh:
+        fh.write("break\n")
+        path = fh.name
+    strict = run(["run", "--vm", "--no-fallback", path], check=False)
+    assert strict.returncode == 1
+    assert "experimental VM does not support this yet" in strict.stderr
+    assert "break outside a loop" in strict.stderr
+    assert "fallback" not in strict.stderr.lower()
+
+
 def test_instruction_source_maps() -> None:
     code = compile_file(str(ROOT / "examples" / "super.sprout"))
 
@@ -116,6 +127,7 @@ def main() -> int:
     test_disassembler()
     test_expanded_disassembler()
     test_vm_error_locations()
+    test_no_fallback_flag_reports_unsupported_vm_feature()
     test_instruction_source_maps()
     test_benchmark_command()
     print("sprout vm tests passed")

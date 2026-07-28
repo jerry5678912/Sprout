@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout
+from dataclasses import dataclass, field
 import io
 import json
 import os
 from pathlib import Path
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,8 +18,194 @@ from .model import SproutError
 from .parser import Parser
 
 
+ERROR_HEADER = re.compile(r"^error:\s+([^:]+):\s+(.*)$", re.MULTILINE)
+ERROR_LOCATION = re.compile(r"^\s*-->\s+(.+?):(\d+)(?::(\d+))?\s*$", re.MULTILINE)
+VM_UNSUPPORTED_PREFIX = "error: experimental VM does not support this yet:"
+VM_FALLBACK_MARKER = "warning: VM fallback to stable interpreter:"
+
+
+@dataclass
+class EngineResult:
+    engine: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    error_type: str | None = None
+    error_message: str = ""
+    source_path: str | None = None
+    line: int | None = None
+    col: int | None = None
+    frames: list[str] = field(default_factory=list)
+    timed_out: bool = False
+    vm_supported: bool | None = None
+    fallback_used: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "engine": self.engine,
+            "exit_code": self.exit_code,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "source_path": self.source_path,
+            "line": self.line,
+            "col": self.col,
+            "frames": list(self.frames),
+            "timed_out": self.timed_out,
+            "vm_supported": self.vm_supported,
+            "fallback_used": self.fallback_used,
+        }
+
+
+def normalize_engine_result(
+    *,
+    engine: str,
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+    timed_out: bool = False,
+) -> EngineResult:
+    fallback_used = VM_FALLBACK_MARKER.lower() in stderr.lower()
+    unsupported_index = stderr.lower().find(VM_UNSUPPORTED_PREFIX.lower())
+    error_type = None
+    error_message = ""
+    if unsupported_index >= 0:
+        error_type = "BytecodeUnsupported"
+        line = stderr[unsupported_index:].splitlines()[0]
+        error_message = line[len(VM_UNSUPPORTED_PREFIX):].strip()
+    else:
+        header = ERROR_HEADER.search(stderr)
+        if header:
+            error_type = header.group(1).strip()
+            error_message = header.group(2).strip()
+
+    source_path = None
+    source_line = None
+    source_col = None
+    location = ERROR_LOCATION.search(stderr)
+    if location:
+        source_path = location.group(1)
+        source_line = int(location.group(2))
+        source_col = int(location.group(3)) if location.group(3) else None
+
+    frames: list[str] = []
+    in_stack = False
+    for raw_line in stderr.splitlines():
+        stripped = raw_line.strip()
+        if stripped == "stack:":
+            in_stack = True
+            continue
+        if not in_stack:
+            continue
+        if stripped.startswith("at "):
+            frames.append(stripped[3:])
+        elif stripped.startswith("called at "):
+            frames.append(stripped)
+        elif stripped:
+            break
+
+    return EngineResult(
+        engine=engine,
+        exit_code=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        error_type=error_type,
+        error_message=error_message,
+        source_path=source_path,
+        line=source_line,
+        col=source_col,
+        frames=frames,
+        timed_out=timed_out,
+        vm_supported=(unsupported_index < 0) if engine == "vm" else None,
+        fallback_used=fallback_used,
+    )
+
+
 def repository_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def run_engine(
+    path: Path,
+    *,
+    engine: str = "interpreter",
+    allow_fallback: bool = False,
+    timeout: float = 10.0,
+    args: list[str] | None = None,
+    input_text: str | None = None,
+) -> EngineResult:
+    if engine not in {"interpreter", "vm"}:
+        raise ValueError(f"Unknown Sprout engine {engine!r}")
+    command = [sys.executable, "-m", "sprout_core", "run"]
+    if engine == "vm":
+        command.append("--vm")
+        if not allow_fallback:
+            command.append("--no-fallback")
+    command.append(str(path))
+    command.extend(args or [])
+    python_path = os.pathsep.join(
+        item for item in [str(repository_root()), os.environ.get("PYTHONPATH", "")] if item
+    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=path.parent,
+            text=True,
+            input=input_text,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+            env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": python_path},
+        )
+    except subprocess.TimeoutExpired as exc:
+        return normalize_engine_result(
+            engine=engine,
+            returncode=None,
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+            timed_out=True,
+        )
+    return normalize_engine_result(
+        engine=engine,
+        returncode=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
+
+
+def compare_engine_results(stable: EngineResult, vm: EngineResult) -> list[str]:
+    failures: list[str] = []
+    if stable.timed_out or vm.timed_out:
+        failures.append("timeout")
+    if vm.vm_supported is False:
+        failures.append("vm-unsupported")
+    if vm.fallback_used:
+        failures.append("unexpected-fallback")
+    if stable.exit_code != vm.exit_code:
+        failures.append("exit-mismatch")
+    if stable.stdout != vm.stdout:
+        failures.append("output-mismatch")
+    if stable.exit_code != 0 or vm.exit_code != 0:
+        stable_error = (
+            stable.error_type,
+            stable.error_message,
+            stable.line,
+            stable.col,
+            stable.frames,
+        )
+        vm_error = (
+            vm.error_type,
+            vm.error_message,
+            vm.line,
+            vm.col,
+            vm.frames,
+        )
+        if stable_error != vm_error:
+            failures.append("diagnostic-mismatch")
+    if "Traceback (most recent call last)" in stable.stderr or "Traceback (most recent call last)" in vm.stderr:
+        failures.append("python-traceback")
+    return list(dict.fromkeys(failures))
 
 
 def run_sprout(path: Path, *, vm: bool = False, timeout: float = 10.0) -> subprocess.CompletedProcess[str]:

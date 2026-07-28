@@ -116,13 +116,18 @@ def main(argv: list[str]) -> int:
             print(f"Sprout {SPROUT_VERSION}")
         elif argv[1] == "run":
             if len(argv) < 3:
-                print("usage: sprout.py run [--vm] FILE.sprout|DIR [args]", file=sys.stderr)
+                print("usage: sprout.py run [--vm [--no-fallback]] FILE.sprout|DIR [args]", file=sys.stderr)
                 return 2
             if argv[2] == "--vm":
-                if len(argv) < 4:
-                    print("usage: sprout.py run --vm FILE.sprout [args]", file=sys.stderr)
+                vm_args = argv[3:]
+                fallback = True
+                if vm_args and vm_args[0] == "--no-fallback":
+                    fallback = False
+                    vm_args = vm_args[1:]
+                if not vm_args:
+                    print("usage: sprout.py run --vm [--no-fallback] FILE.sprout [args]", file=sys.stderr)
                     return 2
-                run_file_vm(argv[3], argv[4:])
+                run_file_vm(vm_args[0], vm_args[1:], fallback=fallback)
             else:
                 run_file(argv[2], argv[3:])
         elif argv[1] == "compile":
