@@ -366,6 +366,18 @@ name = player_name or "unknown"
 
 `and` and `or` short-circuit and return values, not just booleans.
 
+Nil coalescing also short-circuits, but checks only for `nil`:
+
+```sprout
+label = saved_label ?? "Untitled"
+say false ?? True  # false
+say 0 ?? 9         # 0
+```
+
+The right side of `??` is evaluated only when the left side is `nil`. Chained
+coalescing is right-associative, so `a ?? b ?? c` behaves like
+`a ?? (b ?? c)`.
+
 ## 10. Arrays
 
 Arrays are ordered and mutable.
@@ -495,6 +507,20 @@ Property access:
 thing.name
 thing.method()
 ```
+
+Safe property and method access:
+
+```sprout
+city = user?.profile?.city ?? "Unknown"
+message = logger?.format(user) ?? "No logger"
+```
+
+`?.` returns `nil` when its receiver is `nil`. For an optional method call, its
+arguments are not evaluated when the receiver is `nil`. If the receiver exists
+but the requested member does not, Sprout still reports the normal missing
+member error. Use `?.` at each nullable step in a chain.
+
+`??` has lower precedence than the logical operators and is right-associative.
 
 Call:
 

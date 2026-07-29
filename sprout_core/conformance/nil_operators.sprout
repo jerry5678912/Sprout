@@ -1,0 +1,19 @@
+state = {"touches": 0}
+
+def touch():
+  state.touches = state.touches + 1
+  return "fallback"
+
+class Greeter:
+  def greet(self, prefix):
+    return prefix + " Mina"
+
+person = {"profile": {"name": "Mina"}}
+missing = nil
+greeter = Greeter()
+
+say person?.profile?.name ?? touch()
+say missing?.profile?.name ?? touch()
+say greeter?.greet("Hello") ?? "nobody"
+say missing?.greet(touch()) ?? "nobody"
+say false ?? True, 0 ?? 9, state.touches

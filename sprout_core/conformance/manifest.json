@@ -112,6 +112,13 @@
       "exit": 1,
       "stderr_contains": "Undefined variable 'missing_value'",
       "vm": {"expectation": "required"}
+    },
+    {
+      "name": "safe navigation and nil coalescing short circuit",
+      "file": "nil_operators.sprout",
+      "exit": 0,
+      "stdout": "Mina\nfallback\nHello Mina\nnobody\nfalse 0 1\n",
+      "vm": {"expectation": "required"}
     }
   ]
 }

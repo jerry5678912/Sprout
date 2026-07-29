@@ -615,7 +615,7 @@ end
 - Python library imports with `importpython math` or `importpython random as pyrandom`
 - Command-line args through `argv`
 - File helpers: `readfile`, `writefile`, `appendfile`, `exists`, `isfile`, `isdir`, `listdir`, `mkdir`, `readjson`, `writejson`, `lines`
-- Operators: `+ - * / // %`, comparisons, equality, membership `in`, `and`, `or`, unary `!` / `not`
+- Operators: `+ - * / // %`, comparisons, equality, membership `in`, `and`, `or`, unary `!` / `not`, safe navigation `?.`, and nil coalescing `??`
 - Array and string slicing with `items[1:4]`, `items[:2]`, and `items[2:]`
 - Built-ins: `say`, `len`, `push`, `range`, `str`, `int`, `num`, `type`, `keys`, `values`, `items`, `has`, `get`, `argv`, `ask`, `clear`, `ensure`, `fail`
 - Special Sprout helpers: `sparkle`, `whisper`, `shout`, `mirror`, `chant`, `weave`, `grow`, `plant`, `harvest`, `prune`, `sprinkle`, `bundle`, `first`, `last`, `rest`, `unique`, `countby`, `zipbud`, `dice`
@@ -637,6 +637,17 @@ Statements can end with newlines or semicolons.
 name = "Sprout"
 say "hello", name
 ```
+
+Safe navigation stops a property or method chain when its receiver is `nil`.
+Nil coalescing evaluates its right side only when the left side is `nil`:
+
+```sprout
+city = user?.profile?.city ?? "Unknown"
+message = logger?.format(user) ?? "No logger"
+```
+
+These operators are nil-specific. `false ?? True` is `false`, and `0 ?? 9` is
+`0`. A present value with an unknown member still reports an error.
 
 The recommended general block style uses `:` and indentation.
 

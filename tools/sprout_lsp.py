@@ -960,7 +960,7 @@ class SproutLanguageServer:
                     "change": 2,
                     "save": {"includeText": False},
                 },
-                "completionProvider": {"triggerCharacters": ["."]},
+                "completionProvider": {"triggerCharacters": [".", "?"]},
                 "hoverProvider": True,
                 "definitionProvider": True,
                 "referencesProvider": True,

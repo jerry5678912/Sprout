@@ -630,6 +630,13 @@ class Compiler:
                 self.expression(expr[2])
                 self.expression(expr[3])
                 self.emit("BINARY", expr[1])
+        elif kind == "coalesce":
+            self.expression(expr[1])
+            use_fallback = self.emit("JUMP_IF_NONE", None)
+            done = self.emit("JUMP", None)
+            self.patch(use_fallback, len(self.code.instructions))
+            self.expression(expr[2])
+            self.patch(done, len(self.code.instructions))
         elif kind == "index":
             self.expression(expr[1])
             self.expression(expr[2])
@@ -642,8 +649,12 @@ class Compiler:
         elif kind == "get":
             self.expression(expr[1])
             self.emit("GET_PROPERTY", expr[2])
-        elif kind == "call":
+        elif kind == "optional_get":
             self.expression(expr[1])
+            self.emit("GET_PROPERTY_OPTIONAL", expr[2])
+        elif kind in {"call", "optional_call"}:
+            self.expression(expr[1])
+            nil_callee = self.emit("JUMP_IF_NONE", None) if kind == "optional_call" else None
             self.emit("BUILD_ARGS")
             for part in expr[2]:
                 self.expression(part[1])
@@ -653,6 +664,11 @@ class Compiler:
                 self.expression(part[1] if part[0] == "spread" else part[2])
                 self.emit("UPDATE_KWARGS" if part[0] == "spread" else "SET_KWARG", None if part[0] == "spread" else part[1])
             self.emit("CALL_EX", None, expr[4], expr[5])
+            if nil_callee is not None:
+                done = self.emit("JUMP", None)
+                self.patch(nil_callee, len(self.code.instructions))
+                self.emit("LOAD_CONST", None)
+                self.patch(done, len(self.code.instructions))
         elif kind == "super":
             self.emit("LOAD_SUPER_METHOD", expr[1])
         elif kind == "await":
@@ -959,6 +975,15 @@ class BytecodeVM:
         elif op == "GET_PROPERTY":
             obj = self.pop()
             self.stack.append(obj.get(instr.arg) if isinstance(obj, VMInstance) else self.interpreter.get_property(obj, instr.arg))
+        elif op == "GET_PROPERTY_OPTIONAL":
+            obj = self.pop()
+            self.stack.append(
+                None
+                if obj is None
+                else obj.get(instr.arg)
+                if isinstance(obj, VMInstance)
+                else self.interpreter.get_property(obj, instr.arg)
+            )
         elif op == "SET_PROPERTY":
             value = self.pop()
             obj = self.pop()

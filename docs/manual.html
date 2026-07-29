@@ -433,6 +433,17 @@ name = player_name or &quot;unknown&quot;
 <p>
 <code>and</code> and <code>or</code> short-circuit and return values, not just booleans.
 </p>
+<p>
+Nil coalescing also short-circuits, but checks only for <code>nil</code>:
+</p>
+<pre><code class="language-sprout">
+label = saved_label ?? &quot;Untitled&quot;
+say false ?? True  # false
+say 0 ?? 9         # 0
+</code></pre>
+<p>
+The right side of <code>??</code> is evaluated only when the left side is <code>nil</code>. Chained coalescing is right-associative, so <code>a ?? b ?? c</code> behaves like <code>a ?? (b ?? c)</code>.
+</p>
 <h2 id="10-arrays">10. Arrays</h2>
 <p>
 Arrays are ordered and mutable.
@@ -560,6 +571,19 @@ Property access:
 thing.name
 thing.method()
 </code></pre>
+<p>
+Safe property and method access:
+</p>
+<pre><code class="language-sprout">
+city = user?.profile?.city ?? &quot;Unknown&quot;
+message = logger?.format(user) ?? &quot;No logger&quot;
+</code></pre>
+<p>
+<code>?.</code> returns <code>nil</code> when its receiver is <code>nil</code>. For an optional method call, its arguments are not evaluated when the receiver is <code>nil</code>. If the receiver exists but the requested member does not, Sprout still reports the normal missing member error. Use <code>?.</code> at each nullable step in a chain.
+</p>
+<p>
+<code>??</code> has lower precedence than the logical operators and is right-associative.
+</p>
 <p>
 Call:
 </p>

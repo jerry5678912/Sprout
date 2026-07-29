@@ -1108,6 +1108,37 @@ def test_completion_with_semantic_matches_skips_extra_keywords() -> None:
         assert "sprout" not in labels
 
 
+def test_optional_member_completion_uses_semantic_members() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        path = root / "main.sprout"
+        source = (
+            "def make_player():\n"
+            '  return {"name": "Mina", "hp": 10}\n'
+            "\n"
+            "player = make_player()\n"
+            "player?.\n"
+        )
+        path.write_text(source, encoding="utf-8")
+        uri = path.resolve().as_uri()
+        server = LSP.SproutLanguageServer(reader=io.BytesIO(), writer=io.BytesIO())
+        initialized = request(server, 1, "initialize", {"rootUri": root.resolve().as_uri()})
+        assert initialized["result"]["capabilities"]["completionProvider"]["triggerCharacters"] == [".", "?"]
+        server.handle({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        server.handle({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "sprout", "version": 1, "text": source}},
+        })
+        completion = request(server, 2, "textDocument/completion", {
+            "textDocument": {"uri": uri},
+            "position": {"line": 4, "character": 8},
+        })
+        labels = {item["label"] for item in completion["result"]["items"]}
+        assert {"name", "hp"}.issubset(labels)
+        assert "say" not in labels
+
+
 def test_blank_document_has_no_diagnostics() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1414,6 +1445,7 @@ def main() -> int:
     test_incomplete_import_publishes_error_diagnostic()
     test_completion_ranking_prefers_local_symbols()
     test_completion_with_semantic_matches_skips_extra_keywords()
+    test_optional_member_completion_uses_semantic_members()
     test_blank_document_has_no_diagnostics()
     test_diagnostics_are_republished_for_new_document_version()
     test_stale_did_change_version_is_ignored()

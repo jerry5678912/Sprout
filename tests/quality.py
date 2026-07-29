@@ -69,7 +69,7 @@ def test_seeded_fuzzer_is_repeatable() -> None:
     assert first == second
     assert first["valid_programs"] == 20
     assert first["malformed_programs"] == 20
-    assert len(first["families"]) == 6
+    assert len(first["families"]) == 7
 
 
 def test_mismatch_reducer_is_bounded_and_preserves_failure() -> None:

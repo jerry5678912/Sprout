@@ -451,6 +451,16 @@ class TypeChecker:
             if type_name(left) == "String" or type_name(right) == "String":
                 return ("type", "String", [], 0, 0)
             return common_type([left, right])
+        if kind == "coalesce":
+            left = self.infer(expr[1], env)
+            right = self.infer(expr[2], env)
+            if isinstance(left, ModuleType):
+                return left
+            if same_type(left, NIL):
+                return right
+            if left[0] == "union" and any(same_type(member, NIL) for member in left[1]):
+                return common_type([without_nil(left), right])
+            return left
         if kind in {"index", "slice"}:
             container = self.infer(expr[1], env)
             if container[1] in {"List", "Array"} and container[2]:
@@ -464,6 +474,12 @@ class TypeChecker:
         if kind == "is_type":
             self.validate_annotation(expr[2], set())
             return ("type", "Bool", [], 0, 0)
+        if kind == "optional_call":
+            callee = expr[1]
+            if isinstance(callee, tuple) and callee[0] == "optional_get":
+                callee = ("get", callee[1], callee[2])
+            result = self.infer(("call", callee, expr[2], expr[3], expr[4], expr[5]), env)
+            return common_type([result, NIL])
         if kind == "call":
             callee = expr[1]
             args = [self.infer(part[1], env) for part in expr[2] if part[0] == "value"]
@@ -583,6 +599,9 @@ class TypeChecker:
             if isinstance(owner, ModuleType):
                 return owner.checker.export_type(expr[2])
             return ANY
+        if kind == "optional_get":
+            result = self.infer(("get", expr[1], expr[2]), env)
+            return common_type([result, NIL])
         return ANY
 
     def iterable_item_type(self, annotation: Any) -> Any:

@@ -36,6 +36,7 @@ PARSER_CONSTRUCT_CATEGORIES = {
     "union_type_annotation": "annotations",
     "named_type_annotation": "annotations",
     "seedfn_expr": "expressions",
+    "coalesce": "expressions",
     "or_expr": "expressions",
     "and_expr": "expressions",
     "equality": "expressions",
@@ -453,7 +454,7 @@ def generated_program(rng: random.Random, family: int = 0) -> tuple[str, str]:
     right = rng.randint(1, 100)
     extra = rng.randint(-20, 20)
     values = [rng.randint(-30, 30) for _ in range(4)]
-    family %= 6
+    family %= 7
     if family == 0:
         relation = "<" if left < right else ">="
         return "arithmetic", (
@@ -522,14 +523,25 @@ def generated_program(rng: random.Random, family: int = 0) -> tuple[str, str]:
             f"counter = LoudCounter({left})\n"
             f"say counter.add({amount}), counter.value\n"
         )
-    return "exceptions", (
-        f"value = {left}\n"
-        "try:\n"
-        "  if value < 0:\n"
-        '    raise "negative"\n'
-        '  say "positive", value\n'
-        "catch error:\n"
-        '  say "caught", error\n'
+    if family == 5:
+        return "exceptions", (
+            f"value = {left}\n"
+            "try:\n"
+            "  if value < 0:\n"
+            '    raise "negative"\n'
+            '  say "positive", value\n'
+            "catch error:\n"
+            '  say "caught", error\n'
+        )
+    candidate = "nil" if left < 0 else '{"profile": {"score": 0}}'
+    return "nil-navigation", (
+        'state = {"fallbacks": 0}\n'
+        "def fallback():\n"
+        "  state.fallbacks = state.fallbacks + 1\n"
+        f"  return {right}\n"
+        f"candidate = {candidate}\n"
+        "score = candidate?.profile?.score ?? fallback()\n"
+        "say score, state.fallbacks, false ?? True, 0 ?? 9\n"
     )
 
 
@@ -542,6 +554,8 @@ def malformed_source(rng: random.Random, family: int = 0) -> str:
         f"1 = {rng.randint(0, 9)}\n",
         f'class {name} {{\n  def run(self):\n    say "mixed"\nend\n',
         f'say "unterminated {name}\n',
+        f"say {name}?.\n",
+        f"say {name} ??\n",
     ]
     return cases[family % len(cases)]
 

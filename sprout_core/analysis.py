@@ -907,14 +907,14 @@ def expr_head_name(expr: Any) -> str | None:
         return None
     if expr[0] == "var":
         return str(expr[1])
-    if expr[0] == "get":
+    if expr[0] in {"get", "optional_get"}:
         base = expr_head_name(expr[1])
         return f"{base}.{expr[2]}" if base else None
     return None
 
 
 def infer_expr_target(expr: Any, known_class_names: set[str]) -> str | None:
-    if not isinstance(expr, tuple) or expr[0] != "call":
+    if not isinstance(expr, tuple) or expr[0] not in {"call", "optional_call"}:
         return None
     head = expr_head_name(expr[1])
     if not head:
@@ -1021,7 +1021,7 @@ def resolve_expr_symbol(analysis: FileAnalysis, expr: Any) -> SemanticSymbol | N
             or analysis.types.get(name)
             or BUILTINS.get(name)
         )
-    if kind == "get":
+    if kind in {"get", "optional_get"}:
         return resolve_member_from_symbol(analysis, resolve_expr_symbol(analysis, expr[1]), expr[2])
     if kind == "index":
         base = resolve_expr_symbol(analysis, expr[1])
@@ -1029,7 +1029,7 @@ def resolve_expr_symbol(analysis: FileAnalysis, expr: Any) -> SemanticSymbol | N
         if isinstance(index_expr, tuple) and index_expr[0] == "literal" and isinstance(index_expr[1], str):
             return resolve_member_from_symbol(analysis, base, index_expr[1])
         return None
-    if kind == "call":
+    if kind in {"call", "optional_call"}:
         callee = expr[1]
         args = [unwrap_call_arg(arg) for arg in expr[2]]
         if isinstance(callee, tuple) and callee[0] == "var" and callee[1] == "get" and len(args) >= 2:
@@ -1059,7 +1059,7 @@ def infer_expr_members(
     if (
         analysis is not None
         and isinstance(expr, tuple)
-        and expr[0] == "call"
+        and expr[0] in {"call", "optional_call"}
         and isinstance(expr[1], tuple)
         and expr[1][0] == "var"
         and expr[1][1] == "get"
@@ -1409,6 +1409,15 @@ def _join_facts(items: list[ValueFacts]) -> ValueFacts:
     return result
 
 
+def _without_nil_facts(facts: ValueFacts) -> ValueFacts:
+    result = facts.copy()
+    result.types = tuple(name for name in result.types if name != "Nil")
+    if not result.types:
+        result.types = ("Any",)
+        result.unknown = True
+    return result
+
+
 def infer_expression_facts(
     expr: Any,
     env: dict[str, ValueFacts],
@@ -1489,11 +1498,13 @@ def infer_expression_facts(
                 return container.members[expr[2][1]].copy()
             return container.value.copy()
         return ValueFacts.unknown_value()
-    if kind == "get":
+    if kind in {"get", "optional_get"}:
         owner = infer_expression_facts(expr[1], env, analysis, call_updates)
         if expr[2] in owner.members:
-            return owner.members[expr[2]].copy()
-        return facts_from_symbol(resolve_expr_symbol(analysis, expr))
+            result = owner.members[expr[2]].copy()
+        else:
+            result = facts_from_symbol(resolve_expr_symbol(analysis, expr))
+        return result.join(ValueFacts.of_type("Nil")) if kind == "optional_get" else result
     if kind == "unary":
         return ValueFacts.of_type("Bool") if expr[1] == "!" else infer_expression_facts(expr[2], env, analysis, call_updates)
     if kind == "binary":
@@ -1504,9 +1515,28 @@ def infer_expression_facts(
         if "String" in left.types or "String" in right.types:
             return ValueFacts.of_type("String")
         return left.join(right)
+    if kind == "coalesce":
+        left = infer_expression_facts(expr[1], env, analysis, call_updates)
+        if left.types == ("Nil",):
+            return infer_expression_facts(expr[2], env, analysis, call_updates)
+        if not left.nilable and not left.unknown:
+            return left
+        right = infer_expression_facts(expr[2], env, analysis, call_updates)
+        return _without_nil_facts(left).join(right)
     if kind == "await":
         task = infer_expression_facts(expr[1], env, analysis, call_updates)
         return task.item.copy() if task.item else ValueFacts.unknown_value()
+    if kind == "optional_call":
+        callee = expr[1]
+        if isinstance(callee, tuple) and callee[0] == "optional_get":
+            callee = ("get", callee[1], callee[2])
+        result = infer_expression_facts(
+            ("call", callee, expr[2], expr[3], expr[4], expr[5]),
+            env,
+            analysis,
+            call_updates,
+        )
+        return result.join(ValueFacts.of_type("Nil"))
     if kind == "call":
         callee_expr = expr[1]
         positional = [
@@ -2259,10 +2289,17 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             signature_match
             and not code.rstrip().endswith(("{", ":", "bloom"))
         )
-        dotted_members = {
-            match.start(1): match.group(1)
-            for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\b", code)
-        }
+        dotted_members = [
+            (
+                match.start(1),
+                match.group(1).replace("?.", "."),
+                match.start(1) + match.group(1).rfind(".") + 2,
+            )
+            for match in re.finditer(
+                r"\b([A-Za-z_][A-Za-z0-9_]*(?:(?:\?\.|\.)[A-Za-z_][A-Za-z0-9_]*)+)\b",
+                code,
+            )
+        ]
         for match in IDENT_RE.finditer(code):
             name = match.group(0)
             col = match.start() + 1
@@ -2317,7 +2354,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
                         {"suggestion": suggestion, "replacement": suggestion} if suggestion else None,
                     )
                 )
-        for start, dotted in dotted_members.items():
+        for start, dotted, member_col in dotted_members:
             parts = dotted.split(".")
             member_symbol = resolve_expr_symbol(analysis, ("get", ("var", parts[0]), parts[1])) if len(parts) == 2 else None
             if len(parts) > 2:
@@ -2346,7 +2383,7 @@ def bind_references(analysis: FileAnalysis, lines: list[str]) -> None:
             analysis.references.append(
                 Reference(
                     dotted,
-                    Location(analysis.path, line_no, start + len(dotted.rsplit(".", 1)[0]) + 2),
+                    Location(analysis.path, line_no, member_col),
                     "read",
                     member_symbol.symbol_id if member_symbol else None,
                 )
@@ -2913,10 +2950,13 @@ def completion_prefix(before: str) -> str:
 
 
 def member_completion_parts(before: str) -> tuple[str | None, str]:
-    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$", before)
+    match = re.search(
+        r"([A-Za-z_][A-Za-z0-9_]*(?:(?:\?\.|\.)[A-Za-z_][A-Za-z0-9_]*)*)(?:\?\.|\.)([A-Za-z0-9_]*)$",
+        before,
+    )
     if not match:
         return (None, "")
-    return (match.group(1), match.group(2))
+    return (match.group(1).replace("?.", "."), match.group(2))
 
 
 def resolve_symbol_members(

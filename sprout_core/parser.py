@@ -481,7 +481,13 @@ class Parser:
             self.consume("END", message)
 
     def expression(self) -> Any:
-        return self.or_expr()
+        return self.coalesce()
+
+    def coalesce(self) -> Any:
+        expr = self.or_expr()
+        if self.match("??"):
+            expr = ("coalesce", expr, self.coalesce())
+        return expr
 
     def or_expr(self) -> Any:
         expr = self.and_expr()
@@ -544,6 +550,7 @@ class Parser:
         expr = self.primary()
         while True:
             if self.match("("):
+                optional = expr[0] == "optional_get"
                 call_token = self.previous()
                 call_line = call_token.line
                 call_col = call_token.col
@@ -576,7 +583,14 @@ class Parser:
                             break
                         self.skip_newlines()
                 self.consume(")", "Expected ')' after arguments")
-                expr = ("call", expr, arg_parts, kw_parts, call_line, call_col)
+                expr = (
+                    "optional_call" if optional else "call",
+                    expr,
+                    arg_parts,
+                    kw_parts,
+                    call_line,
+                    call_col,
+                )
             elif self.match("["):
                 self.skip_newlines()
                 if self.match(":"):
@@ -600,6 +614,9 @@ class Parser:
             elif self.match("."):
                 name = self.consume("IDENT", "Expected property name after '.'")
                 expr = ("get", expr, name.value)
+            elif self.match("?."):
+                name = self.consume("IDENT", "Expected property name after '?.'")
+                expr = ("optional_get", expr, name.value)
             else:
                 break
         return expr

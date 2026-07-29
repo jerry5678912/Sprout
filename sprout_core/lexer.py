@@ -163,7 +163,7 @@ class Lexer:
     def symbol(self) -> Token:
         line, col = self.line, self.col
         two = self.peek() + self.peek(1)
-        if two in {"==", "!=", "<=", ">=", "//", "**", "->", "=>"}:
+        if two in {"==", "!=", "<=", ">=", "//", "**", "->", "=>", "?.", "??"}:
             self.advance()
             self.advance()
             return Token(two, two, line, col)

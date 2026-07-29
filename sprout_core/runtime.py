@@ -1490,6 +1490,9 @@ class Interpreter:
             raise SproutError("Slice expects an array or string")
         if kind == "get":
             return self.get_property(self.evaluate(expr[1]), expr[2])
+        if kind == "optional_get":
+            obj = self.evaluate(expr[1])
+            return None if obj is None else self.get_property(obj, expr[2])
         if kind == "super":
             superclass = self.env.get("super")
             instance = self.env.get("self")
@@ -1506,10 +1509,15 @@ class Interpreter:
             return -right if op == "-" else not truthy(right)
         if kind == "binary":
             return self.evaluate_binary(expr[1], expr[2], expr[3])
+        if kind == "coalesce":
+            left = self.evaluate(expr[1])
+            return self.evaluate(expr[2]) if left is None else left
         if kind == "is_type":
             return value_matches_type(self.evaluate(expr[1]), expr[2])
-        if kind == "call":
+        if kind in {"call", "optional_call"}:
             callee = self.evaluate(expr[1])
+            if kind == "optional_call" and callee is None:
+                return None
             args = self.evaluate_call_args(expr[2])
             kwargs = self.evaluate_call_kwargs(expr[3])
             if not hasattr(callee, "call"):

@@ -1,0 +1,24 @@
+# Safe navigation and nil coalescing
+
+def display_name(account):
+  return account?.profile?.name ?? "Guest"
+
+active = {"profile": {"name": "Mina"}}
+anonymous = nil
+
+say display_name(active)
+say display_name(anonymous)
+
+class Greeter:
+  def greet(self, name):
+    return "Hello, " + name
+
+greeter = Greeter()
+missing_greeter = nil
+
+say greeter?.greet("Mina") ?? "No greeter"
+say missing_greeter?.greet("Mina") ?? "No greeter"
+
+# Coalescing checks nil, not general truthiness.
+say false ?? True
+say 0 ?? 9

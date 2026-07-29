@@ -66,6 +66,16 @@ This extension release was paired with Sprout runtime `0.3.4`.
 
 ## Dev History
 
+### Safe Navigation And Nil Coalescing
+
+- Added `?.` safe property and method access with argument short-circuiting for
+  nil receivers.
+- Added right-associative `??` nil coalescing, preserving valid falsey values
+  such as `false` and `0`.
+- Added matching interpreter and strict VM execution, nil-aware type inference,
+  semantic member completion, diagnostics, syntax highlighting, conformance,
+  and structured fuzz coverage.
+
 ### Completion Label Cleanup
 
 - Fixed VS Code completion kind mapping so Sprout LSP keywords, interfaces,

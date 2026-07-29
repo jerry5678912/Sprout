@@ -797,7 +797,7 @@ def completion_ready_source(source: str, line: int, col: int) -> str:
     if line_index >= len(lines):
         return source
     before = lines[line_index][: max(0, col - 1)]
-    if re.search(r"[A-Za-z_][A-Za-z0-9_]*\.$", before):
+    if re.search(r"[A-Za-z_][A-Za-z0-9_]*(?:\?\.|\.)$", before):
         lines[line_index] = before + "__sprout_completion__"
         return "\n".join(lines) + ("\n" if source.endswith("\n") else "")
     return source

@@ -19,6 +19,7 @@ from sprout_core.analysis import (
     analyze_source,
     apply_diagnostic_policy,
     build_workspace_index,
+    member_completion_parts,
     member_completions,
     references_at,
     signature_for,
@@ -62,6 +63,31 @@ def test_semantic_symbol_json_exposes_inferred_facts() -> None:
     assert payload["inferredType"] == "Dict[String, String]"
     assert payload["nilable"] is False
     assert payload["memberPresence"] == "required"
+
+
+def test_optional_member_completion_and_diagnostics_use_normal_member_facts() -> None:
+    source = (
+        "def maybe_player():\n"
+        '  return {"name": "Mina", "hp": 10}\n'
+        "\n"
+        "player = maybe_player()\n"
+        "say player?.name\n"
+        "say player?.missing\n"
+    )
+    path = str(ROOT / "tmp_optional_member_facts.sprout")
+    index = build_workspace_index(path, {path: source})
+
+    assert member_completion_parts("say player?.") == ("player", "")
+    assert member_completion_parts("say player?.na") == ("player", "na")
+    assert names(member_completions(index, path, "player")) == {"name", "hp"}
+
+    diagnostics = [
+        item for item in index.files[path].diagnostics
+        if item.code == "SPROUT_UNKNOWN_MEMBER"
+    ]
+    assert len(diagnostics) == 1
+    assert "missing" in diagnostics[0].message
+    assert diagnostics[0].col == 13
 
 
 def test_nested_function_returns_do_not_leak_into_outer_shape() -> None:
@@ -964,6 +990,7 @@ def test_lsp_client_uses_longer_workspace_request_timeouts() -> None:
 def main() -> int:
     test_value_facts_join_tracks_conditional_members_and_nilability()
     test_semantic_symbol_json_exposes_inferred_facts()
+    test_optional_member_completion_and_diagnostics_use_normal_member_facts()
     test_nested_function_returns_do_not_leak_into_outer_shape()
     test_inferred_facts_flow_through_functions_calls_and_containers()
     test_call_site_parameter_and_self_field_facts_are_inferred()
